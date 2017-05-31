@@ -1,3 +1,5 @@
+import ee
+
 def modis_ndvi_annual_integral(year_start, year_end):
     """Calculate annual trend of integrated NDVI.
 

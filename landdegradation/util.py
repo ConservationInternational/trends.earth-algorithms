@@ -1,4 +1,5 @@
 import json
+import ee
 
 def get_region(geom):
     """Return ee.Geometry from supplied GeoJSON object."""

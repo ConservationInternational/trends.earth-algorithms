@@ -1,3 +1,5 @@
+import ee
+
 def mann_kendall(imageCollection):
     """Calculate Mann Kendall's S statistic.
 
