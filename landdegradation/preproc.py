@@ -12,10 +12,9 @@ def modis_ndvi_annual_integral(year_start, year_end):
             calculated over).
         year_end: The ending year (to define the period the trend is
             calculated over).
-        geojson: A polygon defining the area of interest.
 
     Returns:
-        Output of google earth engine task.
+        Google Earth Engine image collection
     """
 
     # Load a MODIS NDVI collection 6 MODIS/MOD13Q1
