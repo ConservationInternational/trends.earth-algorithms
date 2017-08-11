@@ -9,5 +9,5 @@ class LandDegradationError(Exception):
 class GEEFailure(LandDegradationError):
     """Error running task on GEE"""
     def __init__(self, task):
-        super(LandDegradationError, self).__init__(msg="Task {} failed".format(task.status().get('id')))
+        super(LandDegradationError, self).__init__("Task {} failed".format(task.status().get('id')))
         self.task = task
