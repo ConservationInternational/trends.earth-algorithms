@@ -3,9 +3,8 @@ class LandDegradationError(Exception):
     def __init__(self, msg=None):
         if msg is None:
             # Set some default useful error message
-            msg = "An error occured with car %s" % car
-        super(CarError, self).__init__(msg)
-        self.car = carpass
+            msg = "An error occurred in the landdegradation module"
+        super(LandDegradationError, self).__init__(msg)
 
 class GEEFailure(LandDegradationError):
     """Error running task on GEE"""
