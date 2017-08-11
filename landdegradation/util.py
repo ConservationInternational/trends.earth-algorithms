@@ -40,7 +40,7 @@ def run_task(task, logger):
     'Run an earth engine task against the ldmp API'
     logger.debug("Starting task {}.".format(task.status().get('id')))
     task.start()
-    task_state = task.status().get('state'
+    task_state = task.status().get('state')
     while task_state == 'READY' or task_state == 'RUNNING':
         task_progress = task.status().get('progress', 0.0)
         # Update GEF-EXECUTION progress
