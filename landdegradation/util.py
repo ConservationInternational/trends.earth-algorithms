@@ -33,3 +33,22 @@ def get_type(geojson):
         return geojson.get('geometry').get('type')
     else:
         return geojson.get('type')
+
+def run_task(task, logger):
+    'Run an earth engine task against the ldmp API'
+    logger.debug("Starting task {}.".format(task.status().get('id')))
+    task.start()
+    task_state = task.status().get('state')
+    while task_state == 'READY' or task_state == 'RUNNING':
+        task_progress = task.status().get('progress', 0.0)
+        # Update GEF-EXECUTION progress
+        logger.send_progress(task_progress)
+        # Print message
+        logger.debug("Task progress {}.".format(task_progress))
+        task_state = task.status().get('state')
+        sleep(5)
+    if task_state == 'complete':
+        logger.debug("Task completed.")
+    if task_state == 'FAILED':
+        logger.debug("Task failed: {}.".format(task.status().get('error_message')))
+    return task_state
