@@ -53,5 +53,5 @@ def run_task(task, logger):
         logger.debug("GEE task completed.")
     if task_state == 'FAILED':
         logger.debug("GEE task failed: {}".format(task.status().get('error_message')))
-        raise GEEFailure(task)
+        raise GEETaskFailure(task)
     return task_state
