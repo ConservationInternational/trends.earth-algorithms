@@ -7,7 +7,6 @@ class LandDegradationError(Exception):
 
 class GEEError(LandDegradationError):
     """Error related to GEE"""
-    def __init__(self, msg):
     def __init__(self, msg="Error with GEE JSON IO"):
         super(LandDegradationError, self).__init__(msg)
 
