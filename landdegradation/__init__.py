@@ -1,13 +1,14 @@
 class LandDegradationError(Exception):
     """Base class for exceptions in this module."""
     def __init__(self, msg=None):
-        if             # Set some default useful error message
+        if msg is None:
             msg = "An error occurred in the landdegradation module"
         super(LandDegradationError, self).__init__(msg)
 
 class GEEError(LandDegradationError):
     """Error related to GEE"""
     def __init__(self, msg):
+    def __init__(self, msg="Error with GEE JSON IO"):
         super(LandDegradationError, self).__init__(msg)
 
 class GEEIOError(GEEError):
