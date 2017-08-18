@@ -23,8 +23,8 @@ class CloudURLSchema(Schema):
 class CloudDatasetSchema(Schema):
     dataset = fields.Str()
     type = fields.Str()
-    urls = fields.Nested(CloudURLSchema())
+    urls = fields.Nested(CloudURLSchema(), many=True)
     
 class GEEResultsSchema(Schema):
     type = fields.Str()
-    datasets = fields.Nested(CloudDatasetSchema())
+    datasets = fields.Nested(CloudDatasetSchema(), many=True)
