@@ -12,9 +12,8 @@ class CloudDataset(object):
         self.urls = urls
         
 class CloudUrl(object):
-    def __init__(self, url, file_hash):
+    def __init__(self, url):
         self.url = url
-        self.file_hash = file_hash
         
 class CloudURLSchema(Schema):
     url = fields.Str()
