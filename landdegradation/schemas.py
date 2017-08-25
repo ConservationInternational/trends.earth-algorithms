@@ -17,7 +17,6 @@ class CloudUrl(object):
         
 class CloudURLSchema(Schema):
     url = fields.Str()
-    file_hash = fields.Str()
     
 class CloudDatasetSchema(Schema):
     dataset = fields.Str()
