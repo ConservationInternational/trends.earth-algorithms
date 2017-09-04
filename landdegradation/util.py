@@ -50,6 +50,7 @@ class gee_task(threading.Thread):
 
     def run(self):
         self.logger.debug("Starting GEE task {}.".format(self.task.status().get('id')))
+        self.task.start()
         self.state = self.task.status().get('state')
         self.task_id = self.task.status().get('id')
         while self.state == 'READY' or self.state == 'RUNNING':
