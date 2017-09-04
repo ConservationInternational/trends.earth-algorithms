@@ -1,5 +1,6 @@
 import json
 import ee
+import threading
 
 from time import sleep
 
@@ -38,22 +39,30 @@ def get_type(geojson):
     else:
         return geojson.get('type')
 
-def run_task(task, logger):
-    'Run an earth engine task against the ldmp API'
-    logger.debug("Starting task {}.".format(task.status().get('id')))
-    task.start()
-    task_state = task.status().get('state')
-    while task_state == 'READY' or task_state == 'RUNNING':
-        task_progress = task.status().get('progress', 0.0)
-        # Update GEF-EXECUTION progress
-        logger.send_progress(task_progress)
-        # Print message
-        logger.debug("GEE task progress {}.".format(task_progress))
-        task_state = task.status().get('state')
-        sleep(5)
-    if task_state == 'COMPLETED':
-        logger.debug("GEE task completed.")
-    if task_state == 'FAILED':
-        logger.debug("GEE task failed: {}".format(task.status().get('error_message')))
-        raise GEETaskFailure(task)
-    return task_state
+class run_task(threading.Task):
+    """Run earth engine task against the ldmp API"""
+    def __init__(self, task, logger):
+        threading.Thread.__init__(self)
+        self.task = task
+        self.logger = logger
+        self.state = task.status().get('state')
+
+    def run(self):
+        logger.debug("Starting GEE task {}.".format(task.status().get('id')))
+        task.start()
+        self.state = task.status().get('state')
+        self.task_id = task.status().get('id')
+        while self.state == 'READY' or self.state == 'RUNNING':
+            task_progress = task.status().get('progress', 0.0)
+            logger.send_progress(task_progress)
+            logger.debug("GEE task {} progress {}.".format(self.task_id, task_progress))
+            self.state = task.status().get('state')
+            sleep(5)
+        if self.state == 'COMPLETED':
+            logger.debug("GEE task {} completed.".format(self.task_id)
+        if self.state == 'FAILED':
+            logger.debug("GEE task {} failed: {}".format(self.task_id, task.status().get('error_message')))
+            raise GEETaskFailure(task)
+
+        def status(self):
+            return self.state
