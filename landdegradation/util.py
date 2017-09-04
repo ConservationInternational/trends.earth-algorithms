@@ -45,25 +45,24 @@ class gee_task(threading.Thread):
         threading.Thread.__init__(self)
         self.task = task
         self.logger = logger
-        self.state = task.status().get('state')
+        self.state = self.task.status().get('state')
         self.start()
 
     def run(self):
-        self.logger.debug("Starting GEE task {}.".format(task.status().get('id')))
-        task.start()
-        self.state = task.status().get('state')
-        self.task_id = task.status().get('id')
+        self.logger.debug("Starting GEE task {}.".format(self.task.status().get('id')))
+        self.state = self.task.status().get('state')
+        self.task_id = self.task.status().get('id')
         while self.state == 'READY' or self.state == 'RUNNING':
-            task_progress = task.status().get('progress', 0.0)
+            task_progress = self.task.status().get('progress', 0.0)
             self.logger.send_progress(task_progress)
             self.logger.debug("GEE task {} progress {}.".format(self.task_id, task_progress))
-            self.state = task.status().get('state')
+            self.state = self.task.status().get('state')
             sleep(5)
         if self.state == 'COMPLETED':
             self.logger.debug("GEE task {} completed.".format(self.task_id))
         if self.state == 'FAILED':
-            self.logger.debug("GEE task {} failed: {}".format(self.task_id, task.status().get('error_message')))
-            raise GEETaskFailure(task)
+            self.logger.debug("GEE task {} failed: {}".format(self.task_id, self.task.status().get('error_message')))
+            raise GEETaskFailure(self.task)
 
         def status(self):
             return self.state
