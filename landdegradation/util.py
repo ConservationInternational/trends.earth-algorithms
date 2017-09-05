@@ -70,8 +70,5 @@ class gee_task(threading.Thread):
         self.state = self.task.status().get('state')
         return self.state
 
-    def name(self):
-        return self.name
-
     def url(self):
         return self.task.status().get('output_url')
