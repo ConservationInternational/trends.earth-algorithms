@@ -41,18 +41,19 @@ def get_type(geojson):
 
 class gee_task(threading.Thread):
     """Run earth engine task against the ldmp API"""
-    def __init__(self, task, logger):
+    def __init__(self, task, name, logger):
         threading.Thread.__init__(self)
         self.task = task
+        self.name = name
         self.logger = logger
         self.state = self.task.status().get('state')
         self.start()
 
     def run(self):
-        self.logger.debug("Starting GEE task {}.".format(self.task.status().get('id')))
+        self.task_id = self.task.status().get('id')
+        self.logger.debug("Starting GEE task {}.".format(self.task_id))
         self.task.start()
         self.state = self.task.status().get('state')
-        self.task_id = self.task.status().get('id')
         while self.state == 'READY' or self.state == 'RUNNING':
             task_progress = self.task.status().get('progress', 0.0)
             self.logger.send_progress(task_progress)
@@ -68,6 +69,9 @@ class gee_task(threading.Thread):
     def status(self):
         self.state = self.task.status().get('state')
         return self.state
+
+    def name(self):
+        return self.name
 
     def url(self):
         return self.task.status().get('output_url')
