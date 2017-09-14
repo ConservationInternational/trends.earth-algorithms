@@ -19,9 +19,9 @@ def mann_kendall(imageCollection):
     NumberOfItems = TimeSeriesList.length().getInfo()
     ConcordantArray = []
     DiscordantArray = []
-    for k in range(0, NumberOfItems-2):
+    for k in range(0, NumberOfItems - 1):
         CurrentImage = ee.Image(TimeSeriesList.get(k))
-        for l in range(k+1, NumberOfItems-1):
+        for l in range(k + 1, NumberOfItems):
             nextImage = ee.Image(TimeSeriesList.get(l))
             Concordant = CurrentImage.lt(nextImage)
             ConcordantArray.append(Concordant)
