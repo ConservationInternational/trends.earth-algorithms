@@ -1,5 +1,26 @@
 from marshmallow import Schema, fields, pprint
 
+# Schema for numeric data for plotting within a timeseries object
+class TimeSeries(object):
+    def __init__(self, time, y, name=None):
+        self.time = time
+        self.y = y
+        self.name = name
+
+class TimeSeriesSchema(Schema):
+    time = fields.Number()
+    y = fields.Number()
+    name = fields.Str()
+    
+class TimeSeriesTable(object):
+    def __init__(self, type, table):
+        self.type = type
+        self.table = table
+    
+class TimeSeriesTableSchema(Schema):
+    type = fields.Str()
+    table = fields.Nested(TimeSeriesSchema(), many=True)
+    
 class GEEResults(object):
     def __init__(self, type, datasets):
         self.type = type
@@ -14,7 +35,7 @@ class CloudDataset(object):
 class CloudUrl(object):
     def __init__(self, url):
         self.url = url
-        
+
 class CloudURLSchema(Schema):
     url = fields.Str()
     
