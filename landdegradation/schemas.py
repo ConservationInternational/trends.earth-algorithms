@@ -8,8 +8,8 @@ class TimeSeries(object):
         self.name = name
 
 class TimeSeriesSchema(Schema):
-    time = fields.List()
-    y = fields.List()
+    time = fields.List(fields.Float())
+    y = fields.List(fields.Float())
     name = fields.Str()
     
 class TimeSeriesTable(object):
