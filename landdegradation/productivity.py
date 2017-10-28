@@ -165,21 +165,9 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
 
     # Define Kendall parameter values for a significance of 0.05
     period = year_end - year_start + 1
-    coefficients90 = ee.Array([4,6,7,9,10,12,15,17,18,22,23,27,28,32,35,37,40,42,
-                               45,49,52,56,59,61,66,68,73,75,80,84,87,91,94,98,103,
-                               107,110,114,119,123,128,132,135,141,144,150,153,159,
-                               162,168,173,177,182,186,191,197,202])
-    coefficients95 = ee.Array([4,6,9,11,14,16,19,21,24,26,31,33,36,40,43,47,50,54,
-                               59,63,66,70,75,79,84,88,93,97,102,106,111,115,120,
-                               126,131,137,142146,151,157,162,168,173,179,186,190,
-                               197,203,208,214,221,227,232,240,245,251,258])
-    coefficients99 = ee.Array([6,8,11,18,22,25,29,34,38,41,47,50,56,61,65,70,76,81,
-                               87,92,98,105,111,116,124,129,135,142,150,155,163,170,
-                               176,183,191,198,206,213,221,228,236,245,253,260,268,
-                               277,285,294,302,311,319,328,336,345,355,364])
-    kendall90 = coefficients90.get([period - 4])
-    kendall95 = coefficients95.get([period - 4])
-    kendall99 = coefficients99.get([period - 4])
+    kendall90 = stats.get_kendall_coef(period - 4, 90)
+    kendall95 = stats.get_kendall_coef(period - 4, 90)
+    kendall99 = stats.get_kendall_coef(period - 4, 90)
 
     # Land cover data is used to mask water and urban
     year_end_esa_cci = year_end
