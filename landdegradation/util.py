@@ -79,8 +79,8 @@ class gee_task(threading.Thread):
 
 def export_to_cloudstorage(res, proj, geojson, task_name, logger, EXECUTION_ID):
     export = {'image': res,
-              'description': EXECUTION_ID,
-              'fileNamePrefix': EXECUTION_ID,
+              'description': '{}_'.format(EXECUTION_ID),
+              'fileNamePrefix': '{}_'.format(EXECUTION_ID),
               'bucket': BUCKET,
               'maxPixels': 1e13,
               'scale': ee.Number(proj.nominalScale()).getInfo(),
