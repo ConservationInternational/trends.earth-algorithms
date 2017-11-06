@@ -2,7 +2,10 @@ landdegradation
 ===============
 
 ``landdegradation`` is a python package to facilitate analyzing remotely-sensed
-datasets in support of monitoring land degradation status.
+datasets in support of monitoring land degradation. This project contains 
+common code used by the scripts in the 
+[ldmp-earthengine-scripts](https://github.com/ConservationInternational/ldmp-earthengine-scripts) 
+repository.
 
 This package was produced as an output of the Global Environment Facility
 (GEF)-funded project “Enabling the use of global data sources to assess and
