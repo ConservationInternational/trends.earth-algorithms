@@ -169,24 +169,6 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     kendall95 = stats.get_kendall_coef(period - 4, 90)
     kendall99 = stats.get_kendall_coef(period - 4, 90)
 
-    # Land cover data is used to mask water and urban
-    year_end_esa_cci = year_end
-    # Handle case of end year that isn't included in the CCI data
-    if year_end > 2015:
-        year_end_esa_cci = 2015
-    elif year_end < 1992:
-        year_end_esa_cci = 1992
-    landc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2015").select('y{}'.format(year_end_esa_cci))
-    # Resample the land cover dataset to match ndvi projection
-    ndvi_projection = ndvi_dataset.projection()
-    landc_reducer = {'reducer': ee.Reducer.mode(),
-                     'maxPixels': 1024}
-    landc_reproject = {'crs': ndvi_projection.crs().getInfo(),
-                       'scale': ee.Number(ndvi_projection.nominalScale()).getInfo()}
-
-    landc_res = landc.reduceResolution(**landc_reducer) \
-            .reproject(**landc_reproject)
- 
     # create final degradation output layer: 9997 is no data, 0 is not 
     # degraded, -3 is degraded (pvalue < 0.1), -2 is degraded (pvalue < 0.05), 
     # -3 is degraded (pvalue < 0.01), 3 is improving (pvalue < 0.1), 2 is 
@@ -198,13 +180,9 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall99)), 3) \
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall90)), -1) \
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall95)), -2) \
-        .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall99)), -3) \
-        .where(landc_res.eq(210), 9998) \
-        .where(landc_res.eq(190), 9999)
+        .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall99)), -3)
 
     output = lf_trend.select('scale').unmask(9997) \
-        .where(landc_res.eq(210), 9998) \
-        .where(landc_res.eq(190), 9999) \
         .addBands(attri).rename(['slope','attri'])
 
     return output
