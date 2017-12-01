@@ -44,11 +44,11 @@ def get_type(geojson):
 
 class gee_task(threading.Thread):
     """Run earth engine task against the ldmp API"""
-    def __init__(self, task, name, EXECUTION_ID, logger):
+    def __init__(self, task, name, out_name, logger):
         threading.Thread.__init__(self)
         self.task = task
         self.name = name
-        self.ldmp_execution_id = EXECUTION_ID
+        self.out_name = out_name
         self.logger = logger
         self.state = self.task.status().get('state')
         self.start()
@@ -75,16 +75,20 @@ class gee_task(threading.Thread):
         return self.state
 
     def url(self):
-        return "http://{}.storage.googleapis.com/{}.tif".format(BUCKET, self.ldmp_execution_id)
+        return "http://{}.storage.googleapis.com/{}.tif".format(BUCKET, self.out_name)
 
 def export_to_cloudstorage(res, proj, geojson, task_name, logger, EXECUTION_ID):
+    if task_name:
+        out_name = '{}_{}'.format(EXECUTION_ID, task_name)
+    else:
+        out_name = '{}'.format(EXECUTION_ID)
     export = {'image': res,
-              'description': '{}_'.format(EXECUTION_ID),
-              'fileNamePrefix': '{}_'.format(EXECUTION_ID),
+              'description': out_name,
+              'fileNamePrefix': out_name,
               'bucket': BUCKET,
               'maxPixels': 1e13,
               'scale': ee.Number(proj.nominalScale()).getInfo(),
               'region': get_coords(geojson)}
     logger.debug("Setting up GEE task.")
     return gee_task(ee.batch.Export.image.toCloudStorage(**export), task_name, 
-            EXECUTION_ID, logger)
+            out_name, logger)
