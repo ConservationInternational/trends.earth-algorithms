@@ -174,7 +174,7 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     # -3 is degraded (pvalue < 0.01), 3 is improving (pvalue < 0.1), 2 is 
     # improving (pvalue < 0.05), 3 is improving (pvalue < 0.01)
     attri = ee.Image(0) \
-        .where(lf_trend.select('scale').lte(9999), 9999) \
+        .where(lf_trend.select('scale').lte(-9999), 9999) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall90)), 1) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall95)), 2) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall99)), 3) \
