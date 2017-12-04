@@ -169,12 +169,12 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     kendall95 = stats.get_kendall_coef(period - 4, 95)
     kendall99 = stats.get_kendall_coef(period - 4, 99)
 
-    # create final degradation output layer: -9999 is no data, 0 is not 
+    # create final degradation output layer: 9999 is no data, 0 is not 
     # degraded, -3 is degraded (pvalue < 0.1), -2 is degraded (pvalue < 0.05), 
     # -3 is degraded (pvalue < 0.01), 3 is improving (pvalue < 0.1), 2 is 
     # improving (pvalue < 0.05), 3 is improving (pvalue < 0.01)
     attri = ee.Image(0) \
-        .where(lf_trend.select('scale').lte(-9999), -9999) \
+        .where(lf_trend.select('scale').lte(9999), 9999) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall90)), 1) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall95)), 2) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall99)), 3) \
@@ -182,7 +182,7 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall95)), -2) \
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall99)), -3)
 
-    output = lf_trend.select('scale').unmask(-9999) \
+    output = lf_trend.select('scale').unmask(9999) \
         .addBands(attri).rename(['slope','attri'])
 
     return output
