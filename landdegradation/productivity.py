@@ -182,7 +182,8 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall95)), -2) \
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall99)), -3)
 
-    output = lf_trend.select('scale').unmask(9999) \
+    output = lf_trend.select('scale') \
+        .where(lf_trend.select('scale').lte(-9999), 9999) \
         .addBands(attri).rename(['slope','attri'])
 
     return output
