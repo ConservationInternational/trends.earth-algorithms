@@ -1,8 +1,9 @@
 landdegradation
 ===============
 
-[![Build 
-Status](https://travis-ci.org/ConservationInternational/landdegradation.svg?branch=master)](https://travis-ci.org/ConservationInternational/landdegradation)
+.. image:: https://travis-ci.org/ConservationInternational/landdegradation.svg?branch=master
+    :target: https://travis-ci.org/ConservationInternational/landdegradation
+    :alt: Build Status 
 
 ``landdegradation`` is a python package to facilitate analyzing remotely-sensed
 datasets in support of monitoring land degradation. This project contains 
