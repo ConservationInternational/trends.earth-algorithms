@@ -48,3 +48,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Part of trends.earth
+
+.. image:: 
+    https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_print_400width.png
+    :target: https://trends.earth
+    :alt: Part of trends.earth
