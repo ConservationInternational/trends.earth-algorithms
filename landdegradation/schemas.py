@@ -1,5 +1,14 @@
-from marshmallow import Schema, fields, pprint
+from marshmallow import Schema, fields, ComposableDict
 
+class GEEResults(object):
+    def __init__(self, type, datasets):
+        self.type = type
+        self.datasets = datasets
+    
+class GEEResultsSchema(Schema):
+    type = fields.Str()
+    datasets = fields.Nested(DatasetSchema(), many=True)
+        
 # Schema for numeric data for plotting within a timeseries object
 class TimeSeries(object):
     def __init__(self, time, y, name=None):
@@ -21,29 +30,30 @@ class TimeSeriesTableSchema(Schema):
     type = fields.Str()
     table = fields.Nested(TimeSeriesSchema(), many=True)
     
-class GEEResults(object):
-    def __init__(self, type, datasets):
-        self.type = type
-        self.datasets = datasets
-        
-class CloudDataset(object):
-    def __init__(self, type, dataset, urls):
-        self.type = type
-        self.dataset = dataset
-        self.urls = urls
-        
-class CloudUrl(object):
-    def __init__(self, url):
-        self.url = url
+# Schema for downloads
+class Dataset(object):
+    def __init__(self, band_number, no_data_value):
+        self.band_number = band_number
+        self.no_data_value = no_data_value
 
-class CloudURLSchema(Schema):
-    url = fields.Str()
+class DatasetSchema(Schema):
+    band_number = fields.Number(, many=True)
+    no_data_value = fields.Number()
+
+class DatasetList(object):
+    def __init__(self, datasets={}):
+        self.datasets = datasets
+
+class UrlList(object):
+    def __init__(self, base, files=[]):
+        self.base = base
+        self.files = files
+
+class URLListSchema(Schema):
+    base = fields.Str()
+    files = fields.List(fields.Str())
     
-class CloudDatasetSchema(Schema):
-    dataset = fields.Str()
+class DatasetsSchema(Schema):
     type = fields.Str()
-    urls = fields.Nested(CloudURLSchema(), many=True)
-    
-class GEEResultsSchema(Schema):
-    type = fields.Str()
-    datasets = fields.Nested(CloudDatasetSchema(), many=True)
+    datasets = ComposableDict(fields.Nested(DatasetSchema))
+    urls = fields.Nested(URLListSchema())

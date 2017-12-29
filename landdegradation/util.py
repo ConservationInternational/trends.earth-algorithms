@@ -43,7 +43,7 @@ def get_type(geojson):
         return geojson.get('type')
 
 class gee_task(threading.Thread):
-    """Run earth engine task against the ldmp API"""
+    """Run earth engine task against the trends.earth API"""
     def __init__(self, task, name, out_name, logger):
         threading.Thread.__init__(self)
         self.task = task
