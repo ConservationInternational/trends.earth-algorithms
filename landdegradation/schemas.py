@@ -72,5 +72,5 @@ class CloudResults(object):
 class CloudResultsSchema(Schema):
     type = fields.Str()
     name = fields.Str()
-    bands = fields.List(MetadataSchema())
+    bands = fields.Nested(MetadataSchema(), many=True)
     urls = fields.Nested(URLListSchema())
