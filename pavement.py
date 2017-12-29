@@ -41,11 +41,11 @@ def set_version(options):
     # Set in setup.py
     print('Setting version to {} in setup.py'.format(v))
     setup_regex = re.compile("^([ ]*version=[ ]*')[0-9]+[.][0-9]+")
-    _replace(os.path.join(options.source_dir, 'metadata.txt'), setup_regex, '\g<1>' + v)
+    _replace('setup.py', setup_regex, '\g<1>' + v)
     
     # Set in __init__.py
     print('Setting version to {} in __init__.py'.format(v))
-    init_regex = re.compile('^(__version__ = ")[0-9]+[.][0-9]+')
+    init_regex = re.compile('^(__version__[ ]*=[ ]*["\'])[0-9]+[.][0-9]+')
     _replace(os.path.join(options.source_dir, '__init__.py'), init_regex, '\g<1>' + v)
 
 
