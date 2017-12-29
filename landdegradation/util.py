@@ -79,8 +79,12 @@ class gee_task(threading.Thread):
         self.state = self.task.status().get('state')
         return self.state
 
-    def url(self):
-        return "http://{}.storage.googleapis.com/{}.tif".format(BUCKET, self.out_name)
+    def get_URL_base(self):
+        return "http://{}.storage.googleapis.com".format(BUCKET)
+
+    def get_files(self):
+        return "{}.tif".format(self.out_name)
+
 
 
 def export_to_cloudstorage(res, proj, geojson, task_name, logger, EXECUTION_ID):
