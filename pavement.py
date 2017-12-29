@@ -12,7 +12,7 @@ from paver.easy import *
 from paver.doctools import html
 
 options(
-    source_dir = path('landdegradation'),
+    source_dir=path('landdegradation'),
 )
 
 
@@ -42,7 +42,7 @@ def set_version(options):
     print('Setting version to {} in setup.py'.format(v))
     setup_regex = re.compile("^([ ]*version=[ ]*')[0-9]+[.][0-9]+")
     _replace('setup.py', setup_regex, '\g<1>' + v)
-    
+
     # Set in __init__.py
     print('Setting version to {} in __init__.py'.format(v))
     init_regex = re.compile('^(__version__[ ]*=[ ]*["\'])[0-9]+[.][0-9]+')

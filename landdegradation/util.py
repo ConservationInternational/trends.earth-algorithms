@@ -14,6 +14,7 @@ tza_geojson = '{"type":"Polygon","coordinates":[[[33.903711,-0.95],[34.07262,-1.
 # Google cloud storage bucket for output
 BUCKET = "ldmt"
 
+
 def get_region(geom):
     """Return ee.Geometry from supplied GeoJSON object."""
     poly = get_coords(geom)
@@ -24,6 +25,7 @@ def get_region(geom):
         region = ee.Geometry.Polygon(poly)
     return region
 
+
 def get_coords(geojson):
     """."""
     if geojson.get('features') is not None:
@@ -32,6 +34,7 @@ def get_coords(geojson):
         return geojson.get('geometry').get('coordinates')
     else:
         return geojson.get('coordinates')
+
 
 def get_type(geojson):
     """."""
@@ -42,8 +45,10 @@ def get_type(geojson):
     else:
         return geojson.get('type')
 
+
 class gee_task(threading.Thread):
     """Run earth engine task against the trends.earth API"""
+
     def __init__(self, task, name, out_name, logger):
         threading.Thread.__init__(self)
         self.task = task
@@ -77,6 +82,7 @@ class gee_task(threading.Thread):
     def url(self):
         return "http://{}.storage.googleapis.com/{}.tif".format(BUCKET, self.out_name)
 
+
 def export_to_cloudstorage(res, proj, geojson, task_name, logger, EXECUTION_ID):
     if task_name:
         out_name = '{}_{}'.format(EXECUTION_ID, task_name)
@@ -90,5 +96,5 @@ def export_to_cloudstorage(res, proj, geojson, task_name, logger, EXECUTION_ID):
               'scale': ee.Number(proj.nominalScale()).getInfo(),
               'region': get_coords(geojson)}
     logger.debug("Setting up GEE task.")
-    return gee_task(ee.batch.Export.image.toCloudStorage(**export), task_name, 
-            out_name, logger)
+    return gee_task(ee.batch.Export.image.toCloudStorage(**export), task_name,
+                    out_name, logger)

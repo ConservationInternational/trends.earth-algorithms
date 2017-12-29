@@ -1,5 +1,6 @@
 import ee
 
+
 def modis_ndvi_annual_integral(year_start, year_end):
     """Calculate annual trend of integrated NDVI.
 
@@ -36,7 +37,7 @@ def modis_ndvi_annual_integral(year_start, year_end):
         img_coll = ee.List([])
         for k in range(year_start, year_end):
             ndvi_img = ndvi_coll.select('NDVI').filterDate('{}-01-01'.format(k), '{}-12-31'.format(k)).reduce(ee.Reducer.mean()).multiply(0.0001)
-            img = ndvi_img.addBands(ee.Image(k).float()).rename(['ndvi','year']).set({'year': k})
+            img = ndvi_img.addBands(ee.Image(k).float()).rename(['ndvi', 'year']).set({'year': k})
             img_coll = img_coll.add(img)
         return ee.ImageCollection(img_coll)
 
