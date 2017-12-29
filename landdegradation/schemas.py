@@ -54,7 +54,7 @@ class Metadata(object):
 
 
 class MetadataSchema(Schema):
-    band_number = fields.Number()
+    band_number = fields.Integer()
     no_data_value = fields.Number()
 
 
