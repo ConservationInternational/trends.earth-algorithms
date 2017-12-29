@@ -68,7 +68,7 @@ class gee_task(threading.Thread):
             self.logger.send_progress(task_progress)
             self.logger.debug("GEE task {} progress {}.".format(self.task_id, task_progress))
             self.state = self.task.status().get('state')
-            sleep(10)
+            sleep(60)
         if self.state == 'COMPLETED':
             self.logger.debug("GEE task {} completed.".format(self.task_id))
         if self.state == 'FAILED':
