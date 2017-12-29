@@ -33,14 +33,14 @@ class TimeSeriesTableSchema(Schema):
 ################################################################################
 # Schema for downloads
 
-class Metadata(object):
+class BandInfo(object):
     def __init__(self, band_number, no_data_value, add_to_map=False):
         self.band_number = band_number
         self.no_data_value = no_data_value
         self.add_to_map = add_to_map
 
 
-class MetadataSchema(Schema):
+class BandInfoSchema(Schema):
     band_number = fields.Integer()
     no_data_value = fields.Number()
     add_to_map = fields.Boolean()
@@ -72,5 +72,5 @@ class CloudResults(object):
 class CloudResultsSchema(Schema):
     type = fields.Str()
     name = fields.Str()
-    bands = fields.Nested(MetadataSchema(), many=True)
+    bands = fields.Nested(BandInfoSchema(), many=True)
     urls = fields.Nested(URLListSchema())
