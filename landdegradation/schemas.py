@@ -48,14 +48,16 @@ class ComposableDict(fields.Dict):
 
 
 class Metadata(object):
-    def __init__(self, band_number, no_data_value):
+    def __init__(self, band_number, no_data_value, add_to_map=False):
         self.band_number = band_number
         self.no_data_value = no_data_value
+        self.add_to_map = add_to_map
 
 
 class MetadataSchema(Schema):
     band_number = fields.Integer()
     no_data_value = fields.Number()
+    add_to_map = fields.Boolean()
 
 
 class DatasetList(object):
