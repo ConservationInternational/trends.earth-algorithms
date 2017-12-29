@@ -1,3 +1,5 @@
+__version__ = '0.3'
+
 class LandDegradationError(Exception):
     """Base class for exceptions in this module."""
     def __init__(self, msg=None):

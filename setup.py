@@ -16,9 +16,9 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.2',
+    version='0.3',
 
-    description='A python package to facilitate analyzing remotely-sensed datasets in support of monitoring land degradation status.',
+    description='A python package to facilitate analyzing remotely-sensed datasets from GEE in support of monitoring land degradation.',
     long_description=long_description,
 
     # The project's main homepage.
@@ -26,7 +26,7 @@ setup(
 
     # Author details
     author='Conservation International',
-    author_email='gef-ldmp@conservation.org',
+    author_email='trends.earth@conservation.org',
 
     # Choose your license
     license='MIT',
