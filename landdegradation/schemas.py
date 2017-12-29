@@ -48,11 +48,6 @@ class BandInfoSchema(Schema):
     add_to_map = fields.Boolean()
 
 
-class BandList(object):
-    def __init__(self, bands=[]):
-        self.bands = bands
-
-
 class URLList(object):
     def __init__(self, base, files=[]):
         self.base = base
