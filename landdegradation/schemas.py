@@ -18,15 +18,17 @@ class TimeSeriesSchema(Schema):
 
 
 class TimeSeriesTable(object):
-    def __init__(self, name, table):
+    def __init__(self, name, script_version, table):
         self.type = "TimeSeriesTable"
         self.name = name
+        self.script_version = script_version
         self.table = table
 
 
 class TimeSeriesTableSchema(Schema):
     type = fields.Str()
     name = fields.Str()
+    script_version = fields.Str()
     table = fields.Nested(TimeSeriesSchema(), many=True)
 
 
