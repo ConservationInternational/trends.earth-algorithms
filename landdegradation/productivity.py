@@ -150,11 +150,15 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     logger.debug("Entering productivity_trajectory function.")
 
     climate_1yr = ee.Image(climate_gee_dataset)
+    climate_1yr = climate_1yr.where(climate_1yr.eq(9999), -32768)
+    climate_1yr = climate_1yr.updateMask(climate_1yr.neq(-32768))
 
     if climate_gee_dataset == None and method != 'ndvi_trend':
         raise GEEIOError("Must specify a climate dataset")
 
     ndvi_dataset = ee.Image(ndvi_gee_dataset)
+    ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
+    ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
 
     # Run the selected algorithm
     if method == 'ndvi_trend':
@@ -181,7 +185,7 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     # degraded, -3 is degraded (pvalue < 0.1), -2 is degraded (pvalue < 0.05),
     # -3 is degraded (pvalue < 0.01), 3 is improving (pvalue < 0.1), 2 is
     # improving (pvalue < 0.05), 3 is improving (pvalue < 0.01)
-    signif = ee.Image(9999) \
+    signif = ee.Image(-32768) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall90)), 1) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall95)), 2) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall99)), 3) \
@@ -190,7 +194,7 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall99)), -3) \
         .where(mk_trend.abs().lte(kendall90), 0)
 
-    output = lf_trend.select('scale').unmask(9999) \
+    output = lf_trend.select('scale') \
         .addBands(signif).rename(['slope', 'signif'])
 
     return output
