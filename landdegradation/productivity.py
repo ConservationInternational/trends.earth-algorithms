@@ -2,13 +2,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import random
-import json
-
 import ee
 
 from landdegradation import stats
-from landdegradation import util
 from landdegradation import GEEIOError
 
 
