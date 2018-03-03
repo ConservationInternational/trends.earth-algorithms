@@ -4,8 +4,9 @@ from __future__ import print_function
 
 import ee
 
-from landdegradation import stats
-from landdegradation import GEEIOError
+from landdegradation import stats, GEEIOError
+from landdegradation.util import TEImage
+from landdegradation.schemas import BandInfo
 
 
 def ndvi_trend(year_start, year_end, ndvi_1yr, logger):
@@ -190,7 +191,6 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall99)), -3) \
         .where(mk_trend.abs().lte(kendall90), 0)
 
-    output = lf_trend.select('scale') \
-        .addBands(signif).rename(['slope', 'signif'])
-
-    return output
+    return TEImage(lf_trend.select('scale').addBands(signif).rename(['slope', 'signif']).unmask(-32768).int16(),
+                   [BandInfo("Productivity trajectory (trend)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
+                    BandInfo("Productivity trajectory (significance)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end})])
