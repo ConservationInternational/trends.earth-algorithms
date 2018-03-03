@@ -24,6 +24,13 @@ class GEEIOError(GEEError):
         super(GEEError, self).__init__(msg)
 
 
+class GEEImageError(GEEError):
+    """Error related to GEE"""
+
+    def __init__(self, msg="Error with GEE image handling"):
+        super(GEEError, self).__init__(msg)
+
+
 class GEETaskFailure(GEEError):
     """Error running task on GEE"""
 

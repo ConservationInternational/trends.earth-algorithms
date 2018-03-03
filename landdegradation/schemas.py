@@ -18,17 +18,15 @@ class TimeSeriesSchema(Schema):
 
 
 class TimeSeriesTable(object):
-    def __init__(self, name, script_version, table):
+    def __init__(self, name, table):
         self.type = "TimeSeriesTable"
         self.name = name
-        self.script_version = script_version
         self.table = table
 
 
 class TimeSeriesTableSchema(Schema):
     type = fields.Str()
     name = fields.Str()
-    script_version = fields.Str()
     table = fields.Nested(TimeSeriesSchema(), many=True)
 
 
@@ -36,9 +34,8 @@ class TimeSeriesTableSchema(Schema):
 # Schema for downloads
 
 class BandInfo(object):
-    def __init__(self, name, band_number, no_data_value, add_to_map=False, metadata={}):
+    def __init__(self, name, add_to_map=False, metadata={}, no_data_value=-32768):
         self.name = name
-        self.band_number = band_number
         self.no_data_value = no_data_value
         self.add_to_map = add_to_map
         self.metadata = metadata
@@ -46,7 +43,6 @@ class BandInfo(object):
 
 class BandInfoSchema(Schema):
     name = fields.Str()
-    band_number = fields.Integer()
     no_data_value = fields.Number()
     add_to_map = fields.Boolean()
     metadata = fields.Dict()
@@ -64,16 +60,14 @@ class URLListSchema(Schema):
 
 
 class CloudResults(object):
-    def __init__(self, name, script_version, bands, urls):
+    def __init__(self, name, bands, urls):
         self.type = "CloudResults"
         self.name = name
-        self.script_version = script_version
         self.bands = bands
         self.urls = urls
 
 class CloudResultsSchema(Schema):
     type = fields.Str()
     name = fields.Str()
-    script_version = fields.Str()
     bands = fields.Nested(BandInfoSchema(), many=True)
     urls = fields.Nested(URLListSchema())
