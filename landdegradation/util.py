@@ -97,10 +97,7 @@ class TEImage(object):
 
     def addBands(self, bands, band_info):
         self.image.addBands(bands)
-        if len(bands.getInfo()['bands']) == 1:
-            self.band_info.append(band_info)
-        else:
-            self.band_info.extend(band_info)
+        self.band_info.extend(band_info)
 
         if len(self.band_info) != len(self.image.getInfo()['bands']):
             raise GEEImageError('Band info length does not match number of bands in image')
