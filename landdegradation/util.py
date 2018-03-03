@@ -143,6 +143,7 @@ class TEImage(object):
         self.task.join()
 
         gee_results = CloudResults(task_name,
+                                   self.band_info,
                                    URLList(self.task.get_URL_base(),
                                            self.task.get_files()))
         results_schema = CloudResultsSchema()
