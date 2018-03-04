@@ -25,8 +25,6 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
     for year in range(year_baseline + 1, year_target + 1):
         lc_remapped = lc_remapped.addBands(lc.select('y{}'.format(year)).remap(remap_matrix[0], remap_matrix[1]))
 
-    logger.debug('lc_remapped length is {}'.format(len(lc_remapped.getInfo()['bands'])))
-
     ## target land cover map reclassified to IPCC 6 classes
     lc_tg = lc_remapped.select('y{}'.format(year_target))
 
@@ -63,8 +61,14 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
                          61, 62, 63, 64, 65, 6, 67,
                          71, 72, 73, 74, 75, 76, 7])
 
-    # Return the full land cover timeseries so it is available for reporting
     logger.debug("Setting up output.")
+    out = TEImage(lc_dg.addBands(lc.select('y{}'.format(year_baseline))).addBands(lc.select('y{}'.format(year_target))).addBands(lc_tr),
+                  [BandInfo("Land cover degradation", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
+                   BandInfo("Land cover transitions", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
+                   BandInfo("Land cover (ESA classes)", metadata={'year': year_baseline}),
+                   BandInfo("Land cover (ESA classes)", metadata={'year': year_target})])
+
+    # Return the full land cover timeseries so it is available for reporting
     for year in range(year_baseline, year_target + 1):
         d_lc = []
         if (year == year_baseline) or (year == year_target):
@@ -72,14 +76,7 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
         else:
             add_to_map = False
         d_lc.extend([BandInfo("Land cover (7 class)", add_to_map=add_to_map, metadata={'year': year})])
-
-    out = TEImage(lc_remapped, d_lc)
-
-    our.addBands(lc_tr.addBands(lc_dg).addBands(lc_bl_raw).addBands(lc_tg_raw),
-                 [BandInfo("Land cover transitions", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
-                  BandInfo("Land cover degradation", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
-                  BandInfo("Land cover (ESA classes)", metadata={'year': year_baseline}),
-                  BandInfo("Land cover (ESA classes)", metadata={'year': year_target})])
+    out.addBands(lc_remapped, d_lc)
 
     out.image = out.image.unmask(-32768).int16()
 
