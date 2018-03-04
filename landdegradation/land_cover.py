@@ -23,6 +23,8 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
     # Remap LC according to input matrix
     lc_remapped = lc.remap(remap_matrix[0], remap_matrix[1])
 
+    logger.debug('lc_remapped length is {}'.format(len(lc_remapped.getInfo()['bands'])))
+
     ## target land cover map reclassified to IPCC 6 classes
     lc_tg = lc_remapped.select('y{}'.format(year_target))
 
@@ -61,7 +63,7 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
 
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Setting up output.")
-    lc_out_images = lc_remapped.select(ee.List.sequence(year_baseline - 1992, year_target- 1992, 1))
+    lc_out_images = lc_remapped.select(ee.List.sequence(year_baseline - 1992, year_target - 1992, 1))
             
     for year in range(year_baseline, year_target + 1):
         d_lc = []
