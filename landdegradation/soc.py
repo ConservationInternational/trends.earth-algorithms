@@ -162,6 +162,7 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
     out = TEImage(soc_pch,
                   [BandInfo("Soil organic carbon (degradation)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end})])
 
+    logger.debug("Adding annual SOC layers.")
     # Output all annual SOC layers
     d_soc = []
     for year in range(year_start, year_end + 1):
@@ -172,6 +173,7 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
         d_soc.extend([BandInfo("Soil organic carbon", add_to_map=add_to_map, metadata={'year': year})])
     out.addBands(stack_soc, d_soc)
 
+    logger.debug("Adding annual LC layers.")
     if not dl_annual_lc:
         # Output initial and final SOC layers
         out.addBands(stack_lc.select(0).addBands(stack_lc.select(year_end - year_start)),

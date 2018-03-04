@@ -60,7 +60,8 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
                          71, 72, 73, 74, 75, 76, 7])
 
     # Return the full land cover timeseries so it is available for reporting
-    lc_out_images = lc_remapped.select(range(year_baseline - 1992, year_target - 1992))
+    lc_out_images = lc_remapped.select(ee.List.sequence(year_baseline - 1992, year_target- 1992, 1))
+            
     for year in range(year_baseline, year_target + 1):
         d_lc = []
         if (year == year_baseline) or (year == year_target):
