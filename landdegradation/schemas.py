@@ -48,15 +48,15 @@ class BandInfoSchema(Schema):
     metadata = fields.Dict()
 
 
-class URLList(object):
-    def __init__(self, base, files=[]):
-        self.base = base
-        self.files = files
+class Url(object):
+    def __init__(self, url, etag):
+        self.url = url
+        self.etag = etag
 
 
-class URLListSchema(Schema):
-    base = fields.Str()
-    files = fields.List(fields.Str())
+class UrlSchema(object):
+    self.url = fields.Url()
+    self.etag = fields.Str()
 
 
 class CloudResults(object):
@@ -66,8 +66,9 @@ class CloudResults(object):
         self.bands = bands
         self.urls = urls
 
+
 class CloudResultsSchema(Schema):
     type = fields.Str()
     name = fields.Str()
     bands = fields.Nested(BandInfoSchema(), many=True)
-    urls = fields.Nested(URLListSchema())
+    urls = fields.Nested(UrlSchema())
