@@ -65,8 +65,6 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
 
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Setting up output.")
-    lc_out_images = lc_remapped.select(ee.List.sequence(year_baseline - 1992, year_target - 1992, 1))
-            
     for year in range(year_baseline, year_target + 1):
         d_lc = []
         if (year == year_baseline) or (year == year_target):
@@ -75,7 +73,7 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
             add_to_map = False
         d_lc.extend([BandInfo("Land cover (7 class)", add_to_map=add_to_map, metadata={'year': year})])
 
-    out = TEImage(lc_out_images, d_lc)
+    out = TEImage(lc_remapped, d_lc)
 
     our.addBands(lc_tr.addBands(lc_dg).addBands(lc_bl_raw).addBands(lc_tg_raw),
                  [BandInfo("Land cover transitions", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
