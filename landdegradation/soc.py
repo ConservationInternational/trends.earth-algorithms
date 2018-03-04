@@ -176,7 +176,7 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
     logger.debug("Adding annual LC layers.")
     if not dl_annual_lc:
         # Output initial and final SOC layers
-        out.addBands(stack_lc.select(0).addBands(stack_lc.select(len(stack_lc.getInfo()['bands']) - 1)))
+        out.addBands(stack_lc.select(0).addBands(stack_lc.select(len(stack_lc.getInfo()['bands']) - 1)),
                      [BandInfo("Land cover (7 class)", metadata={'year': year_start}),
                       BandInfo("Land cover (7 class)", metadata={'year': year_end})])
     else:
