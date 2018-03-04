@@ -171,6 +171,8 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
         else:
             add_to_map = False
         d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map, metadata={'year': year}))
+        logger.debug('d_soc length is {}'.format(len(d_soc)))
+        logger.debug('stack_soc length is {}'.format(len(stack_soc.getInfo()['bands'])))
     out.addBands(stack_soc, d_soc)
 
     logger.debug("Adding annual LC layers.")
