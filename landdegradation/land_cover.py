@@ -76,7 +76,7 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
             add_to_map = True
         else:
             add_to_map = False
-        d_lc.extend([BandInfo("Land cover (7 class)", add_to_map=add_to_map, metadata={'year': year})])
+        d_lc.append(BandInfo("Land cover (7 class)", add_to_map=add_to_map, metadata={'year': year}))
     logger.debug('d_lc length is {}'.format(len(d_lc)))
     logger.debug('lc_remapped length is {}'.format(len(lc_remapped.getInfo()['bands'])))
     out.addBands(lc_remapped, d_lc)
