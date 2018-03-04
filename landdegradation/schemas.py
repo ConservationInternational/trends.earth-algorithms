@@ -54,7 +54,7 @@ class Url(object):
         self.etag = etag
 
 
-class UrlSchema(object):
+class UrlSchema(Schema):
     url = fields.Url()
     etag = fields.Str()
 
@@ -71,4 +71,4 @@ class CloudResultsSchema(Schema):
     type = fields.Str()
     name = fields.Str()
     bands = fields.Nested(BandInfoSchema(), many=True)
-    urls = fields.Nested(UrlSchema())
+    urls = fields.Nested(UrlSchema(), many=True)
