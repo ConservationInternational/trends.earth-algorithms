@@ -64,9 +64,9 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
     logger.debug("Setting up output.")
     out = TEImage(lc_dg.addBands(lc.select('y{}'.format(year_baseline))).addBands(lc.select('y{}'.format(year_target))).addBands(lc_tr),
                   [BandInfo("Land cover degradation", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
-                   BandInfo("Land cover transitions", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
                    BandInfo("Land cover (ESA classes)", metadata={'year': year_baseline}),
-                   BandInfo("Land cover (ESA classes)", metadata={'year': year_target})])
+                   BandInfo("Land cover (ESA classes)", metadata={'year': year_target}),
+                   BandInfo("Land cover transitions", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target})])
 
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")
