@@ -154,9 +154,10 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
             stack_soc = stack_soc.addBands(socn)
 
     # compute soc percent change for the analysis period
-    soc_pch = ((stack_soc.select(year_end - year_start).subtract(stack_soc.select(0))).divide(stack_soc.select(0))) \
-        .multiply(100)
-
+    soc_pch = ((stack_soc.select(year_end - year_start) \
+                .subtract(stack_soc.select(0))) \
+               .divide(stack_soc.select(0))) \
+              .multiply(100)
 
     logger.debug("Setting up results JSON.")
     out = TEImage(soc_pch,
@@ -170,7 +171,8 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
             add_to_map = True
         else:
             add_to_map = False
-        d_soc.extend([BandInfo("Soil organic carbon", add_to_map=add_to_map, metadata={'year': year})])
+        d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map, metadata={'year': year}))
+    logger.debug('d_soc length is {}'.format(len(d_soc)))
     out.addBands(stack_soc, d_soc)
 
     logger.debug("Adding annual LC layers.")
@@ -182,7 +184,7 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
     else:
         d_lc = []
         for year in range(year_start, year_end + 1):
-            d_lc.extend([BandInfo("Land cover (7 class)", metadata={'year': year})])
+            d_lc.append(BandInfo("Land cover (7 class)", metadata={'year': year}))
         out.addBands(stack_lc, d_lc)
 
     out.image = out.image.unmask(-32768).int16()
