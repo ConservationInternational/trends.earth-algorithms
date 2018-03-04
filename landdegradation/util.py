@@ -117,7 +117,7 @@ class TEImage(object):
         if len(band_indices) < 1:
             raise GEEImageError('Bands "{}" not in image'.format(band_names))
 
-        self.band_info = self.band_info[band_indices]
+        self.band_info = [self.band_info[i] for i in band_indices]
         self.image = self.image.select(band_indices)
 
         self._check_validity()
