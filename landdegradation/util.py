@@ -123,7 +123,7 @@ class TEImage(object):
             execution_id = execution_id
 
         if not proj:
-            proj = out.image.projection()
+            proj = self.image.projection()
 
         if task_name:
             out_name = '{}_{}'.format(execution_id, task_name)
