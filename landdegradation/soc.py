@@ -186,8 +186,8 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
         d_lc = []
         for year in range(year_start, year_end + 1):
             d_lc.append(BandInfo("Land cover (7 class)", metadata={'year': year}))
-    logger.debug('d_lc length is {}'.format(len(d_lc)))
-    logger.debug('stack_lc length is {}'.format(len(stack_lc.getInfo()['bands'])))
+        logger.debug('d_lc length is {}'.format(len(d_lc)))
+        logger.debug('stack_lc length is {}'.format(len(stack_lc.getInfo()['bands'])))
         out.addBands(stack_lc, d_lc)
 
     out.image = out.image.unmask(-32768).int16()
