@@ -158,7 +158,7 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
                .divide(stack_soc.select(0))) \
               .multiply(100)
 
-    logger.debug("Setting up results JSON.")
+    logger.debug("Setting up output.")
     out = TEImage(soc_pch,
                   [BandInfo("Soil organic carbon (degradation)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end})])
 
@@ -171,23 +171,23 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
         else:
             add_to_map = False
         d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map, metadata={'year': year}))
-        logger.debug('d_soc length is {}'.format(len(d_soc)))
-        logger.debug('stack_soc length is {}'.format(len(stack_soc.getInfo()['bands'])))
+    logger.debug('d_soc length is {}'.format(len(d_soc)))
+    logger.debug('stack_soc length is {}'.format(len(stack_soc.getInfo()['bands'])))
     out.addBands(stack_soc, d_soc)
 
-    logger.debug("Adding annual LC layers.")
-    if not dl_annual_lc:
-        # Output initial and final SOC layers
-        out.addBands(stack_lc.select(0).addBands(stack_lc.select(len(stack_lc.getInfo()['bands']) - 1)),
-                     [BandInfo("Land cover (7 class)", metadata={'year': year_start}),
-                      BandInfo("Land cover (7 class)", metadata={'year': year_end})])
-    else:
+    if dl_annual_lc:
+        logger.debug("Adding all annual LC layers.")
         d_lc = []
         for year in range(year_start, year_end + 1):
             d_lc.append(BandInfo("Land cover (7 class)", metadata={'year': year}))
         logger.debug('d_lc length is {}'.format(len(d_lc)))
         logger.debug('stack_lc length is {}'.format(len(stack_lc.getInfo()['bands'])))
         out.addBands(stack_lc, d_lc)
+    else:
+        logger.debug("Adding initial and final LC layers.")
+        out.addBands(stack_lc.select(0).addBands(stack_lc.select(len(stack_lc.getInfo()['bands']) - 1)),
+                     [BandInfo("Land cover (7 class)", metadata={'year': year_start}),
+                      BandInfo("Land cover (7 class)", metadata={'year': year_end})])
 
     out.image = out.image.unmask(-32768).int16()
 
