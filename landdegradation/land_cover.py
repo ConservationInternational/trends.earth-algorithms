@@ -70,8 +70,8 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
 
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")
+    d_lc = []
     for year in range(year_baseline, year_target + 1):
-        d_lc = []
         if (year == year_baseline) or (year == year_target):
             add_to_map = True
         else:
