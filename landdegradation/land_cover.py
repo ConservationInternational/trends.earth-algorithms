@@ -26,10 +26,10 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
         lc_remapped = lc_remapped.addBands(lc.select('y{}'.format(year)).remap(remap_matrix[0], remap_matrix[1]))
 
     ## target land cover map reclassified to IPCC 6 classes
-    lc_tg = lc_remapped.select(0)
+    lc_bl = lc_remapped.select(0)
 
     ## baseline land cover map reclassified to IPCC 6 classes
-    lc_bl = lc_remapped.select(len(lc_remapped.getInfo()['bands']) - 1)
+    lc_tg = lc_remapped.select(len(lc_remapped.getInfo()['bands']) - 1)
 
     ## compute transition map (first digit for baseline land cover, and second digit for target year land cover)
     lc_tr = lc_bl.multiply(10).add(lc_tg)
