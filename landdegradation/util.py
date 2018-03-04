@@ -89,6 +89,7 @@ class gee_task(threading.Thread):
 
 
 class TEImage(object):
+    "A class to store GEE images and band info for export to cloud storage"
     def __init__(self, image, band_info):
         self.image = image
         self.band_info = band_info
@@ -101,18 +102,21 @@ class TEImage(object):
                                                                                                             len(self.image.getInfo()['bands'])))
 
     def merge(self, other):
+        "Merge with another TEImage object"
         self.image = self.image.addBands(other.image)
         self.band_info.extend(other.band_info)
 
         self._check_validity()
 
     def addBands(self, bands, band_info):
+        "Add new bands to the image"
         self.image = self.image.addBands(bands)
         self.band_info.extend(band_info)
 
         self._check_validity()
 
     def selectBands(self, band_names):
+        "Select certain bands from the image, dropping all others"
         band_indices = [i for i, bi in enumerate(self.band_info) if bi.name in band_names]
         if len(band_indices) < 1:
             raise GEEImageError('Bands "{}" not in image'.format(band_names))
@@ -122,7 +126,16 @@ class TEImage(object):
 
         self._check_validity()
 
+    def setVisible(self, band_names=[]):
+        "Set the layers that will be added to the user's map in QGIS by default"
+        for i in xrange(len(self.band_info)):
+            if self.band_info[i].name in band_names:
+                self.band_info[i].add_to_map = True
+            else:
+                self.band_info[i].add_to_map = False
+
     def export(self, geojson, task_name, logger, execution_id=None, proj=None):
+        "Export layers to cloud storage"
         if not execution_id:
             execution_id = str(random.randint(1000000, 99999999))
         else:
