@@ -114,15 +114,14 @@ class TEImage(object):
         if len(self.band_info) != len(self.image.getInfo()['bands']):
             raise GEEImageError('Band info length does not match number of bands in image')
 
-    def export(self, proj, geojson, task_name, logger, execution_id=None):
-        proj = proj
-        geojson = geojson
-        task_name = task_name
-        logger = logger
+    def export(self, geojson, task_name, logger, execution_id=None, proj=None):
         if not execution_id:
             execution_id = str(random.randint(1000000, 99999999))
         else:
             execution_id = execution_id
+
+        if not proj:
+            proj = out.image.projection()
 
         if task_name:
             out_name = '{}_{}'.format(execution_id, task_name)

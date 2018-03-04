@@ -4,7 +4,8 @@ from __future__ import print_function
 
 import ee
 
-from landdegradation import GEEIOError
+from landdegradation.util import TEImage
+from landdegradation.schemas import BandInfo
 
 
 def land_cover(year_baseline, year_target, geojson, trans_matrix,
@@ -19,16 +20,17 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
+    # Remap LC according to input matrix
+    lc_remapped = lc.remap(remap_matrix[0], remap_matrix[1])
+
     ## target land cover map reclassified to IPCC 6 classes
-    lc_tg_raw = lc.select('y{}'.format(year_target))
-    lc_tg_remapped = lc_tg_raw.remap(remap_matrix[0], remap_matrix[1])
+    lc_tg = lc_remapped.select('y{}'.format(year_target))
 
     ## baseline land cover map reclassified to IPCC 6 classes
-    lc_bl_raw = lc.select('y{}'.format(year_baseline))
-    lc_bl_remapped = lc_bl_raw.remap(remap_matrix[0], remap_matrix[1])
+    lc_bl = lc_remapped.select('y{}'.format(year_baseline))
 
     ## compute transition map (first digit for baseline land cover, and second digit for target year land cover)
-    lc_tr = lc_bl_remapped.multiply(10).add(lc_tg_remapped)
+    lc_tr = lc_bl.multiply(10).add(lc_tg)
 
     ## definition of land cover transitions as degradation (-1), improvement (1), or no relevant change (0)
     lc_dg = lc_tr.remap([11, 12, 13, 14, 15, 16, 17,
@@ -57,13 +59,24 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
                          61, 62, 63, 64, 65, 6, 67,
                          71, 72, 73, 74, 75, 76, 7])
 
-    lc_out = lc_bl_remapped \
-        .addBands(lc_tg_remapped) \
-        .addBands(lc_tr) \
-        .addBands(lc_dg) \
-        .addBands(lc_bl_raw) \
-        .addBands(lc_tg_raw)
+    # Return the full land cover timeseries so it is available for reporting
+    lc_out_images = lc_remapped.select(range(year_baseline - 1992, year_target - 1992))
+    for year in range(year_baseline, year_target + 1):
+        d_lc = []
+        if (year == year_baseline) or (year == year_target):
+            add_to_map = True
+        else:
+            add_to_map = False
+        d_lc.extend([BandInfo("Land cover (7 class)", add_to_map=add_to_map, metadata={'year': year})])
 
-    return lc_out
+    out = TEImage(lc_out_images, d_lc)
 
+    our.addBands(lc_tr.addBands(lc_dg).addBands(lc_bl_raw).addBands(lc_tg_raw),
+                 [BandInfo("Land cover transitions", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
+                  BandInfo("Land cover degradation", add_to_map=True, metadata={'year_baseline': year_baseline, 'year_target': year_target}),
+                  BandInfo("Land cover (ESA classes)", metadata={'year': year_baseline}),
+                  BandInfo("Land cover (ESA classes)", metadata={'year': year_target})])
 
+    out.image = out.image.unmask(-32768).int16()
+
+    return out

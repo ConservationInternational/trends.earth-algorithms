@@ -4,11 +4,12 @@ from __future__ import print_function
 
 import ee
 
-from landdegradation import GEEIOError
+from landdegradation.util import TEImage
+from landdegradation.schemas import BandInfo
 
 
 def soc(year_start, year_end, fl, geojson, remap_matrix,
-        dl_annual_soc, dl_annual_lc, EXECUTION_ID, logger):
+        dl_annual_lc, EXECUTION_ID, logger):
     """
     Calculate SOC indicator.
     """
@@ -158,38 +159,30 @@ def soc(year_start, year_end, fl, geojson, remap_matrix,
 
 
     logger.debug("Setting up results JSON.")
-    soc_out = soc_pch
-    d = [BandInfo("Soil organic carbon (degradation)", 1, no_data_value=-32768, add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end})]
+    out = TEImage(soc_pch,
+                  [BandInfo("Soil organic carbon (degradation)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end})])
 
-    if not dl_annual_soc:
-        # Output percent change and initial and final SOC layers
-        soc_out = soc_out.addBands(stack_soc.select(0)).addBands(stack_soc.select(year_end - year_start))
-        d.extend([BandInfo("Soil organic carbon", 2, no_data_value=-32768, add_to_map=True, metadata={'year': year_start}),
-                  BandInfo("Soil organic carbon", 3, no_data_value=-32768, add_to_map=True, metadata={'year': year_end})])
-    else:
-        # Output percent change and annual SOC layers
-        soc_out = soc_out.addBands(stack_soc)
-        for year in range(year_start, year_end + 1):
-            if (year == year_start) or (year == year_end):
-                add_to_map = True
-            else:
-                add_to_map = False
-            d.extend([BandInfo("Soil organic carbon", len(d) + 1, no_data_value=-32768, add_to_map=add_to_map, metadata={'year': year})])
+    # Output all annual SOC layers
+    d_soc = []
+    for year in range(year_start, year_end + 1):
+        if (year == year_start) or (year == year_end):
+            add_to_map = True
+        else:
+            add_to_map = False
+        d_soc.extend([BandInfo("Soil organic carbon", add_to_map=add_to_map, metadata={'year': year})])
+    out.addBands(stack_soc, d_soc)
 
     if not dl_annual_lc:
-        # Output percent change and initial and final SOC layers
-        soc_out = soc_out.addBands(stack_lc.select(0)).addBands(stack_lc.select(year_end - year_start))
-        d.extend([BandInfo("Land cover (7 class)", len(d) + 1, no_data_value=-32768, add_to_map=True, metadata={'year': year_start}),
-                  BandInfo("Land cover (7 class)", len(d) + 2, no_data_value=-32768, add_to_map=True, metadata={'year': year_end})])
+        # Output initial and final SOC layers
+        out.addBands(stack_lc.select(0).addBands(stack_lc.select(year_end - year_start)),
+                     [BandInfo("Land cover (7 class)", metadata={'year': year_start}),
+                      BandInfo("Land cover (7 class)", metadata={'year': year_end})])
     else:
-        soc_out = soc_out.addBands(stack_lc)
+        d_lc = []
         for year in range(year_start, year_end + 1):
-            if (year == year_start) or (year == year_end):
-                add_to_map = True
-            else:
-                add_to_map = False
-            d.extend([BandInfo("Land cover (7 class)", len(d) + 1, no_data_value=-32768, add_to_map=add_to_map, metadata={'year': year})])
+            d_lc.extend([BandInfo("Land cover (7 class)", metadata={'year': year})])
+        out.addBands(stack_lc, d_lc)
 
-    return soc_out, d
+    out.image = out.image.unmask(-32768).int16()
 
-
+    return out
