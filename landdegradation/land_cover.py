@@ -21,7 +21,9 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
     lc = lc.updateMask(lc.neq(-32768))
 
     # Remap LC according to input matrix
-    lc_remapped = lc.remap(remap_matrix[0], remap_matrix[1])
+    lc_remapped = lc.select('y{}'.format(year_baseline)).remap(remap_matrix[0], remap_matrix[1])
+    for year in xrange(year_baseline + 1, year_target + 1):
+        lc_remapped = lc_remapped.addBands(lc.select('y{}'.format(year)).remap(remap_matrix[0], remap_matrix[1]))
 
     logger.debug('lc_remapped length is {}'.format(len(lc_remapped.getInfo()['bands'])))
 
