@@ -40,9 +40,6 @@ class BandInfo(object):
         self.add_to_map = add_to_map
         self.metadata = metadata
 
-    def name(self):
-        return self.name
-
 
 class BandInfoSchema(Schema):
     name = fields.Str()
