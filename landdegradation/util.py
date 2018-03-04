@@ -93,15 +93,18 @@ class TEImage(object):
         self.image = image
         self.band_info = band_info
 
+        self._check_validity()
+    
+    def _check_validity(self):
         if len(self.band_info) != len(self.image.getInfo()['bands']):
-            raise GEEImageError('Band info length does not match number of bands in image')
+            raise GEEImageError('Band info length ({}) does not match number of bands in image ({})'.format(len(self.band_info),
+                                                                                                            len(self.image.getInfo()['bands'])))
 
     def addBands(self, bands, band_info):
         self.image.addBands(bands)
         self.band_info.extend(band_info)
 
-        if len(self.band_info) != len(self.image.getInfo()['bands']):
-            raise GEEImageError('Band info length does not match number of bands in image')
+        self._check_validity()
 
     def selectBands(self, band_names):
         new_band_info = [i for i in self.band_info if i in band_names]
@@ -111,8 +114,7 @@ class TEImage(object):
         self.band_info = new_band_info
         self.image = self.image.select(band_names)
 
-        if len(self.band_info) != len(self.image.getInfo()['bands']):
-            raise GEEImageError('Band info length does not match number of bands in image')
+        self._check_validity()
 
     def export(self, geojson, task_name, logger, execution_id=None, proj=None):
         if not execution_id:
