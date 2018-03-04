@@ -101,7 +101,7 @@ class TEImage(object):
                                                                                                             len(self.image.getInfo()['bands'])))
 
     def addBands(self, bands, band_info):
-        self.image.addBands(bands)
+        self.image = self.image.addBands(bands)
         self.band_info.extend(band_info)
 
         self._check_validity()
