@@ -55,8 +55,8 @@ class Url(object):
 
 
 class UrlSchema(object):
-    self.url = fields.Url()
-    self.etag = fields.Str()
+    url = fields.Url()
+    etag = fields.Str()
 
 
 class CloudResults(object):
