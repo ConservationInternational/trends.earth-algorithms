@@ -69,6 +69,7 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
                    BandInfo("Land cover (ESA classes)", metadata={'year': year_target})])
 
     # Return the full land cover timeseries so it is available for reporting
+    logger.debug("Adding annual lc layers.")
     for year in range(year_baseline, year_target + 1):
         d_lc = []
         if (year == year_baseline) or (year == year_target):
@@ -76,6 +77,8 @@ def land_cover(year_baseline, year_target, geojson, trans_matrix,
         else:
             add_to_map = False
         d_lc.extend([BandInfo("Land cover (7 class)", add_to_map=add_to_map, metadata={'year': year})])
+    logger.debug('d_lc length is {}'.format(len(d_lc)))
+    logger.debug('lc_remapped length is {}'.format(len(lc_remapped.getInfo()['bands'])))
     out.addBands(lc_remapped, d_lc)
 
     out.image = out.image.unmask(-32768).int16()
