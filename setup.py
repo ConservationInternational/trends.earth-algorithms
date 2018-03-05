@@ -71,7 +71,7 @@ setup(
     install_requires=['python-dateutil',
                       'marshmallow',
                       'earthengine-api',
-                      'git+git://github.com/conservationinternational/trends.earth.git#egg=trendsearth-schemas&subdirectory=LDMP/schemas'],
+                      'git+git://github.com/conservationinternational/trends.earth.git#"egg=trendsearth-schemas&subdirectory=LDMP/schemas"'],
     
 
 
