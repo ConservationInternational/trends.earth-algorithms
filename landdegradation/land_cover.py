@@ -8,7 +8,7 @@ from landdegradation.util import TEImage
 from landdegradation.schemas import BandInfo
 
 
-def land_cover(year_baseline, year_target, geojson, trans_matrix,
+def land_cover(year_baseline, year_target, trans_matrix,
                remap_matrix, EXECUTION_ID, logger):
     """
     Calculate land cover indicator.

@@ -8,8 +8,8 @@ from landdegradation.util import TEImage
 from landdegradation.schemas import BandInfo
 
 
-def soc(year_start, year_end, fl, geojson, remap_matrix,
-        dl_annual_lc, EXECUTION_ID, logger):
+def soc(year_start, year_end, fl, remap_matrix, dl_annual_lc, EXECUTION_ID, 
+        logger):
     """
     Calculate SOC indicator.
     """

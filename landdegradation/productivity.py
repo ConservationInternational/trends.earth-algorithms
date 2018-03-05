@@ -284,7 +284,7 @@ def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
 
 def productivity_state(year_bl_start, year_bl_end,
                        year_tg_start, year_tg_end,
-                       ndvi_gee_dataset, geojson, EXECUTION_ID, logger):
+                       ndvi_gee_dataset, EXECUTION_ID, logger):
     logger.debug("Entering productivity_state function.")
 
     ndvi_1yr = ee.Image(ndvi_gee_dataset)
