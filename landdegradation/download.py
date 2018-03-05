@@ -19,12 +19,12 @@ def download(asset, name, temporal_resolution, start_year, end_year,
     if temporal_resolution != "one time":
         assert (start_year and end_year), "start year or end year not defined"
         out = in_img.select('y{}'.format(start_year))
-        band_info = [BandInfo(name, metadata={'year': start_year})]
+        band_info = [BandInfo(name, add_to_map=True, metadata={'year': start_year})]
         for y in range(start_year + 1, end_year + 1):
             out.addBands(in_img.select('y{}'.format(start_year)))
             band_info.append(BandInfo(name, metadata={'year': start_year}))
     else:
         out = in_img
-        band_info = [BandInfo(name)]
+        band_info = [BandInfo(name, add_to_map=True)]
 
     return TEImage(out, band_info)
