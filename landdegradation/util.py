@@ -90,7 +90,7 @@ class gee_task(threading.Thread):
             raise GEETaskFailure('Failed to get urls for results from {}'.format(self.task))
         urls = []
         for item in resp.json()['items']:
-            urls.append(Url(item['selfLink'], item['etag']))
+            urls.append(Url(item['mediaLink'], item['md5Hash']))
         return urls
 
 

@@ -49,14 +49,14 @@ class BandInfoSchema(Schema):
 
 
 class Url(object):
-    def __init__(self, url, etag):
+    def __init__(self, url, md5Hash):
         self.url = url
-        self.etag = etag
+        self.md5Hash = md5Hash
 
 
 class UrlSchema(Schema):
     url = fields.Url()
-    etag = fields.Str()
+    md5Hash = fields.Str()
 
 
 class CloudResults(object):
