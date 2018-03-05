@@ -70,7 +70,8 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['python-dateutil',
                       'marshmallow',
-                      'earthengine-api'],
+                      'earthengine-api',
+                      'git+https://github.com/conservationinternational/trends.earth.git#"egg=trendsearth-schemas&subdirectory=LDMP/schemas"'],
     
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
