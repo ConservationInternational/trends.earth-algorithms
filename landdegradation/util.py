@@ -161,9 +161,9 @@ class TEImage(object):
                       'maxPixels': 1e13,
                       'scale': ee.Number(proj.nominalScale()).getInfo(),
                       'region': get_coords(geojson)}
-            task = gee_task(ee.batch.Export.image.toCloudStorage(**export),
-                            out_name, logger)
-            tasks.append(task)
+            t = gee_task(ee.batch.Export.image.toCloudStorage(**export),
+                         out_name, logger)
+            tasks.append(t)
             n+=1
             
         logger.debug("Exporting to cloud storage.")
