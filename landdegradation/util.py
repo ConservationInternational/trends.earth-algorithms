@@ -153,8 +153,6 @@ class TEImage(object):
 
         tasks = []
         for geojson in geojsons:
-            logger.debug('Processing geojson: {}'.format(geojson))
-            logger.debug('region: {}'.format(get_coords(geojson)))
             export = {'image': self.image,
                       'description': out_name,
                       'fileNamePrefix': out_name,
@@ -169,7 +167,7 @@ class TEImage(object):
         logger.debug("Exporting to cloud storage.")
         files = []
         for task in tasks:
-            task.join(task)
+            task.join()
             files.append(task.get_files())
 
         gee_results = CloudResults(task_name,
