@@ -153,6 +153,7 @@ class TEImage(object):
 
         tasks = []
         for geojson in geojsons:
+            logger.debug('Processing geojson: {}'.format(geojson))
             export = {'image': self.image,
                       'description': out_name,
                       'fileNamePrefix': out_name,
