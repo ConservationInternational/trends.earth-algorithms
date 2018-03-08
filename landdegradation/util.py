@@ -146,13 +146,14 @@ class TEImage(object):
         if not proj:
             proj = self.image.projection()
 
-        if task_name:
-            out_name = '{}_{}'.format(execution_id, task_name)
-        else:
-            out_name = '{}'.format(execution_id)
-
         tasks = []
+        n = 1
         for geojson in geojsons:
+            if task_name:
+                out_name = '{}_{}_{}'.format(execution_id, task_name, n)
+            else:
+                out_name = '{}_{}'.format(execution_id, n)
+
             export = {'image': self.image,
                       'description': out_name,
                       'fileNamePrefix': out_name,
@@ -163,6 +164,7 @@ class TEImage(object):
             task = gee_task(ee.batch.Export.image.toCloudStorage(**export),
                             out_name, logger)
             tasks.append(task)
+            n+=1
             
         logger.debug("Exporting to cloud storage.")
         urls = []
