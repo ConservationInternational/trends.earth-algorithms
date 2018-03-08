@@ -80,7 +80,7 @@ class gee_task(threading.Thread):
     def get_URL_base(self):
         return "http://{}.storage.googleapis.com".format(BUCKET)
 
-    def get_files(self):
+    def get_urls(self):
         resp = requests.get('https://www.googleapis.com/storage/v1/b/{bucket}/o?prefix={prefix}'.format(bucket=BUCKET, prefix=self.prefix))
         if not resp or resp.status_code != 200:
             raise GEETaskFailure('Failed to get urls for results from {}'.format(self.task))
@@ -165,14 +165,14 @@ class TEImage(object):
             tasks.append(task)
             
         logger.debug("Exporting to cloud storage.")
-        files = []
+        urls = []
         for task in tasks:
             task.join()
-            files.append(task.get_files())
+            urls.append(task.get_urls())
 
         gee_results = CloudResults(task_name,
                                    self.band_info,
-                                   files)
+                                   urls)
         results_schema = CloudResultsSchema()
         json_results = results_schema.dump(gee_results)
 
