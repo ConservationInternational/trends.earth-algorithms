@@ -152,20 +152,19 @@ class TEImage(object):
             out_name = '{}'.format(execution_id)
 
         tasks = []
-	for geojson in geojsons:
-	    export = {'image': self.image,
-		      'description': out_name,
-		      'fileNamePrefix': out_name,
-		      'bucket': BUCKET,
-		      'maxPixels': 1e13,
-		      'scale': ee.Number(proj.nominalScale()).getInfo(),
-		      'region': get_coords(geojson)}
-
-	    logger.debug("Exporting to cloud storage.")
-	    task = gee_task(ee.batch.Export.image.toCloudStorage(**export),
-				 out_name, logger)
-	    tasks.append(task)
-                    
+        for geojson in geojsons:
+            export = {'image': self.image,
+                      'description': out_name,
+                      'fileNamePrefix': out_name,
+                      'bucket': BUCKET,
+                      'maxPixels': 1e13,
+                      'scale': ee.Number(proj.nominalScale()).getInfo(),
+                      'region': get_coords(geojson)}
+            task = gee_task(ee.batch.Export.image.toCloudStorage(**export),
+                            out_name, logger)
+            tasks.append(task)
+            
+        logger.debug("Exporting to cloud storage.")
         files = []
         for task in tasks:
             task.join(task)
