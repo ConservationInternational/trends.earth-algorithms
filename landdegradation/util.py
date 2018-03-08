@@ -77,17 +77,21 @@ class gee_task(threading.Thread):
         self.state = self.task.status().get('state')
         return self.state
 
-    def get_URL_base(self):
-        return "http://{}.storage.googleapis.com".format(BUCKET)
-
     def get_urls(self):
         resp = requests.get('https://www.googleapis.com/storage/v1/b/{bucket}/o?prefix={prefix}'.format(bucket=BUCKET, prefix=self.prefix))
         if not resp or resp.status_code != 200:
-            raise GEETaskFailure('Failed to get urls for results from {}'.format(self.task))
-        urls = []
-        for item in resp.json()['items']:
-            urls.append(Url(item['mediaLink'], item['md5Hash']))
-        return urls
+            raise GEETaskFailure('Failed to list urls for results from {}'.format(self.task))
+
+        items = resp.json()['items']
+
+        if len(items) < 1:
+            raise GEETaskFailure('No urls were found for {}'.format(self.task))
+        else:
+            urls = []
+            for item in resp.json()['items']:
+                logger('item: {}, {}'.format(item['mediaLink'], item['md5Hash']))
+                urls.append(Url(item['mediaLink'], item['md5Hash']))
+            return urls
 
 
 class TEImage(object):
