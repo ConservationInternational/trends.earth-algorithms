@@ -88,9 +88,10 @@ class gee_task(threading.Thread):
             raise GEETaskFailure('No urls were found for {}'.format(self.task))
         else:
             urls = []
-            for item in resp.json()['items']:
+            for item in items:
                 self.logger.debug('item: {}, {}'.format(item['mediaLink'], item['md5Hash']))
                 urls.append(Url(item['mediaLink'], item['md5Hash']))
+            self.logger.debug('urls: {}'.format(urls))
             return urls
 
 
