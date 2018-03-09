@@ -69,8 +69,8 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['python-dateutil',
-                      'marshmallow',
-                      'earthengine-api'],
+                      'marshmallow==3.0.0b7',
+                      'earthengine-api==0.1.111'],
     
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,

@@ -183,4 +183,4 @@ class TEImage(object):
         results_schema = CloudResultsSchema()
         json_results = results_schema.dump(gee_results)
 
-        return json_results.data
+        return json_results
