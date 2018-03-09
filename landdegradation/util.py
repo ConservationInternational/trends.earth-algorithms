@@ -141,7 +141,8 @@ class TEImage(object):
             else:
                 self.band_info[i].add_to_map = False
 
-    def export(self, geojsons, task_name, logger, execution_id=None, proj=None):
+    def export(self, geojsons, task_name, crs, logger, execution_id=None, 
+               proj=None):
         "Export layers to cloud storage"
         if not execution_id:
             execution_id = str(random.randint(1000000, 99999999))
@@ -164,6 +165,7 @@ class TEImage(object):
                       'fileNamePrefix': out_name,
                       'bucket': BUCKET,
                       'maxPixels': 1e13,
+                      'crs': crs,
                       'scale': ee.Number(proj.nominalScale()).getInfo(),
                       'region': get_coords(geojson)}
             t = gee_task(ee.batch.Export.image.toCloudStorage(**export),
