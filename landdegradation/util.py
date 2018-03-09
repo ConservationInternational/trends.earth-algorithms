@@ -89,9 +89,7 @@ class gee_task(threading.Thread):
         else:
             urls = []
             for item in items:
-                self.logger.debug('item: {}, {}'.format(item['mediaLink'], item['md5Hash']))
                 urls.append(Url(item['mediaLink'], item['md5Hash']))
-            self.logger.debug('urls: {}'.format(urls))
             return urls
 
 
