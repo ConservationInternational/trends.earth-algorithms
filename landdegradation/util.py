@@ -175,7 +175,7 @@ class TEImage(object):
         urls = []
         for task in tasks:
             task.join()
-            urls.append(task.get_urls())
+            urls.extend(task.get_urls())
 
         gee_results = CloudResults(task_name,
                                    self.band_info,
