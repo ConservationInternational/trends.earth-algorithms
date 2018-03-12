@@ -27,7 +27,7 @@ def download(asset, name, temporal_resolution, start_year, end_year,
     #     out = in_img
     #     band_info = [BandInfo(name, add_to_map=True)]
     out = in_img
-    band_info = BandInfo(name, add_to_map=True)
+    band_info = [BandInfo(name, add_to_map=True)]
     n_bands = len(in_img.getInfo()['bands'])
     if n_bands > 1:
         band_info.extend([BandInfo(name, add_to_map=False)] * (n_bands - 1))
