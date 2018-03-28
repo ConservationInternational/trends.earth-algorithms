@@ -157,6 +157,9 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
 
+    ndvi_mean = ndvi_dataset.select(ee.List(['y{}'.format(i) for i in range(year_start, year_end + 1)])) \
+        .reduce(ee.Reducer.mean()).rename(['ndvi'])
+
     # Run the selected algorithm
     if method == 'ndvi_trend':
         lf_trend, mk_trend = ndvi_trend(year_start, year_end, ndvi_dataset, logger)
@@ -195,7 +198,7 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     return TEImage(lf_trend.select('scale').addBands(signif).addBands(mk_trend).unmask(-32768).int16(),
                    [BandInfo("Productivity trajectory (trend)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
                     BandInfo("Productivity trajectory (significance)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
-                    BandInfo("mk_trend")])
+                    BandInfo("Mean annual NDVI integral", metadata={'year_start': year_start, 'year_end': year_end})])
 
 
 def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
