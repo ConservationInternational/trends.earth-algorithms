@@ -189,7 +189,8 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall90)), -1) \
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall95)), -2) \
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall99)), -3) \
-        .where(mk_trend.abs().lte(kendall90), 0)
+        .where(mk_trend.abs().lte(kendall90), 0) \
+        .where(lf_trend.select('scale').abs().lte(10), 0)
 
     return TEImage(lf_trend.select('scale').addBands(signif).rename(['slope', 'signif']).unmask(-32768).int16(),
                    [BandInfo("Productivity trajectory (trend)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
