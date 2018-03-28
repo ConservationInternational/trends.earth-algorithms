@@ -173,10 +173,10 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         raise GEEIOError("Unrecognized method '{}'".format(method))
 
     # Define Kendall parameter values for a significance of 0.05
-    period = year_end - year_start + 1
-    kendall90 = stats.get_kendall_coef(period - 4, 90)
-    kendall95 = stats.get_kendall_coef(period - 4, 95)
-    kendall99 = stats.get_kendall_coef(period - 4, 99)
+    period = year_end - year_start
+    kendall90 = stats.get_kendall_coef(period, 90)
+    kendall95 = stats.get_kendall_coef(period, 95)
+    kendall99 = stats.get_kendall_coef(period, 99)
 
     # create final degradation output layer: 9999 is no data, 0 is not
     # degraded, -3 is degraded (pvalue < 0.1), -2 is degraded (pvalue < 0.05),
