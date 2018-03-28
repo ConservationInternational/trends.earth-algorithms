@@ -173,7 +173,7 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         raise GEEIOError("Unrecognized method '{}'".format(method))
 
     # Define Kendall parameter values for a significance of 0.05
-    period = year_end - year_start
+    period = year_end - year_start + 1
     kendall90 = stats.get_kendall_coef(period, 90)
     kendall95 = stats.get_kendall_coef(period, 95)
     kendall99 = stats.get_kendall_coef(period, 99)
