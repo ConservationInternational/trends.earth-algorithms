@@ -299,7 +299,8 @@ def productivity_state(year_bl_start, year_bl_end,
         .addBands(bl_ndvi_range.select('p100').add((bl_ndvi_range.select('p100').subtract(bl_ndvi_range.select('p0'))).multiply(0.05)))
 
     # compute percentiles of annual ndvi for the extended baseline period
-    bl_ndvi_perc = bl_ndvi_ext.reduce(ee.Reducer.percentile([10, 20, 30, 40, 50, 60, 70, 80, 90, 100]))
+    percentiles = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    bl_ndvi_perc = bl_ndvi_ext.reduce(ee.Reducer.percentile(percentiles))
 
     # compute mean ndvi for the baseline and target period period
     bl_ndvi_mean = ndvi_1yr.select(ee.List(['y{}'.format(i) for i in range(year_bl_start, year_bl_end + 1)])) \
@@ -337,8 +338,12 @@ def productivity_state(year_bl_start, year_bl_end,
     # is degradation)
     classes_chg = tg_classes.subtract(bl_classes)
 
-    return TEImage(classes_chg.addBands(bl_classes).addBands(tg_classes).int16(),
-                   [BandInfo("Productivity state (degradation)", add_to_map=True,
-                             metadata={'year_bl_start': year_bl_start, 'year_bl_end': year_bl_end, 'year_tg_start': year_tg_start, 'year_tg_end': year_tg_end}),
-                    BandInfo("Productivity state classes", metadata={'year_start': year_bl_start, 'year_end': year_bl_end}),
-                    BandInfo("Productivity state classes", metadata={'year_start': year_tg_start, 'year_end': year_tg_end})])
+    pct_band_infos = [BandInfo("Productivity state percentile {}".format(pct), metadata={'year_start': year_tg_start, 'year_end': year_tg_end}) for pct in percentiles]
+    band_infos = [BandInfo("Productivity state (degradation)", add_to_map=True,
+                        metadata={'year_bl_start': year_bl_start, 'year_bl_end': year_bl_end, 'year_tg_start': year_tg_start, 'year_tg_end': year_tg_end}),
+                  BandInfo("Productivity state classes", metadata={'year_start': year_bl_start, 'year_end': year_bl_end}),
+                  BandInfo("Productivity state classes", metadata={'year_start': year_tg_start, 'year_end': year_tg_end}),
+                  BandInfo("Productivity state NDVI mean", metadata={'year_start': year_bl_start, 'year_end': year_bl_end}),
+                  BandInfo("Productivity state NDVI mean", metadata={'year_start': year_tg_start, 'year_end': year_tg_end})]
+    band_infos.extend(pct_band_infos)
+    return TEImage(classes_chg.addBands(bl_classes).addBands(tg_classes).addBands(bl_ndvi_mean).addBands(tg_ndvi_mean).addBands(bl_ndvi_perc).int16(), band_infos)
