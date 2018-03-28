@@ -192,9 +192,10 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
         .where(mk_trend.abs().lte(kendall90), 0) \
         .where(lf_trend.select('scale').abs().lte(10), 0)
 
-    return TEImage(lf_trend.select('scale').addBands(signif).rename(['slope', 'signif']).unmask(-32768).int16(),
+    return TEImage(lf_trend.select('scale').addBands(signif).addBands(mk_trend).unmask(-32768).int16(),
                    [BandInfo("Productivity trajectory (trend)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
-                    BandInfo("Productivity trajectory (significance)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end})])
+                    BandInfo("Productivity trajectory (significance)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
+                    BandInfo("mk_trend")])
 
 
 def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
