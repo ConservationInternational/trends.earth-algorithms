@@ -344,8 +344,4 @@ def productivity_state(year_bl_start, year_bl_end,
                   BandInfo("Productivity state classes", metadata={'year_start': year_tg_start, 'year_end': year_tg_end}),
                   BandInfo("Productivity state NDVI mean", metadata={'year_start': year_bl_start, 'year_end': year_bl_end}),
                   BandInfo("Productivity state NDVI mean", metadata={'year_start': year_tg_start, 'year_end': year_tg_end})]
-    pct_band_infos = [BandInfo("Productivity state percentile {}".format(pct), metadata={'year_start': year_tg_start, 'year_end': year_tg_end}) for pct in percentiles]
-    band_infos.extend(pct_band_infos)
-    bl_ndvi_band_infos = [BandInfo("Productivity state bl_ndvi_ext") for n in range(14)]
-    band_infos.extend(bl_ndvi_band_infos)
-    return TEImage(classes_chg.addBands(bl_classes).addBands(tg_classes).addBands(bl_ndvi_mean).addBands(tg_ndvi_mean).addBands(bl_ndvi_perc).addBands(bl_ndvi_ext).int16(), band_infos)
+    return TEImage(classes_chg.addBands(bl_classes).addBands(tg_classes).addBands(bl_ndvi_mean).addBands(tg_ndvi_mean).int16(), band_infos)
