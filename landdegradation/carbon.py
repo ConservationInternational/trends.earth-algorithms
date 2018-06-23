@@ -88,8 +88,7 @@ def tc(fc_threshold, year_start, year_end, method, EXECUTION_ID, logger):
     ##############################################/
     # define forest cover at the starting date
     fc_str = ee.Image(1).updateMask(hansen.select('treecover2000').gte(fc_threshold)) \
-        .updateMask(hansen.select('lossyear').where(hansen.select('lossyear').eq(0), 9999).gte(year_start-2000+1)) \
-        .rename('fc'+(year_start))
+        .updateMask(hansen.select('lossyear').where(hansen.select('lossyear').eq(0), 9999).gte(year_start-2000+1))
 
     # Create three band layer clipped to study area
     # Band 1: forest layer for initial year (0) and year loss coded as numbers (e.g. 1 = 2001)
@@ -97,8 +96,7 @@ def tc(fc_threshold, year_start, year_end, method, EXECUTION_ID, logger):
     # Band 3: total carbon stocks (tons of C per ha)
     output = fc_str.multiply(hansen.select('lossyear')).unmask(-32768) \
         .addBands(rs_ratio.multiply(100)).updateMask(fc_str.eq(1)).unmask(-32768) \
-        .addBands(tbcarbon.multiply(10)).updateMask(fc_str.eq(1)).unmask(-32768) \
-        .rename("forest", "rs_ratio","total_carbon")
+        .addBands(tbcarbon.multiply(10)).updateMask(fc_str.eq(1)).unmask(-32768)
 
     logger.debug("Setting up output.")
     out = TEImage(output.int16(),
