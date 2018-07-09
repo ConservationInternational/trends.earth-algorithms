@@ -38,33 +38,33 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
 
     # Root to shoot ratio methods
     if method == 'ipcc':
-        rs_ratio = (ee.Image(-32768) \
-            # low biomass wet tropical forest
-            .where(climate.eq(1).and(agb.lte(125)), 0.42) \
-            # high biomass wet tropical forest
-            .where(climate.eq(1).and(agb.gte(125)), 0.24) \
-            # dry tropical forest
-            .where(climate.eq(2), 0.27) \
-            # low biomass temperate conifer forest
-            .where(climate.eq(3).and(f_type.eq(2).and(agb.lte(50))), 0.46) \
-            # mid biomass temperate conifer forest
-            .where(climate.eq(3).and(f_type.eq(2).and(agb.gte(50)).and(agb.lte(150))), 0.32) \
-            # high biomass temperate conifer forest
-            .where(climate.eq(3).and(f_type.eq(2).and(agb.lte(150))), 0.23) \
-            # low biomass temperate broadleaf forest
-            .where(climate.eq(3).and(f_type.eq(1).and(agb.lte(75))), 0.43) \
-            # low biomass temperate broadleaf forest
-            .where(climate.eq(3).and(f_type.eq(1).and(agb.gte(75)).and(agb.lte(150))), 0.26) \
-            # low biomass temperate broadleaf forest
-            .where(climate.eq(3).and(f_type.eq(1).and(agb.lte(150))), 0.24) \
-            # low biomass temperate mixed forest
-            .where(climate.eq(3).and(f_type.eq(1).and(agb.lte(75))), (0.46+0.43)/2) \
-            # low biomass temperate mixed forest
-            .where(climate.eq(3).and(f_type.eq(1).and(agb.gte(75)).and(agb.lte(150))), (0.32+0.26)/2) \
-            # low biomass temperate mixed forest
-            .where(climate.eq(3).and(f_type.eq(1).and(agb.lte(150))), (0.23+0.24)/2) \
-            # savanas regardless of climate
-            .where(f_type.eq(4), 2.8))
+        rs_ratio = ee.Image(-32768)
+        # low biomass wet tropical forest
+        rs_ratio = rs_ratio.where(climate.eq(1).and(agb.lte(125)), 0.42)
+        # high biomass wet tropical forest
+        rs_ratio = rs_ratio.where(climate.eq(1).and(agb.gte(125)), 0.24)
+        # dry tropical forest
+        rs_ratio = rs_ratio.where(climate.eq(2), 0.27)
+        # low biomass temperate conifer forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(2).and(agb.lte(50))), 0.46)
+        # mid biomass temperate conifer forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(2).and(agb.gte(50)).and(agb.lte(150))), 0.32)
+        # high biomass temperate conifer forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(2).and(agb.lte(150))), 0.23)
+        # low biomass temperate broadleaf forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(1).and(agb.lte(75))), 0.43)
+        # low biomass temperate broadleaf forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(1).and(agb.gte(75)).and(agb.lte(150))), 0.26)
+        # low biomass temperate broadleaf forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(1).and(agb.lte(150))), 0.24)
+        # low biomass temperate mixed forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(1).and(agb.lte(75))), (0.46+0.43)/2)
+        # low biomass temperate mixed forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(1).and(agb.gte(75)).and(agb.lte(150))), (0.32+0.26)/2)
+        # low biomass temperate mixed forest
+        rs_ratio = rs_ratio.where(climate.eq(3).and(f_type.eq(1).and(agb.lte(150))), (0.23+0.24)/2)
+        # savanas regardless of climate
+        rs_ratio = rs_ratio.where(f_type.eq(4), 2.8))
         bgb = agb.multiply(rs_ratio)
     elif (method == 'mokany'):
         # calculate average above and below ground biomass
