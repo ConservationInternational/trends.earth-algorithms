@@ -38,7 +38,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
 
     # Root to shoot ratio methods
     if method == 'ipcc':
-        rs_ratio = ee.Image(-32768) \
+        rs_ratio = (ee.Image(-32768) \
             # low biomass wet tropical forest
             .where(climate.eq(1).and(agb.lte(125)), 0.42) \
             # high biomass wet tropical forest
@@ -64,7 +64,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
             # low biomass temperate mixed forest
             .where(climate.eq(3).and(f_type.eq(1).and(agb.lte(150))), (0.23+0.24)/2) \
             # savanas regardless of climate
-            .where(f_type.eq(4), 2.8)
+            .where(f_type.eq(4), 2.8))
         bgb = agb.multiply(rs_ratio)
     elif (method == 'mokany'):
         # calculate average above and below ground biomass
