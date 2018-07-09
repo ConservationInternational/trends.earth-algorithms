@@ -65,7 +65,7 @@ def tc(fc_threshold, year_start, year_end, method, EXECUTION_ID, logger):
             # savanas regardless of climate
             .where(f_type.eq(4), 2.8))
         bgb = agb.multiply(rs_ratio)
-    elif (method == 'equation'):
+    elif (method == 'mokany'):
         # calculate average above and below ground biomass
         # BGB (t ha-1) Citation Mokany et al. 2006 = (0.489)*(AGB)^(0.89)
         # Mokany used a linear regression of root biomass to shoot biomass for forest 
