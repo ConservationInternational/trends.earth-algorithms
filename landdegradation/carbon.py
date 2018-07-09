@@ -8,7 +8,8 @@ from landdegradation.util import TEImage
 from landdegradation.schemas.schemas import BandInfo
 
 
-def tc(fc_threshold, year_start, year_end, method, EXECUTION_ID, logger):
+def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID, 
+       logger):
     """
     Calculate total carbon (in belowground and aboveground biomass).
     """
