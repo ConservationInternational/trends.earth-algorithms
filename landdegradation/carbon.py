@@ -20,8 +20,14 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
     # Import Hansen global forest dataset
     hansen = ee.Image('UMD/hansen/global_forest_change_2016_v1_4')
 
-    #Import biomass dataset: WHRC is Megagrams of Aboveground Live Woody Biomass per Hectare (Mg/Ha)
-    agb = ee.Image("users/geflanddegradation/toolbox_datasets/biomass_30m")
+    # Import biomass dataset: Woods Hole Research Center data in Megagrams of 
+    # Aboveground Live Woody Biomass per Hectare (Mg/Ha)
+    if biomass_data == 'woodshole':
+        agb = ee.Image("users/geflanddegradation/toolbox_datasets/forest_agb_30m_woodhole")
+    elif biomass_data == 'geocarbon':
+        agb = ee.Image("users/geflanddegradation/toolbox_datasets/forest_agb_1km_geocarbon")
+    else:
+        agb = None
 
     # reclass to 1.broadleaf, 2.conifer, 3.mixed, 4.savanna
     f_type = ee.Image("users/geflanddegradation/toolbox_datasets/esa_forest_expanded_2015") \
