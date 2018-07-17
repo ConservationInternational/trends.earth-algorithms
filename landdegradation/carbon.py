@@ -20,7 +20,6 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
     # Import Hansen global forest dataset
     hansen = ee.Image('UMD/hansen/global_forest_change_2016_v1_4')
 
-    # Import biomass dataset: Woods Hole Research Center data in Megagrams of 
     # Aboveground Live Woody Biomass per Hectare (Mg/Ha)
     if biomass_data == 'woodshole':
         agb = ee.Image("users/geflanddegradation/toolbox_datasets/forest_agb_30m_woodhole")
@@ -28,11 +27,14 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
         agb = ee.Image("users/geflanddegradation/toolbox_datasets/forest_agb_1km_geocarbon")
     else:
         agb = None
+    # All datasets will be reprojected to Hansen resolution
+    agb = agb.reproject(crs=hansen.projection())
 
     # reclass to 1.broadleaf, 2.conifer, 3.mixed, 4.savanna
     f_type = ee.Image("users/geflanddegradation/toolbox_datasets/esa_forest_expanded_2015") \
         .remap([50,60,61,62,70,71,72,80,81,82,90,100,110],
                [ 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3,  3,  3])
+    f_type = f_type.reproject(crs=hansen.projection())
 
     # IPCC climate zones reclassified as from http://eusoils.jrc.ec.europa.eu/projects/RenewableEnergy/
     # 0-No data, 1-Warm Temperate Moist, 2-Warm Temperate Dry, 3-Cool Temperate Moist, 4-Cool Temperate Dry, 5-Polar Moist,
@@ -41,37 +43,10 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
     climate = ee.Image("users/geflanddegradation/toolbox_datasets/ipcc_climate_zones") \
         .remap([0,1,2,3,4,5,6,7,8,9,10,11,12],
                [0,1,2,3,3,3,3,3,3,1, 1, 1, 2])
+    climate = climate.reproject(crs=hansen.projection())
 
     # Root to shoot ratio methods
     if method == 'ipcc':
-        # rs_ratio = ee.Image(-32768)
-        # # low biomass wet tropical forest
-        # rs_ratio = rs_ratio.where(climate.eq(1).And(agb.lte(125)), 0.42)
-        # # high biomass wet tropical forest
-        # rs_ratio = rs_ratio.where(climate.eq(1).And(agb.gte(125)), 0.24)
-        # # dry tropical forest
-        # rs_ratio = rs_ratio.where(climate.eq(2), 0.27)
-        # # low biomass temperate conifer forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(2).And(agb.lte(50))), 0.46)
-        # # mid biomass temperate conifer forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(2).And(agb.gte(50)).And(agb.lte(150))), 0.32)
-        # # high biomass temperate conifer forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(2).And(agb.lte(150))), 0.23)
-        # # low biomass temperate broadleaf forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(1).And(agb.lte(75))), 0.43)
-        # # low biomass temperate broadleaf forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(1).And(agb.gte(75)).And(agb.lte(150))), 0.26)
-        # # low biomass temperate broadleaf forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(1).And(agb.lte(150))), 0.24)
-        # # low biomass temperate mixed forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(1).And(agb.lte(75))), (0.46+0.43)/2)
-        # # low biomass temperate mixed forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(1).And(agb.gte(75)).And(agb.lte(150))), (0.32+0.26)/2)
-        # # low biomass temperate mixed forest
-        # rs_ratio = rs_ratio.where(climate.eq(3).And(f_type.eq(1).And(agb.lte(150))), (0.23+0.24)/2)
-        # # savanas regardless of climate
-        # rs_ratio = rs_ratio.where(f_type.eq(4), 2.8))
-        #
         rs_ratio = (ee.Image(-32768)
             # low biomass wet tropical forest
             .where(climate.eq(1).And(agb.lte(125)), 0.42)
