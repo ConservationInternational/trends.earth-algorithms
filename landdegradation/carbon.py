@@ -107,6 +107,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
     output = fc_str.multiply(hansen.select('lossyear')).unmask(-32768) \
         .addBands(rs_ratio.multiply(100)).updateMask(fc_str.eq(1)).unmask(-32768) \
         .addBands(tbcarbon.multiply(10)).updateMask(fc_str.eq(1)).unmask(-32768)
+    output = output.reproject(crs=hansen.projection())
 
     logger.debug("Setting up output.")
     out = TEImage(output.int16(),
