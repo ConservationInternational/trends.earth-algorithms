@@ -102,7 +102,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
 
     ##############################################/
     # define forest cover at the starting date
-    fc_str = hansen.select("treecover2000").gte(tree_cover) \
+    fc_str = hansen.select("treecover2000").gte(fc_threshold) \
         .multiply(hansen.select('lossyear').lte(0).add(hansen.select('lossyear').gte(yr_str-2000))) \
         .rename('fc'+(yr_str))
 
