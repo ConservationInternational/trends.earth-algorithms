@@ -94,7 +94,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
         raise
 
     # Calculate Total biomass (t/ha) then convert to carbon equilavent (*0.5) to get Total Carbon (t ha-1) = (AGB+BGB)*0.5
-    tbcarbon = agb.expression('(bgb + abg ) * 0.5 ', {'bgb': bgb,'abg': agb})
+    tbcarbon = agb.expression('(bgb + abg) * 0.5', {'bgb': bgb,'abg': agb})
 
     # convert Total Carbon to Total Carbon dioxide tCO2/ha 
     # One ton of carbon equals 44/12 = 11/3 = 3.67 tons of carbon dioxide
@@ -103,7 +103,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
     ##############################################/
     # define forest cover at the starting date
     fc_str = hansen.select("treecover2000").gte(fc_threshold) \
-        .multiply(hansen.select('lossyear').lte(0).add(hansen.select('lossyear').gte(year_start-2000)))
+        .multiply(hansen.select('lossyear').lte(0).add(hansen.select('lossyear').gt(year_start-2000)))
 
     # Create three band layer clipped to study area
     # Band 1: forest layer for initial year (0) and year loss coded as numbers (e.g. 1 = 2001)
