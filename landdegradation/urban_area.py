@@ -36,9 +36,9 @@ def urban_area(geojson, un_adju, EXECUTION_ID, logger):
 
     # Use urban extent to mask population density data
     urb_pop2000 = pop2000.updateMask(urban_series.eq(1))
-    urb_pop2005 = pop2005.updateMask(urban_series.gte(1).and(urban_series.lte(2)))
-    urb_pop2010 = pop2010.updateMask(urban_series.gte(1).and(urban_series.lte(3)))
-    urb_pop2015 = pop2015.updateMask(urban_series.gte(1).and(urban_series.lte(4)))
+    urb_pop2005 = pop2005.updateMask(urban_series.gte(1).And(urban_series.lte(2)))
+    urb_pop2010 = pop2010.updateMask(urban_series.gte(1).And(urban_series.lte(3)))
+    urb_pop2015 = pop2015.updateMask(urban_series.gte(1).And(urban_series.lte(4)))
 		
     # Compute mean population density per year
     urb_pop2000m = urb_pop2000.reduceRegion(reducer=ee.Reducer.mean(), 
@@ -60,13 +60,13 @@ def urban_area(geojson, un_adju, EXECUTION_ID, logger):
     urb_are2000 = urban_series.updateMask(urban_series.eq(1)).multiply(ee.Image.pixelArea()) \
         .reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=30,
                       maxPixels=1e12)
-    urb_are2005 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(2))).multiply(ee.Image.pixelArea()) \
+    urb_are2005 = urban_series.updateMask(urban_series.gte(1).And(urban_series.lte(2))).multiply(ee.Image.pixelArea()) \
         .reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=30,
                       maxPixels=1e12)
-    urb_are2010 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(3))).multiply(ee.Image.pixelArea()) \
+    urb_are2010 = urban_series.updateMask(urban_series.gte(1).And(urban_series.lte(3))).multiply(ee.Image.pixelArea()) \
         .reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=30,
                       maxPixels=1e12)
-    urb_are2015 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(4))).multiply(ee.Image.pixelArea()) \
+    urb_are2015 = urban_series.updateMask(urban_series.gte(1).And(urban_series.lte(4))).multiply(ee.Image.pixelArea()) \
         .reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=30,
                       maxPixels=1e12)                              
 
