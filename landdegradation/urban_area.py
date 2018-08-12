@@ -41,33 +41,45 @@ def urban_area(geojson, un_adju, EXECUTION_ID, logger):
     urb_pop2015 = pop2015.updateMask(urban_series.gte(1).and(urban_series.lte(4)))
 		
     # Compute mean population density per year
-    urb_pop2000m = urb_pop2000.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi, scale: 30, maxPixels: 1e12})
-    urb_pop2005m = urb_pop2005.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi, scale: 30, maxPixels: 1e12})
-    urb_pop2010m = urb_pop2010.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi, scale: 30, maxPixels: 1e12})
-    urb_pop2015m = urb_pop2015.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi, scale: 30, maxPixels: 1e12})
+    urb_pop2000m = urb_pop2000.reduceRegion(reducer=ee.Reducer.mean(), 
+                                            geometry=aoi, scale=30, 
+                                            maxPixels=1e12)
+    urb_pop2005m = urb_pop2005.reduceRegion(reducer= ee.Reducer.mean(), 
+                                            geometry=aoi, scale=30, 
+                                            maxPixels=1e12)
+    urb_pop2010m = urb_pop2010.reduceRegion(reducer=ee.Reducer.mean(), 
+                                            geometry=aoi, scale=30, 
+                                            maxPixels=1e12)
+    urb_pop2015m = urb_pop2015.reduceRegion(reducer=ee.Reducer.mean(), 
+                                            geometry=aoi, scale=30, 
+                                            maxPixels=1e12)
 		
     # Compute urban area per year
     pixel_area = urban_series.updateMask(urban_series.eq(1)).multiply(ee.Image.pixelArea())
 
-    urb_are2000 = urban_series.updateMask(urban_series.eq(1)).multiply(ee.Image.pixelArea())
-				  .reduceRegion({reducer: ee.Reducer.sum(), geometry: aoi, scale: 30, maxPixels: 1e12})
-    urb_are2005 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(2))).multiply(ee.Image.pixelArea())
-				  .reduceRegion({reducer: ee.Reducer.sum(), geometry: aoi, scale: 30, maxPixels: 1e12})
-    urb_are2010 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(3))).multiply(ee.Image.pixelArea())
-				  .reduceRegion({reducer: ee.Reducer.sum(), geometry: aoi, scale: 30, maxPixels: 1e12})
-    urb_are2015 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(4))).multiply(ee.Image.pixelArea())
-				  .reduceRegion({reducer: ee.Reducer.sum(), geometry: aoi, scale: 30, maxPixels: 1e12})                              
+    urb_are2000 = urban_series.updateMask(urban_series.eq(1)).multiply(ee.Image.pixelArea()) \
+        .reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=30,
+                      maxPixels=1e12)
+    urb_are2005 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(2))).multiply(ee.Image.pixelArea()) \
+        .reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=30,
+                      maxPixels=1e12)
+    urb_are2010 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(3))).multiply(ee.Image.pixelArea()) \
+        .reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=30,
+                      maxPixels=1e12)
+    urb_are2015 = urban_series.updateMask(urban_series.gte(1).and(urban_series.lte(4))).multiply(ee.Image.pixelArea()) \
+        .reduceRegion(reducer=ee.Reducer.sum(), geometry=aoi, scale=30,
+                      maxPixels=1e12)                              
 
     # Make a dictionary to contain results
     result_table = ee.Dictionary({
-      pop_dens2000: urb_pop2000m.get('population-density'),
-      pop_dens2005: urb_pop2005m.get('population-density'),
-      pop_dens2010: urb_pop2010m.get('population-density'),
-      pop_dens2015: urb_pop2015m.get('population-density'),
-      urb_area2000: urb_are2000.get('classification'),
-      urb_area2005: urb_are2005.get('classification'),
-      urb_area2010: urb_are2010.get('classification'),
-      urb_area2015: urb_are2015.get('classification'),
+      "pop_dens2000": urb_pop2000m.get('population-density'),
+      "pop_dens2005": urb_pop2005m.get('population-density'),
+      "pop_dens2010": urb_pop2010m.get('population-density'),
+      "pop_dens2015": urb_pop2015m.get('population-density'),
+      "urb_area2000": urb_are2000.get('classification'),
+      "urb_area2005": urb_are2005.get('classification'),
+      "urb_area2010": urb_are2010.get('classification'),
+      "urb_area2015": urb_are2015.get('classification'),
     })
 
     # Export the FeatureCollection.
