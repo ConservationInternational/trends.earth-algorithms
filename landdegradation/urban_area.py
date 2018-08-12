@@ -82,13 +82,13 @@ def urban_area(geojson, un_adju, EXECUTION_ID, logger):
       "urb_area2015": urb_are2015.get('classification'),
     })
 
-    # Export the FeatureCollection.
-    Export.table.toDrive({
-      collection: ee.FeatureCollection([ee.Feature(null,result_table)]),
-      description: "export_urban_extent_table",
-      folder: 'sdg1131',
-      fileFormat: 'CSV'})
-
+    # # Export the FeatureCollection.
+    # Export.table.toDrive({
+    #   collection: ee.FeatureCollection([ee.Feature(null,result_table)]),
+    #   description: "export_urban_extent_table",
+    #   folder: 'sdg1131',
+    #   fileFormat: 'CSV'})
+    #
     # Export raster
     result_raster = urban_series.addBands(urb_pop2000).addBands(urb_pop2005).addBands(urb_pop2010).addBands(urb_pop2015)
 
