@@ -8,17 +8,17 @@ from landdegradation.util import TEImage
 from landdegradation.schemas.schemas import BandInfo
 
 
-def urban_area(iso, un_adju, EXECUTION_ID, logger):
+def urban_area(geojson, un_adju, EXECUTION_ID, logger):
     """
     Calculate urban area.
     """
 
     logger.debug("Entering urban_area function.")
 
-    aoi = ee.FeatureCollection("USDOS/LSIB/2013").filter(ee.Filter.eq('iso_alpha3', iso))
+    aoi = ee.Geometry(geojson)
 
     # Read asset with the time series of urban extent
-    urban_series = ee.Image("users/geflanddegradation/toolbox_datasets/urban_series_COL").int32()
+    urban_series = ee.Image("users/geflanddegradation/toolbox_datasets/urban_series").int32()
 
     # Load population data from GPWv4: Gridded Population of the World Version 4, People/km2 (not UN adjusted)
     if un_adju:
@@ -41,10 +41,10 @@ def urban_area(iso, un_adju, EXECUTION_ID, logger):
     urb_pop2015 = pop2015.updateMask(urban_series.gte(1).and(urban_series.lte(4)))
 		
     # Compute mean population density per year
-    urb_pop2000m = urb_pop2000.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi.geometry(), scale: 30, maxPixels: 1e12})
-    urb_pop2005m = urb_pop2005.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi.geometry(), scale: 30, maxPixels: 1e12})
-    urb_pop2010m = urb_pop2010.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi.geometry(), scale: 30, maxPixels: 1e12})
-    urb_pop2015m = urb_pop2015.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi.geometry(), scale: 30, maxPixels: 1e12})
+    urb_pop2000m = urb_pop2000.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi, scale: 30, maxPixels: 1e12})
+    urb_pop2005m = urb_pop2005.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi, scale: 30, maxPixels: 1e12})
+    urb_pop2010m = urb_pop2010.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi, scale: 30, maxPixels: 1e12})
+    urb_pop2015m = urb_pop2015.reduceRegion({reducer: ee.Reducer.mean(), geometry: aoi, scale: 30, maxPixels: 1e12})
 		
     # Compute urban area per year
     pixel_area = urban_series.updateMask(urban_series.eq(1)).multiply(ee.Image.pixelArea())
@@ -76,9 +76,6 @@ def urban_area(iso, un_adju, EXECUTION_ID, logger):
       description: "export_urban_extent_table",
       folder: 'sdg1131',
       fileFormat: 'CSV'})
-
-    # Alex: Added the code below to export the raster (int32), you'll need to change to save it in the Google cloud storage
-    # instead of the google drive
 
     # Export raster
     result_raster = urban_series.addBands(urb_pop2000).addBands(urb_pop2005).addBands(urb_pop2010).addBands(urb_pop2015)
