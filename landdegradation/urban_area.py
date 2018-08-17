@@ -98,7 +98,7 @@ def urban_area(geojson, un_adju, EXECUTION_ID, logger):
                    BandInfo("Population", metadata={'year': 2000}),
                    BandInfo("Population", metadata={'year': 2005}),
                    BandInfo("Population", metadata={'year': 2010}),
-                   BandInfo("Population", metadata={'year': 2015})])
+                   BandInfo("Population", add_to_map=True, metadata={'year': 2015})])
 
     #out.image = out.image.unmask(-32768).int16()
 
