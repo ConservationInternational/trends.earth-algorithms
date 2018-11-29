@@ -282,7 +282,7 @@ def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
         .where(obs_ratio_2.lte(0.5), -1)
 
     return TEImage(lp_perf_deg.addBands(obs_ratio_2.multiply(10000)).addBands(units).unmask(-32768).int16(),
-                   [BandInfo("Productivity performance (degradation)", True, {'year_start': year_start, 'year_end': year_end}),
+                   [BandInfo("Productivity performance (degradation)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
                     BandInfo("Productivity performance (ratio)", metadata={'year_start': year_start, 'year_end': year_end}),
                     BandInfo("Productivity performance (units)", metadata={'year_start': year_start})])
 
