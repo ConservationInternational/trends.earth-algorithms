@@ -131,7 +131,7 @@ class TEImage(object):
 
         self._check_validity()
 
-    def setVisible(self, band_names=[]):
+    def setAddToMap(self, band_names=[]):
         "Set the layers that will be added to the user's map in QGIS by default"
         for i in range(len(self.band_info)):
             if self.band_info[i].name in band_names:
