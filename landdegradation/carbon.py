@@ -18,7 +18,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
     ##############################################
     # DATASETS
     # Import Hansen global forest dataset
-    hansen = ee.Image('UMD/hansen/global_forest_change_2017_v1_5')
+    hansen = ee.Image('UMD/hansen/global_forest_change_2018_v1_6')
 
     # Aboveground Live Woody Biomass per Hectare (Mg/Ha)
     if biomass_data == 'woodshole':
