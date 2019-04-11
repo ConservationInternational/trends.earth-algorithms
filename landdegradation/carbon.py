@@ -22,7 +22,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
 
     # Aboveground Live Woody Biomass per Hectare (Mg/Ha)
     if biomass_data == 'woodshole':
-        agb = ee.Image("users/geflanddegradation/toolbox_datasets/forest_agb_30m_woodhole")
+        agb = ee.Image("users/geflanddegradation/toolbox_datasets/forest_agb_30m_gfw").mosaic().unmask(0)
     elif biomass_data == 'geocarbon':
         agb = ee.Image("users/geflanddegradation/toolbox_datasets/forest_agb_1km_geocarbon")
     else:
