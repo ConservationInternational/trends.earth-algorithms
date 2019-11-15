@@ -157,7 +157,7 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
 
-    ndvi_mean = ndvi_dataset.select(ee.List(['y{}'.format(i) for i in range(year_start, year_end + 1)])) \
+    ndvi_mean = ndvi_dataset.select(ee.List(['y{}'.format(i) for str(i) in range(year_start, year_end + 1)])) \
         .reduce(ee.Reducer.mean()).rename(['ndvi'])
 
     # Run the selected algorithm
@@ -181,10 +181,8 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     kendall95 = stats.get_kendall_coef(period, 95)
     kendall99 = stats.get_kendall_coef(period, 99)
 
-    # create final degradation output layer: 9999 is no data, 0 is not
-    # degraded, -3 is degraded (pvalue < 0.1), -2 is degraded (pvalue < 0.05),
-    # -3 is degraded (pvalue < 0.01), 3 is improving (pvalue < 0.1), 2 is
-    # improving (pvalue < 0.05), 3 is improving (pvalue < 0.01)
+    # Create final productivity trajectory output layer. Positive values are 
+    # significant increase, negative values are significant decrease.
     signif = ee.Image(-32768) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall90)), 1) \
         .where(lf_trend.select('scale').gt(0).And(mk_trend.abs().gte(kendall95)), 2) \
