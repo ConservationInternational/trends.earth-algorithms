@@ -157,7 +157,7 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
 
-    ndvi_mean = ndvi_dataset.select(ee.List(['y{}'.format(str(i)) for i in range(year_start, year_end + 1)])) \
+    ndvi_mean = ndvi_dataset.select(ee.List(['y{}'.format(i) for i in range(year_start, year_end + 1)])) \
         .reduce(ee.Reducer.mean()).rename(['ndvi'])
 
     # Run the selected algorithm
