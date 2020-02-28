@@ -16,7 +16,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.54',
+    version='0.55',
 
     description='A python package to facilitate analyzing remotely-sensed datasets from GEE in support of monitoring land degradation.',
     long_description=long_description,
@@ -70,7 +70,7 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['python-dateutil',
                       'marshmallow==3.0.0b7',
-                      'earthengine-api==0.1.111'],
+                      'earthengine-api==0.1.213'],
     
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
