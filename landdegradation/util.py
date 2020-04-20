@@ -4,7 +4,7 @@ import threading
 import random
 import requests
 
-from time import sleep
+from time import time, sleep
 
 from landdegradation import GEETaskFailure, GEEImageError
 from landdegradation.schemas.schemas import CloudResults, CloudResultsSchema, Url
@@ -12,6 +12,10 @@ from landdegradation.schemas.schemas import CloudResults, CloudResultsSchema, Ur
 
 # Google cloud storage bucket for output
 BUCKET = "ldmt"
+
+# Number of minutes a GEE task is allowed to run before timing out and being 
+# cancelled
+TASK_TIMEOUT_MINUTES = 48 * 60
 
 
 def get_region(geom):
@@ -61,12 +65,17 @@ class gee_task(threading.Thread):
         self.logger.debug("Starting GEE task {}.".format(self.task_id))
         self.task.start()
         self.state = self.task.status().get('state')
+        self.start_time = time()
         while self.state == 'READY' or self.state == 'RUNNING':
             task_progress = self.task.status().get('progress', 0.0)
             self.logger.send_progress(task_progress)
             self.logger.debug("GEE task {} progress {}.".format(self.task_id, task_progress))
             sleep(60)
             self.state = self.task.status().get('state')
+            if (time() - self.start_time) / 60 > TASK_TIMEOUT_MINUTES:
+                self.logger.debug("GEE task {} timed out after {} hours".format(self.task_id, (time() - self.start_time) / (60*60)))
+                ee.data.cancelTask(self.task_id)
+                raise GEETaskFailure(self.task)
         if self.state == 'COMPLETED':
             self.logger.debug("GEE task {} completed.".format(self.task_id))
         elif self.state == 'FAILED':
