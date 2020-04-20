@@ -61,28 +61,27 @@ class gee_task(threading.Thread):
         self.start()
 
     def run(self):
-        self.task_id = self.task.status().get('id')
-        self.logger.debug("Starting GEE task {}.".format(self.task_id))
         self.task.start()
+        self.logger.debug("Starting GEE task {}.".format(self.task.status().get('id')))
         self.state = self.task.status().get('state')
         self.start_time = time()
         while self.state == 'READY' or self.state == 'RUNNING':
             task_progress = self.task.status().get('progress', 0.0)
             self.logger.send_progress(task_progress)
-            self.logger.debug("GEE task {} progress {}.".format(self.task_id, task_progress))
+            self.logger.debug("GEE task {} progress {}.".format(self.task.status().get('id'), task_progress))
             sleep(60)
             self.state = self.task.status().get('state')
             if (time() - self.start_time) / 60 > TASK_TIMEOUT_MINUTES:
-                self.logger.debug("GEE task {} timed out after {} hours".format(self.task_id, (time() - self.start_time) / (60*60)))
-                ee.data.cancelTask(self.task_id)
+                self.logger.debug("GEE task {} timed out after {} hours".format(self.task.status().get('id'), (time() - self.start_time) / (60*60)))
+                ee.data.cancelTask(self.task.status().get('id'))
                 raise GEETaskFailure(self.task)
         if self.state == 'COMPLETED':
-            self.logger.debug("GEE task {} completed.".format(self.task_id))
+            self.logger.debug("GEE task {} completed.".format(self.task.status().get('id'))
         elif self.state == 'FAILED':
-            self.logger.debug("GEE task {} failed: {}".format(self.task_id, self.task.status().get('error_message')))
+            self.logger.debug("GEE task {} failed: {}".format(self.task.status().get('id'), self.task.status().get('error_message')))
             raise GEETaskFailure(self.task)
         else:
-            self.logger.debug("GEE task {} returned status {}: {}".format(self.task_id, self.state, self.task.status().get('error_message')))
+            self.logger.debug("GEE task {} returned status {}: {}".format(self.task.status().get('id'), self.state, self.task.status().get('error_message')))
             raise GEETaskFailure(self.task)
 
     def status(self):
