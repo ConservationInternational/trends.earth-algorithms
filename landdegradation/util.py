@@ -76,7 +76,7 @@ class gee_task(threading.Thread):
                 ee.data.cancelTask(self.task.status().get('id'))
                 raise GEETaskFailure(self.task)
         if self.state == 'COMPLETED':
-            self.logger.debug("GEE task {} completed.".format(self.task.status().get('id'))
+            self.logger.debug("GEE task {} completed.".format(self.task.status().get('id')))
         elif self.state == 'FAILED':
             self.logger.debug("GEE task {} failed: {}".format(self.task.status().get('id'), self.task.status().get('error_message')))
             raise GEETaskFailure(self.task)
