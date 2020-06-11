@@ -18,7 +18,7 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
     ##############################################
     # DATASETS
     # Import Hansen global forest dataset
-    hansen = ee.Image('UMD/hansen/global_forest_change_2018_v1_6')
+    hansen = ee.Image('UMD/hansen/global_forest_change_2019_v1_7')
 
     # Aboveground Live Woody Biomass per Hectare (Mg/Ha)
     if biomass_data == 'woodshole':
@@ -103,14 +103,14 @@ def tc(fc_threshold, year_start, year_end, method, biomass_data, EXECUTION_ID,
     ##############################################/
     # define forest cover at the starting date
     fc_str = hansen.select("treecover2000").gte(fc_threshold) \
-        .multiply(hansen.select('lossyear').lte(0).add(hansen.select('lossyear').gt(year_start-2000)))
+        .multiply(hansen.select('lossyear').unmask(0).lte(0).add(hansen.select('lossyear').unmask(0).gt(year_start-2000)))
 
     # Create three band layer clipped to study area
     # Band 1: forest layer for initial year (0) and year loss coded as numbers (e.g. 1 = 2001)
     # Band 2: root to shoot ratio 
     # Band 3: total carbon stocks (tons of C per ha)
-    output = fc_str.multiply(hansen.select('lossyear') \
-        .lte(year_end-2000).multiply(hansen.select('lossyear'))) \
+    output = fc_str.multiply(hansen.select('lossyear').unmask(0) \
+        .lte(year_end-2000).multiply(hansen.select('lossyear').unmask(0))) \
         .where(fc_str.eq(0),-1) \
         .where(water.gte(50),-2).unmask(-32768) \
         .addBands((rs_ratio.multiply(100)).multiply(fc_str)).unmask(-32768) \
