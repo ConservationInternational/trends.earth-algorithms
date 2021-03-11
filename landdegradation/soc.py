@@ -21,7 +21,7 @@ def soc(year_start, year_end, fl, remap_matrix, dl_annual_lc, EXECUTION_ID,
 
     # land cover - note it needs to be reprojected to match soc so that it can 
     # be output to cloud storage in the same stack
-    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2018") \
+    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2019") \
             .select(ee.List.sequence(year_start - 1992, year_end - 1992, 1)) \
             .reproject(crs=soc.projection())
     lc = lc.where(lc.eq(9999), -32768)
