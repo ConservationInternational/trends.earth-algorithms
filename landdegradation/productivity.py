@@ -208,7 +208,7 @@ def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
     ndvi_1yr = ndvi_1yr.updateMask(ndvi_1yr.neq(-32768))
 
     # land cover data from esa cci
-    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2018")
+    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2019")
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
@@ -239,7 +239,7 @@ def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
     mask = ndvi_avg.neq(0)
 
     # define modis projection attributes
-    modis_proj = ee.Image("users/geflanddegradation/toolbox_datasets/ndvi_modis_2001_2019").projection()
+    modis_proj = ee.Image("users/geflanddegradation/toolbox_datasets/ndvi_modis_2001_2020").projection()
 
     # reproject land cover, soil_tax_usda and avhrr to modis resolution
     lc_proj = lc_t0.reproject(crs=modis_proj)
