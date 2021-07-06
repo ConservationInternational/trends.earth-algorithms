@@ -208,7 +208,7 @@ def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
     ndvi_1yr = ndvi_1yr.updateMask(ndvi_1yr.neq(-32768))
 
     # land cover data from esa cci
-    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2019")
+    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2020")
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
@@ -224,8 +224,8 @@ def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
         .reduce(ee.Reducer.mean()).rename(['ndvi']).clip(poly)
 
     # Handle case of year_start that isn't included in the CCI data
-    if year_start > 2015:
-        lc_year_start = 2015
+    if year_start > 2020:
+        lc_year_start = 2020
     elif year_start < 1992:
         lc_year_start = 1992
     else:
