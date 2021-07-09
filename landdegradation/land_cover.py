@@ -16,7 +16,7 @@ def land_cover(year_baseline, year_target, trans_matrix,
     logger.debug("Entering land_cover function.")
 
     ## land cover
-    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2019")
+    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2020")
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
