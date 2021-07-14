@@ -92,6 +92,9 @@ def set_version(c, v=None):
         setup_regex = re.compile("^([ ]*version=[ ]*')[0-9]+([.][0-9]+)+")
         _replace('setup.py', setup_regex, '\g<1>' + v)
 
+        setup_install_requires_schemas_regex = re.compile('(trends.earth-schemas.git)([@.0-9]*)')
+        _replace('setup.py', setup_install_requires_schemas_regex, '\g<1>' + v)
+
 
 ###############################################################################
 # Setup dependencies and install package
