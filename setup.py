@@ -59,14 +59,17 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    packages=find_packages(exclude=['docs', 'tests']),
+    packages = ['landdegradation'],
+    package_dir = {'landdegradation' : 'landdegradation'},
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['python-dateutil',
-                      'marshmallow==3.3.0',
+                      'marshmallow==3.12.2',
+                      'marshmallow-dataclass==8.4.2',
+                      'te_schemas@git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop',
                       'earthengine-api==0.1.232'],
     
     # List additional groups of dependencies here (e.g. development
