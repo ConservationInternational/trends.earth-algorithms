@@ -69,7 +69,7 @@ setup(
     install_requires=['python-dateutil',
                       'marshmallow==3.12.2',
                       'marshmallow-dataclass==8.4.2',
-                      'te_schemas@git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop',
+                      'te_schemas @ git+https://github.com/ConservationInternational/te_schemas.git@develop',
                       'earthengine-api==0.1.232'],
     
     # List additional groups of dependencies here (e.g. development
