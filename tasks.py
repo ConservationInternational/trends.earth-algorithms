@@ -92,8 +92,15 @@ def set_version(c, v=None):
         setup_regex = re.compile("^([ ]*version=[ ]*')[0-9]+([.][0-9]+)+")
         _replace('setup.py', setup_regex, '\g<1>' + v)
 
-        setup_install_requires_schemas_regex = re.compile('(trends.earth-schemas.git)([@.0-9]*)')
-        _replace('setup.py', setup_install_requires_schemas_regex, '\g<1>' + v)
+        setup_install_requires_schemas_regex = re.compile('(trends.earth-schemas.git@)([.0-9a-z]*)')
+        if (int(v.split('.')[-1]) % 2) == 0:
+            # Last number in version string is even, so use a tagged version of 
+            # schemas matching this version
+            _replace('setup.py', setup_install_requires_schemas_regex, '\g<1>v' + v)
+        else:
+            # Last number in version string is odd, so this is a development 
+            # version, so use development version of schemas
+            _replace('setup.py', setup_install_requires_schemas_regex, '\g<1>develop')
 
 
 ###############################################################################
