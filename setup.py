@@ -16,7 +16,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='1.0.6',
+    version='1.0.7',
 
     description='A python package to facilitate analyzing remotely-sensed datasets from GEE in support of monitoring land degradation.',
     long_description=long_description,
@@ -69,7 +69,7 @@ setup(
     install_requires=['python-dateutil',
                       'marshmallow==3.12.2',
                       'marshmallow-dataclass==8.4.2',
-                      'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@v1.0.6',
+                      'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop',
                       'earthengine-api==0.1.232'],
     
     # List additional groups of dependencies here (e.g. development
