@@ -123,11 +123,36 @@ def read_requirements():
     not_comments = lambda s,e: [ l for l in lines[s:e] if l[0] != '#']
     return not_comments(0, idx), not_comments(idx+1, None)
 
+@task()
+def set_tag(c):
+    v = get_version(c)
+    ret = subprocess.run(['git', 'diff-index', 'HEAD', '--'], 
+                          capture_output=True, text=True)
+    if ret.stdout != '':
+        ret = query_yes_no('Uncommitted changes exist in repository. Commit these?')
+        if ret:
+            ret = subprocess.run(['git', 'commit', '-m', 'Updating version tags for v{}'.format(v)])
+            ret.check_returncode()
+        else:
+            print('Changes not committed - VERSION TAG NOT SET'.format(v))
+
+    print('Tagging version {} and pushing tag to origin'.format(v))
+    ret = subprocess.run(['git', 'tag', '-l', 'v{}'.format(v)], 
+                         capture_output=True, text=True)
+    ret.check_returncode()
+    if 'v{}'.format(v) in ret.stdout:
+        # Try to delete this tag on remote in case it exists there
+        ret = subprocess.run(['git', 'push', 'origin', '--delete', 'v{}'.format(v)])
+        if ret.returncode == 0:
+            print('Deleted tag v{} on origin'.format(v))
+    subprocess.check_call(['git', 'tag', '-f', '-a', 'v{}'.format(v), '-m', 'Version {}'.format(v)])
+    subprocess.check_call(['git', 'push', 'origin', 'v{}'.format(v)])
+
 ###############################################################################
 # Options
 ###############################################################################
 
-ns = Collection(set_version)
+ns = Collection(set_version, set_tag)
 
 ns.configure({
     'version_file_raw': 'version.txt',
