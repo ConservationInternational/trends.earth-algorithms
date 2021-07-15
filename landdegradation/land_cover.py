@@ -5,8 +5,8 @@ from __future__ import print_function
 import ee
 
 from landdegradation.util import TEImage
-from landdegradation.schemas.schemas import BandInfo
-from landdegradation.schemas.land_cover import LCTransMatrix, LCLegendNesting
+from te_schemas.schemas import BandInfo
+from te_schemas.land_cover import LCTransMatrix, LCLegendNesting
 
 
 def land_cover(year_baseline, year_target, trans_matrix,

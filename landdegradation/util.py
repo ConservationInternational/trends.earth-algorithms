@@ -7,7 +7,7 @@ import requests
 from time import time, sleep
 
 from landdegradation import GEETaskFailure, GEEImageError
-from landdegradation.schemas.schemas import CloudResults, CloudResultsSchema, Url
+from te_schemas.schemas import CloudResults, CloudResultsSchema, Url
 
 
 # Google cloud storage bucket for output
