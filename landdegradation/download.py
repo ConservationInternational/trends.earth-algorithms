@@ -5,7 +5,7 @@ from __future__ import print_function
 import ee
 
 from landdegradation.util import TEImage
-from landdegradation.schemas.schemas import BandInfo
+from te_schemas.schemas import BandInfo
 
 def download(asset, name, temporal_resolution, start_year, end_year, 
              EXECUTION_ID, logger):

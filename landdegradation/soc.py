@@ -5,7 +5,7 @@ from __future__ import print_function
 import ee
 
 from landdegradation.util import TEImage
-from landdegradation.schemas.schemas import BandInfo
+from te_schemas.schemas import BandInfo
 
 
 def soc(year_start, year_end, fl, remap_matrix, dl_annual_lc, EXECUTION_ID, 

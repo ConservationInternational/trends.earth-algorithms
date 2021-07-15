@@ -6,7 +6,7 @@ import ee
 
 from landdegradation import stats, GEEIOError
 from landdegradation.util import TEImage
-from landdegradation.schemas.schemas import BandInfo
+from te_schemas.schemas import BandInfo
 
 
 def ndvi_trend(year_start, year_end, ndvi_1yr, logger):
