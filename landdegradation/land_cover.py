@@ -21,8 +21,8 @@ def land_cover(year_baseline, year_target, trans_matrix,
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
-    logger.debug("nesting[0]: {}".format(nesting.get_list[0])
-    logger.debug("nesting[1]: {}".format(nesting.get_list[1])
+    logger.debug("nesting[0]: {}".format(nesting.get_list()[0]))
+    logger.debug("nesting[1]: {}".format(nesting.get_list()[1]))
 
     # Remap LC according to input matrix
     lc_remapped = lc.select('y{}'.format(year_baseline)).remap(nesting.get_list()[0], nesting.get_list()[1])
