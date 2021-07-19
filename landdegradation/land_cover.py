@@ -16,40 +16,37 @@ def land_cover(year_baseline, year_target, trans_matrix,
     """
     logger.debug("Entering land_cover function.")
 
-    ## land cover
+    # Land cover
     lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2020")
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
-    logger.debug("nesting[0]: {}".format(nesting.get_list()[0]))
-    logger.debug("nesting[1]: {}".format(nesting.get_list()[1]))
+    logger.debug("(land_cover function) len(nesting[0]): {}, nesting[0]: {}".format(len(nesting.get_list()[0]), nesting.get_list()[0]))
+    logger.debug("(land_cover function) len(nesting[1]): {}, nesting[1]: {}".format(len(nesting.get_list()[0]), nesting.get_list()[1]))
 
     # Remap LC according to input matrix
     lc_remapped = lc.select('y{}'.format(year_baseline)).remap(nesting.get_list()[0], nesting.get_list()[1])
     for year in range(year_baseline + 1, year_target + 1):
         lc_remapped = lc_remapped.addBands(lc.select('y{}'.format(year)).remap(nesting.get_list()[0], nesting.get_list()[1]))
 
-    ## target land cover map reclassified to IPCC 6 classes
+    # Target land cover map reclassified to IPCC 6 classes
     lc_bl = lc_remapped.select(0)
 
-    ## baseline land cover map reclassified to IPCC 6 classes
+    # baseline land cover map reclassified to IPCC 6 classes
     lc_tg = lc_remapped.select(len(lc_remapped.getInfo()['bands']) - 1)
 
-    ## compute transition map (first digit for baseline land cover, and second digit for target year land cover)
+    # compute transition map (first digit for baseline land cover, and second 
+    # digit for target year land cover)
     lc_tr = lc_bl.multiply(10).add(lc_tg)
 
-    ## definition of land cover transitions as degradation (-1), improvement (1), or no relevant change (0)
-    lc_dg = lc_tr.remap([11, 12, 13, 14, 15, 16, 17,
-                         21, 22, 23, 24, 25, 26, 27,
-                         31, 32, 33, 34, 35, 36, 37,
-                         41, 42, 43, 44, 45, 46, 47,
-                         51, 52, 53, 54, 55, 56, 57,
-                         61, 62, 63, 64, 65, 66, 67,
-                         71, 72, 73, 74, 75, 76, 77],
-                        trans_matrix.get_list())
+    logger.debug("(land_cover function) len(trans_matrix[0]): {}, trans_matrix[0]: {}".format(len(trans_matrix.get_list()[0]), trans_matrix.get_list()[0]))
+    logger.debug("(land_cover function) len(trans_matrix[1]): {}, trans_matrix[1]: {}".format(len(trans_matrix.get_list()[0]), trans_matrix.get_list()[1]))
+    # definition of land cover transitions as degradation (-1), improvement 
+    # (1), or no relevant change (0)
+    lc_dg = lc_tr.remap(trans_matrix.get_list())
 
-    ## Remap persistence classes so they are sequential. This
-    ## makes it easier to assign a clear color ramp in QGIS.
+    # Remap persistence classes so they are sequential. This
+    # makes it easier to assign a clear color ramp in QGIS.
     lc_tr = lc_tr.remap([11, 12, 13, 14, 15, 16, 17,
                          21, 22, 23, 24, 25, 26, 27,
                          31, 32, 33, 34, 35, 36, 37,
