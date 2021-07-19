@@ -152,10 +152,10 @@ def soc(year_start, year_end, fl, nesting, dl_annual_lc, EXECUTION_ID, logger):
             stack_soc = stack_soc.addBands(socn)
 
     # compute soc percent change for the analysis period
-    soc_pch = ((stack_soc.select(year_end - year_start) \
-                .subtract(stack_soc.select(0))) \
-               .divide(stack_soc.select(0))) \
-              .multiply(100)
+    soc_pch = (((stack_soc.select(year_end - year_start)
+                .subtract(stack_soc.select(0)))
+                .divide(stack_soc.select(0)))
+               .multiply(100))
 
     logger.debug("Setting up output.")
     out = TEImage(soc_pch,
