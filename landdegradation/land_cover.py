@@ -21,9 +21,6 @@ def land_cover(year_baseline, year_target, trans_matrix,
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
-    logger.debug("(land_cover function) len(nesting[0]): {}, nesting[0]: {}".format(len(nesting.get_list()[0]), nesting.get_list()[0]))
-    logger.debug("(land_cover function) len(nesting[1]): {}, nesting[1]: {}".format(len(nesting.get_list()[0]), nesting.get_list()[1]))
-
     # Remap LC according to input matrix
     lc_remapped = lc.select('y{}'.format(year_baseline)).remap(nesting.get_list()[0], nesting.get_list()[1])
     for year in range(year_baseline + 1, year_target + 1):
@@ -39,15 +36,13 @@ def land_cover(year_baseline, year_target, trans_matrix,
     # digit for target year land cover)
     lc_tr = lc_bl.multiply(trans_matrix.get_multiplier()).add(lc_tg)
 
-    logger.debug("(land_cover function) len(trans_matrix[0]): {}, trans_matrix[0]: {}".format(len(trans_matrix.get_list()[0]), trans_matrix.get_list()[0]))
-    logger.debug("(land_cover function) len(trans_matrix[1]): {}, trans_matrix[1]: {}".format(len(trans_matrix.get_list()[0]), trans_matrix.get_list()[1]))
     # definition of land cover transitions as degradation (-1), improvement 
     # (1), or no relevant change (0)
     lc_dg = lc_tr.remap(trans_matrix.get_list()[0], trans_matrix.get_list()[1])
 
+    logger.debug("(land_cover function) len(trans_matrix_persistence[0]): {}, trans_matrix_persistence[0]: {}".format(len(trans_matrix.get_persistence_list()[0]), trans_matrix.get_persistence_list()[1]))
     # Remap persistence classes so they are sequential. This
     # makes it easier to assign a clear color ramp in QGIS.
-    logger.debug("(land_cover function) len(trans_matrix_persistence[0]): {}, trans_matrix_persistence[0]: {}".format(len(trans_matrix.get_persistence_list()[0]), trans_matrix.get_persistence_list()[0]))
     lc_tr = lc_tr.remap(trans_matrix.get_persistence_list()[0], 
                         trans_matrix.get_persistence_list()[1])
 
