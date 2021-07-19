@@ -39,7 +39,6 @@ def land_cover(year_baseline, year_target, trans_matrix,
     # (1), or no relevant change (0)
     lc_dg = lc_tr.remap(trans_matrix.get_list()[0], trans_matrix.get_list()[1])
 
-    logger.debug("(land_cover function) trans_matrix_persistence[0]: {}, trans_matrix_persistence[1]: {}".format(trans_matrix.get_persistence_list()[0], trans_matrix.get_persistence_list()[1]))
     # Remap persistence classes so they are sequential. This
     # makes it easier to assign a clear color ramp in QGIS.
     lc_tr = lc_tr.remap(trans_matrix.get_persistence_list()[0], 
@@ -63,6 +62,9 @@ def land_cover(year_baseline, year_target, trans_matrix,
                                       'year_target': year_target,
                                       'nesting': nesting.as_json()})])
 
+    logger.debug("nesting.as_json(): {}", nesting.as_json())
+    logger.debug("trans_matrix.as_json(): {}", nesting.as_json())
+
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")
     d_lc = []
@@ -71,7 +73,10 @@ def land_cover(year_baseline, year_target, trans_matrix,
             add_to_map = True
         else:
             add_to_map = False
-        d_lc.append(BandInfo("Land cover (7 class)", add_to_map=add_to_map, metadata={'year': year}))
+        d_lc.append(BandInfo("Land cover (7 class)",
+            add_to_map=add_to_map,
+            metadata={'year': year,
+                      'nesting': nesting.as_json()}))
     out.addBands(lc_remapped, d_lc)
 
     out.image = out.image.unmask(-32768).int16()
