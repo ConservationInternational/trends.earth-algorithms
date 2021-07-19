@@ -43,12 +43,13 @@ def land_cover(year_baseline, year_target, trans_matrix,
     logger.debug("(land_cover function) len(trans_matrix[1]): {}, trans_matrix[1]: {}".format(len(trans_matrix.get_list()[0]), trans_matrix.get_list()[1]))
     # definition of land cover transitions as degradation (-1), improvement 
     # (1), or no relevant change (0)
-    lc_dg = lc_tr.remap(trans_matrix.get_list())
+    lc_dg = lc_tr.remap(trans_matrix.get_list()[0], trans_matrix.get_list()[1])
 
     # Remap persistence classes so they are sequential. This
     # makes it easier to assign a clear color ramp in QGIS.
     logger.debug("(land_cover function) len(trans_matrix_persistence[0]): {}, trans_matrix_persistence[0]: {}".format(len(trans_matrix.get_persistence_list()[0]), trans_matrix.get_persistence_list()[0]))
-    lc_tr = lc_tr.remap(trans_matrix.get_persistence_list())
+    lc_tr = lc_tr.remap(trans_matrix.get_persistence_list()[0], 
+                        trans_matrix.get_persistence_list()[1])
 
     logger.debug("Setting up output.")
     out = TEImage(lc_dg.addBands(lc.select('y{}'.format(year_baseline))).addBands(lc.select('y{}'.format(year_target))).addBands(lc_tr),
