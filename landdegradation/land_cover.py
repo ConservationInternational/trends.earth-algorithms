@@ -6,7 +6,6 @@ import ee
 
 from landdegradation.util import TEImage
 from te_schemas.schemas import BandInfo
-from te_schemas.land_cover import LCTransMatrix, LCLegendNesting
 
 
 def land_cover(year_baseline, year_target, trans_matrix,
