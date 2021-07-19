@@ -40,7 +40,7 @@ def land_cover(year_baseline, year_target, trans_matrix,
     # (1), or no relevant change (0)
     lc_dg = lc_tr.remap(trans_matrix.get_list()[0], trans_matrix.get_list()[1])
 
-    logger.debug("(land_cover function) len(trans_matrix_persistence[0]): {}, trans_matrix_persistence[0]: {}".format(len(trans_matrix.get_persistence_list()[0]), trans_matrix.get_persistence_list()[1]))
+    logger.debug("(land_cover function) trans_matrix_persistence[0]: {}, trans_matrix_persistence[1]: {}".format(trans_matrix.get_persistence_list()[0], trans_matrix.get_persistence_list()[1]))
     # Remap persistence classes so they are sequential. This
     # makes it easier to assign a clear color ramp in QGIS.
     lc_tr = lc_tr.remap(trans_matrix.get_persistence_list()[0], 
