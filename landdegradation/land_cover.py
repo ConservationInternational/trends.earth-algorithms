@@ -10,7 +10,7 @@ from te_schemas.land_cover import LCTransMatrix, LCLegendNesting
 
 
 def land_cover(year_baseline, year_target, trans_matrix,
-               remap_matrix, EXECUTION_ID, logger):
+               nesting, EXECUTION_ID, logger):
     """
     Calculate land cover indicator.
     """
@@ -22,9 +22,9 @@ def land_cover(year_baseline, year_target, trans_matrix,
     lc = lc.updateMask(lc.neq(-32768))
 
     # Remap LC according to input matrix
-    lc_remapped = lc.select('y{}'.format(year_baseline)).remap(remap_matrix[0], remap_matrix[1])
+    lc_remapped = lc.select('y{}'.format(year_baseline)).remap(nesting.get_list()[0], nesting.get_list()[1])
     for year in range(year_baseline + 1, year_target + 1):
-        lc_remapped = lc_remapped.addBands(lc.select('y{}'.format(year)).remap(remap_matrix[0], remap_matrix[1]))
+        lc_remapped = lc_remapped.addBands(lc.select('y{}'.format(year)).remap(nesting.get_list()[0], nesting.get_list()[1]))
 
     ## target land cover map reclassified to IPCC 6 classes
     lc_bl = lc_remapped.select(0)
@@ -43,7 +43,7 @@ def land_cover(year_baseline, year_target, trans_matrix,
                          51, 52, 53, 54, 55, 56, 57,
                          61, 62, 63, 64, 65, 66, 67,
                          71, 72, 73, 74, 75, 76, 77],
-                        trans_matrix)
+                        trans_matrix.get_list())
 
     ## Remap persistence classes so they are sequential. This
     ## makes it easier to assign a clear color ramp in QGIS.
@@ -68,12 +68,12 @@ def land_cover(year_baseline, year_target, trans_matrix,
                                                                                    'year_target': year_target,
                                                                                    'trans_matrix': trans_matrix}),
                    BandInfo("Land cover (ESA classes)", metadata={'year': year_baseline,
-                                                                  'remap_matrix': remap_matrix}),
+                                                                  'nesting': nesting}),
                    BandInfo("Land cover (ESA classes)", metadata={'year': year_target,
-                                                                  'remap_matrix': remap_matrix}),
+                                                                  'nesting': nesting}),
                    BandInfo("Land cover transitions", add_to_map=True, metadata={'year_baseline': year_baseline,
                                                                                  'year_target': year_target,
-                                                                                 'remap_matrix': remap_matrix})])
+                                                                                 'nesting': nesting})])
 
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")

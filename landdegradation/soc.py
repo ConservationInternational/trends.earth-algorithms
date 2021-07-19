@@ -8,7 +8,7 @@ from landdegradation.util import TEImage
 from te_schemas.schemas import BandInfo
 
 
-def soc(year_start, year_end, fl, remap_matrix, dl_annual_lc, EXECUTION_ID, 
+def soc(year_start, year_end, fl, nesting, dl_annual_lc, EXECUTION_ID, 
         logger):
     """
     Calculate SOC indicator.
@@ -44,9 +44,9 @@ def soc(year_start, year_end, fl, remap_matrix, dl_annual_lc, EXECUTION_ID,
     for k in range(year_end - year_start):
         # land cover map reclassified to UNCCD 7 classes (1: forest, 2: 
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
-        lc_t0 = lc.select(k).remap(remap_matrix[0], remap_matrix[1])
+        lc_t0 = lc.select(k).remap(nesting.get_list()[0], nesting.get_list()[1])
 
-        lc_t1 = lc.select(k + 1).remap(remap_matrix[0], remap_matrix[1])
+        lc_t1 = lc.select(k + 1).remap(nesting.get_list()[0], nesting.get_list()[1])
 
         if (k == 0):
             # compute transition map (first digit for baseline land cover, and 
