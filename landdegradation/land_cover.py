@@ -47,17 +47,22 @@ def land_cover(year_baseline, year_target, trans_matrix,
                         trans_matrix.get_persistence_list()[1])
 
     logger.debug("Setting up output.")
-    out = TEImage(lc_dg.addBands(lc.select('y{}'.format(year_baseline))).addBands(lc.select('y{}'.format(year_target))).addBands(lc_tr),
-                  [BandInfo("Land cover (degradation)", add_to_map=True, metadata={'year_baseline': year_baseline,
-                                                                                   'year_target': year_target,
-                                                                                   'trans_matrix': trans_matrix}),
-                   BandInfo("Land cover (ESA classes)", metadata={'year': year_baseline,
-                                                                  'nesting': nesting}),
-                   BandInfo("Land cover (ESA classes)", metadata={'year': year_target,
-                                                                  'nesting': nesting}),
-                   BandInfo("Land cover transitions", add_to_map=True, metadata={'year_baseline': year_baseline,
-                                                                                 'year_target': year_target,
-                                                                                 'nesting': nesting})])
+    out = TEImage(
+            lc_dg.addBands(lc.select('y{}'.format(year_baseline))).addBands(lc.select('y{}'.format(year_target))).addBands(lc_tr),
+                  [BandInfo("Land cover (degradation)", add_to_map=True,
+                            metadata={'year_baseline': year_baseline,
+                                      'year_target': year_target,
+                                      'trans_matrix': trans_matrix.as_json()})],
+                   BandInfo("Land cover (ESA classes)",
+                            metadata={'year': year_baseline,
+                                      'nesting': nesting.as_json()})],
+                   BandInfo("Land cover (ESA classes)",
+                            metadata={'year': year_target,
+                                      'nesting': nesting.as_json()})],
+                   BandInfo("Land cover transitions", add_to_map=True,
+                            metadata={'year_baseline': year_baseline,
+                                      'year_target': year_target,
+                                      'nesting': nesting.as_json()})])
 
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")
