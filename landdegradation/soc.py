@@ -178,17 +178,17 @@ def soc(year_start, year_end, fl, nesting, dl_annual_lc, EXECUTION_ID, logger):
         for year in range(year_start, year_end + 1):
             d_lc.append(BandInfo("Land cover (7 class)",
                                  metadata={'year': year,
-                                           'nesting': nesting.as_json()}))
+                                           'nesting': nesting.dumps()}))
         out.addBands(stack_lc, d_lc)
     else:
         logger.debug("Adding initial and final LC layers.")
         out.addBands(stack_lc.select(0).addBands(stack_lc.select(len(stack_lc.getInfo()['bands']) - 1)),
                      [BandInfo("Land cover (7 class)",
                                metadata={'year': year_start,
-                                         'nesting': nesting.as_json()}),
+                                         'nesting': nesting.dumps()}),
                       BandInfo("Land cover (7 class)",
                                metadata={'year': year_end,
-                                         'nesting': nesting.as_json()})])
+                                         'nesting': nesting.dumps()})])
 
     out.image = out.image.unmask(-32768).int16()
 
