@@ -62,9 +62,6 @@ def land_cover(year_baseline, year_target, trans_matrix,
                                       'year_target': year_target,
                                       'nesting': nesting.dumps()})])
 
-    logger.debug("nesting.dumps(): {}".format(nesting.dumps()))
-    logger.debug("trans_matrix.dumps(): {}".format(nesting.dumps()))
-
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")
     d_lc = []
