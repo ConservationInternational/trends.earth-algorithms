@@ -81,4 +81,6 @@ def land_cover(year_baseline, year_target, trans_matrix,
 
     out.image = out.image.unmask(-32768).int16()
 
+    logger.debug("Leaving land_cover function.")
+
     return out
