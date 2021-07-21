@@ -50,7 +50,7 @@ def soc(year_start, year_end, fl, nesting, dl_annual_lc, EXECUTION_ID, logger):
         if (k == 0):
             # compute transition map (first digit for baseline land cover, and 
             # second digit for target year land cover) 
-            lc_tr = lc_t0.multiply(10).add(lc_t1)
+            lc_tr = lc_t0.multiply(trans_matrix.get_multiplier()).add(lc_t1)
           
             # compute raster to register years since transition
             tr_time = ee.Image(2).where(lc_t0.neq(lc_t1), 1)
@@ -136,12 +136,12 @@ def soc(year_start, year_end, fl, nesting, dl_annual_lc, EXECUTION_ID, logger):
         else:
             # compute annual change in soc (updates from previous period based 
             # on transition and time <20 years)
-            soc_chg = soc_chg.where(lc_t0.neq(lc_t1),
-                                    (stack_soc.select(k).subtract(stack_soc.select(k) \
-                                                                  .multiply(lc_tr_fl) \
-                                                                  .multiply(lc_tr_fm) \
-                                                                  .multiply(lc_tr_fo))).divide(20)) \
-                             .where(tr_time.gt(20), 0)
+            soc_chg = (soc_chg.where(lc_t0.neq(lc_t1),
+                                     (stack_soc.select(k).subtract(stack_soc.select(k)
+                                                                   .multiply(lc_tr_fl)
+                                                                   .multiply(lc_tr_fm) 
+                                                                   .multiply(lc_tr_fo))).divide(20))
+                       .where(tr_time.gt(20), 0))
           
             # compute final SOC for the period
             socn = stack_soc.select(k).subtract(soc_chg)
