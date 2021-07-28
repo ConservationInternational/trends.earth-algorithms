@@ -158,7 +158,11 @@ def soc(year_start, year_end, fl, trans_matrix, nesting, dl_annual_lc,
 
     logger.debug("Setting up output.")
     out = TEImage(soc_pch,
-                  [BandInfo("Soil organic carbon (degradation)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end})])
+                  [BandInfo("Soil organic carbon (degradation)", add_to_map=True,
+                   metadata={'year_start': year_start,
+                             'year_end': year_end,
+                             'trans_matrix': trans_matrix.dumps(),
+                             'nesting': nesting.dumps()})])
 
     logger.debug("Adding annual SOC layers.")
     # Output all annual SOC layers
@@ -169,9 +173,7 @@ def soc(year_start, year_end, fl, trans_matrix, nesting, dl_annual_lc,
         else:
             add_to_map = False
         d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map,
-                              metadata={'year': year,
-                                        'trans_matrix': trans_matrix.dumps(),
-                                        'nesting': nesting.dumps()}))
+                              metadata={'year': year}))
     out.addBands(stack_soc, d_soc)
 
     if dl_annual_lc:

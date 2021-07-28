@@ -70,9 +70,9 @@ def land_cover(year_baseline, year_target, trans_matrix,
         else:
             add_to_map = False
         d_lc.append(BandInfo("Land cover (7 class)",
-            add_to_map=add_to_map,
-            metadata={'year': year,
-                      'nesting': nesting.dumps()}))
+                    add_to_map=add_to_map,
+                    metadata={'year': year,
+                              'nesting': nesting.dumps()}))
     out.addBands(lc_remapped, d_lc)
 
     out.image = out.image.unmask(-32768).int16()
