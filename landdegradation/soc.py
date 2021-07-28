@@ -168,7 +168,10 @@ def soc(year_start, year_end, fl, trans_matrix, nesting, dl_annual_lc,
             add_to_map = True
         else:
             add_to_map = False
-        d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map, metadata={'year': year}))
+        d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map,
+                              metadata={'year': year,
+                                        'trans_matrix': trans_matrix.dumps(),
+                                        'nesting': nesting.dumps()}))
     out.addBands(stack_soc, d_soc)
 
     if dl_annual_lc:
