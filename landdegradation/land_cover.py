@@ -57,8 +57,7 @@ def land_cover(year_baseline, year_target, trans_matrix,
                    BandInfo("Land cover (ESA classes)",
                             metadata={'year': year_target}),
                    BandInfo("Land cover transitions", add_to_map=True,
-                            metadata={'year_baseline': y
-kkear_baseline,
+                            metadata={'year_baseline': year_baseline,
                                       'year_target': year_target,
                                       'nesting': nesting.dumps()})])
 
