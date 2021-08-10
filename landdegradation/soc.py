@@ -8,8 +8,15 @@ from landdegradation.util import TEImage
 from te_schemas.schemas import BandInfo
 
 
-def soc(year_start, year_end, fl, trans_matrix, nesting, dl_annual_lc,
-        EXECUTION_ID, logger):
+def soc(
+    year_start,
+    year_end,
+    fl,
+    trans_matrix,
+    nesting,
+    dl_annual_lc,
+    logger
+):
     """Calculate SOC indicator."""
     logger.debug("Entering soc function.")
 

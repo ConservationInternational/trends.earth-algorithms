@@ -8,7 +8,7 @@ from landdegradation.util import TEImage
 from te_schemas.schemas import BandInfo
 
 def download(asset, name, temporal_resolution, start_year, end_year, 
-             EXECUTION_ID, logger):
+             logger):
     """
     Download dataset from GEE assets.
     """

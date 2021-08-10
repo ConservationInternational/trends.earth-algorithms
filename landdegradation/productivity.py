@@ -142,18 +142,24 @@ def ue_trend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
     return (lf_trend, mk_trend)
 
 
-def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
-                            climate_gee_dataset, logger):
+def productivity_trajectory(
+    year_start,
+    year_end,
+    method,
+    prod_asset,
+    climate_asset,
+    logger
+):
     logger.debug("Entering productivity_trajectory function.")
 
-    climate_1yr = ee.Image(climate_gee_dataset)
+    climate_1yr = ee.Image(climate_asset)
     climate_1yr = climate_1yr.where(climate_1yr.eq(9999), -32768)
     climate_1yr = climate_1yr.updateMask(climate_1yr.neq(-32768))
 
-    if climate_gee_dataset == None and method != 'ndvi_trend':
+    if climate_asset == None and method != 'ndvi_trend':
         raise GEEIOError("Must specify a climate dataset")
 
-    ndvi_dataset = ee.Image(ndvi_gee_dataset)
+    ndvi_dataset = ee.Image(prod_asset)
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
 
@@ -199,11 +205,16 @@ def productivity_trajectory(year_start, year_end, method, ndvi_gee_dataset,
                     BandInfo("Mean annual NDVI integral", metadata={'year_start': year_start, 'year_end': year_end})])
 
 
-def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
-                             EXECUTION_ID, logger):
+def productivity_performance(
+    year_start,
+    year_end,
+    prod_asset,
+    geojson,
+    logger
+):
     logger.debug("Entering productivity_performance function.")
 
-    ndvi_1yr = ee.Image(ndvi_gee_dataset)
+    ndvi_1yr = ee.Image(prod_asset)
     ndvi_1yr = ndvi_1yr.where(ndvi_1yr.eq(9999), -32768)
     ndvi_1yr = ndvi_1yr.updateMask(ndvi_1yr.neq(-32768))
 
@@ -285,12 +296,17 @@ def productivity_performance(year_start, year_end, ndvi_gee_dataset, geojson,
                     BandInfo("Productivity performance (units)", metadata={'year_start': year_start})])
 
 
-def productivity_state(year_bl_start, year_bl_end,
-                       year_tg_start, year_tg_end,
-                       ndvi_gee_dataset, EXECUTION_ID, logger):
+def productivity_state(
+    year_bl_start,
+    year_bl_end,
+    year_tg_start,
+    year_tg_end,
+    prod_asset,
+    logger
+):
     logger.debug("Entering productivity_state function.")
 
-    ndvi_1yr = ee.Image(ndvi_gee_dataset)
+    ndvi_1yr = ee.Image(prod_asset)
 
     # compute min and max of annual ndvi for the baseline period
     bl_ndvi_range = ndvi_1yr.select(ee.List(['y{}'.format(i) for i in range(year_bl_start, year_bl_end + 1)])) \
