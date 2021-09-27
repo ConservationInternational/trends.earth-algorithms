@@ -199,10 +199,23 @@ def productivity_trajectory(
         .where(mk_trend.abs().lte(kendall90), 0) \
         .where(lf_trend.select('scale').abs().lte(10), 0)
 
-    return TEImage(lf_trend.select('scale').addBands(signif).addBands(mk_trend).unmask(-32768).int16(),
-                   [BandInfo("Productivity trajectory (trend)", metadata={'year_start': year_start, 'year_end': year_end}),
-                    BandInfo("Productivity trajectory (significance)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
-                    BandInfo("Mean annual NDVI integral", metadata={'year_start': year_start, 'year_end': year_end})])
+    return TEImage(
+        lf_trend.select('scale').addBands(signif).addBands(mk_trend).unmask(-32768).int16(),
+        [
+            BandInfo(
+                "Productivity trajectory (trend)",
+                metadata={'year_start': year_start, 'year_end': year_end}
+            ),
+            BandInfo(
+                "Productivity trajectory (significance)", add_to_map=True,
+                metadata={'year_start': year_start, 'year_end': year_end}
+            ),
+            BandInfo(
+                "Mean annual NDVI integral",
+                metadata={'year_start': year_start, 'year_end': year_end}
+            )
+        ]
+    )
 
 
 def productivity_performance(
