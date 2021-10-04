@@ -176,7 +176,9 @@ class TEImage(object):
 
         tasks = []
         n = 1
+        logger(f'geojsons are: {geojsons}')
         for geojson in geojsons:
+            logger(f'geojson is: {geojson}')
             if task_name:
                 out_name = '{}_{}_{}'.format(execution_id, task_name, n)
             else:
