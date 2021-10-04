@@ -89,9 +89,13 @@ class gee_task(threading.Thread):
         return self.state
 
     def get_urls(self):
-        resp = requests.get('https://www.googleapis.com/storage/v1/b/{bucket}/o?prefix={prefix}'.format(bucket=BUCKET, prefix=self.prefix))
+        resp = requests.get(
+            f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
+        )
         if not resp or resp.status_code != 200:
-            raise GEETaskFailure('Failed to list urls for results from {}'.format(self.task))
+            raise GEETaskFailure(
+                f'Failed to list urls for results from {self.task}'
+            )
 
         items = resp.json()['items']
 
@@ -114,8 +118,10 @@ class TEImage(object):
     
     def _check_validity(self):
         if len(self.band_info) != len(self.image.getInfo()['bands']):
-            raise GEEImageError('Band info length ({}) does not match number of bands in image ({})'.format(len(self.band_info),
-                                                                                                            len(self.image.getInfo()['bands'])))
+            raise GEEImageError(
+                f'Band info length ({len(self.band_info}) does not match '
+                f'number of bands in image ({self.image.getInfo()["bands"]})'
+            )
 
     def merge(self, other):
         "Merge with another TEImage object"
@@ -150,8 +156,15 @@ class TEImage(object):
             else:
                 self.band_info[i].add_to_map = False
 
-    def export(self, geojsons, task_name, crs, logger, execution_id=None, 
-               proj=None):
+    def export(
+        self,
+        geojsons,
+        task_name,
+        crs,
+        logger,
+        execution_id=None,
+        proj=None
+    ):
         "Export layers to cloud storage"
         if not execution_id:
             execution_id = str(random.randint(1000000, 99999999))
@@ -177,10 +190,13 @@ class TEImage(object):
                       'crs': crs,
                       'scale': ee.Number(proj.nominalScale()).getInfo(),
                       'region': get_coords(geojson)}
-            t = gee_task(ee.batch.Export.image.toCloudStorage(**export),
-                         out_name, logger)
+            t = gee_task(
+                task=ee.batch.Export.image.toCloudStorage(**export),
+                prefix=out_name,
+                logger=logger
+            )
             tasks.append(t)
-            n+=1
+            n += 1
             
         logger.debug("Exporting to cloud storage.")
         urls = []
@@ -188,9 +204,11 @@ class TEImage(object):
             task.join()
             urls.extend(task.get_urls())
 
-        gee_results = CloudResults(task_name,
-                                   self.band_info,
-                                   urls)
+        gee_results = CloudResults(
+            task_name,
+            self.band_info,
+            urls
+        )
         results_schema = CloudResultsSchema()
         json_results = results_schema.dump(gee_results)
 
