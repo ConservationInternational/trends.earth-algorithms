@@ -119,7 +119,7 @@ class TEImage(object):
     def _check_validity(self):
         if len(self.band_info) != len(self.image.getInfo()['bands']):
             raise GEEImageError(
-                f'Band info length ({len(self.band_info}) does not match '
+                f'Band info length ({len(self.band_info)}) does not match '
                 f'number of bands in image ({self.image.getInfo()["bands"]})'
             )
 
