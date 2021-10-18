@@ -67,7 +67,6 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        'python-dateutil',
         'marshmallow==3.12.2',
         'marshmallow-dataclass==8.4.2',
         'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop'
