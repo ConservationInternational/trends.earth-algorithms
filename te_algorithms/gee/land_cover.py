@@ -4,7 +4,7 @@ from __future__ import print_function
 
 import ee
 
-from landdegradation.util import TEImage
+from .util import TEImage
 from te_schemas.schemas import BandInfo
 
 

@@ -1,20 +1,10 @@
-__version__ = '0.54'
+from .. import TEAlgorithmsError
 
-
-class LandDegradationError(Exception):
-    """Base class for exceptions in this module."""
-
-    def __init__(self, msg=None):
-        if msg is None:
-            msg = "An error occurred in the landdegradation module"
-        super(LandDegradationError, self).__init__(msg)
-
-
-class GEEError(LandDegradationError):
+class GEEError(TEAlgorithmsError):
     """Error related to GEE"""
 
     def __init__(self, msg="Error with GEE JSON IO"):
-        super(LandDegradationError, self).__init__(msg)
+        super(TEAlgorithmsError, self).__init__(msg)
 
 
 class GEEIOError(GEEError):

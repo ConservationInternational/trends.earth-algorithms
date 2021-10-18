@@ -4,8 +4,8 @@ from __future__ import print_function
 
 import ee
 
-from landdegradation import stats, GEEIOError
-from landdegradation.util import TEImage
+from . import stats, GEEIOError
+from .util import TEImage
 from te_schemas.schemas import BandInfo
 
 

@@ -6,7 +6,7 @@ import requests
 
 from time import time, sleep
 
-from landdegradation import GEETaskFailure, GEEImageError
+from . import GEETaskFailure, GEEImageError
 from te_schemas.schemas import CloudResults, CloudResultsSchema, Url
 
 

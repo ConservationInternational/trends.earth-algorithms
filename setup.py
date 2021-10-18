@@ -82,7 +82,8 @@ setup(
             'earthengine-api==0.1.232'
         ],
         'gdal': [
-            'GDAL>=3.0.0'
+            'GDAL>=3.0.0',
+            'numpy>=3.0.0'
         ],
         'dev': ['check-manifest'],
         'test': ['coverage'],
