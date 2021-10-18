@@ -11,7 +11,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='landdegradation',
+    name='te_algorithms',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
@@ -22,7 +22,7 @@ setup(
     long_description=long_description,
 
     # The project's main homepage.
-    url='https://github.com/ConservationInternational/landdegradation',
+    url='https://github.com/ConservationInternational/trends.earth-algorithms',
 
     # Author details
     author='Conservation International',
@@ -59,24 +59,31 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    packages = ['landdegradation'],
-    package_dir = {'landdegradation' : 'landdegradation'},
+    packages = ['te_algorithms'],
+    package_dir = {'te_algorithms' : 'te_algorithms'},
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['python-dateutil',
-                      'marshmallow==3.12.2',
-                      'marshmallow-dataclass==8.4.2',
-                      'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop',
-                      'earthengine-api==0.1.232'],
+    install_requires=[
+        'python-dateutil',
+        'marshmallow==3.12.2',
+        'marshmallow-dataclass==8.4.2',
+        'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop'
+    ],
     
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
     # for example:
     # $ pip install -e .[dev,test]
     extras_require={
+        'gee': [
+            'earthengine-api==0.1.232'
+        ],
+        'gdal': [
+            'GDAL>=3.0.0'
+        ],
         'dev': ['check-manifest'],
         'test': ['coverage'],
     }
