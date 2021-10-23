@@ -158,10 +158,16 @@ def soc(
             stack_soc = stack_soc.addBands(socn)
 
     # compute soc percent change for the analysis period
-    soc_pch = (((stack_soc.select(year_end - year_start)
-                .subtract(stack_soc.select(0)))
-                .divide(stack_soc.select(0)))
-               .multiply(100))
+    soc_pch = (
+        (
+            (
+                stack_soc.select(year_end - year_start)
+                .subtract(stack_soc.select(0))
+            ).divide(stack_soc.select(0))
+        ).multiply(100)
+    ).rename(
+        f'Percent increase in soil organic carbon ({year_start}-{year_end})'
+    )
 
     logger.debug("Setting up output.")
     out = TEImage(soc_pch,
@@ -181,6 +187,10 @@ def soc(
             add_to_map = False
         d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map,
                               metadata={'year': year}))
+    stack_soc = stack_soc.rename([
+        f'Soil organic carbon ({year})'
+        for year in range(year_start, year_end + 1)
+    ])
     out.addBands(stack_soc, d_soc)
 
     if dl_annual_lc:
@@ -190,16 +200,32 @@ def soc(
             d_lc.append(BandInfo("Land cover (7 class)",
                                  metadata={'year': year,
                                            'nesting': nesting.dumps()}))
+        stack_lc = stack_lc.rename([
+            f'Land cover ({year})'
+            for year in range(year_start, year_end + 1)
+        ])
         out.addBands(stack_lc, d_lc)
     else:
         logger.debug("Adding initial and final LC layers.")
-        out.addBands(stack_lc.select(0).addBands(stack_lc.select(len(stack_lc.getInfo()['bands']) - 1)),
-                     [BandInfo("Land cover (7 class)",
-                               metadata={'year': year_start,
-                                         'nesting': nesting.dumps()}),
-                      BandInfo("Land cover (7 class)",
-                               metadata={'year': year_end,
-                                         'nesting': nesting.dumps()})])
+        lc_initial = stack_lc.select(0).rename(f'Land cover ({year_start})')
+        lc_final = stack_lc.select(
+            len(stack_lc.getInfo()['bands']) - 1
+        ).rename(f'Land cover ({year_end})')
+        out.addBands(
+            lc_initial.addBands(lc_final),
+            [
+                BandInfo(
+                    "Land cover (7 class)",
+                    metadata={'year': year_start,
+                              'nesting': nesting.dumps()}
+                ),
+                BandInfo(
+                    "Land cover (7 class)",
+                    metadata={'year': year_end,
+                              'nesting': nesting.dumps()}
+                )
+            ]
+        )
 
     out.image = out.image.unmask(-32768).int16()
 
