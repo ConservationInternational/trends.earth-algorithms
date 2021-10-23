@@ -198,9 +198,11 @@ def productivity_trajectory(
         .where(lf_trend.select('scale').lt(0).And(mk_trend.abs().gte(kendall99)), -3) \
         .where(mk_trend.abs().lte(kendall90), 0) \
         .where(lf_trend.select('scale').abs().lte(10), 0)
-
+    trend = lf_trend.select('scale').rename('Productivity_trend')
+    signif = signif.rename('Productivity_significance')
+    mk_trend = mk_trend.rename('Productivity_ann_mean')
     return TEImage(
-        lf_trend.select('scale').addBands(signif).addBands(mk_trend).unmask(-32768).int16(),
+        trend.addBands(signif).addBands(mk_trend).unmask(-32768).int16(),
         [
             BandInfo(
                 "Productivity trajectory (trend)",
@@ -303,10 +305,25 @@ def productivity_performance(
     lp_perf_deg = ee.Image(-32768).where(obs_ratio_2.gte(0.5), 0) \
         .where(obs_ratio_2.lte(0.5), -1)
 
-    return TEImage(lp_perf_deg.addBands(obs_ratio_2.multiply(10000)).addBands(units).unmask(-32768).int16(),
-                   [BandInfo("Productivity performance (degradation)", add_to_map=True, metadata={'year_start': year_start, 'year_end': year_end}),
-                    BandInfo("Productivity performance (ratio)", metadata={'year_start': year_start, 'year_end': year_end}),
-                    BandInfo("Productivity performance (units)", metadata={'year_start': year_start})])
+    lp_perf_deg = lp_perf_deg.rename('Productivity_performance_degradation')
+    obs_ratio_2 = obs_ratio_2.multiply(10000).rename(
+        'Productivity_performance_ratio')
+    units = units.rename('Productivity_performance_units')
+    return TEImage(
+        lp_perf_deg.addBands(obs_ratio_2).addBands(units).unmask(-32768).int16(),
+        [
+            BandInfo(
+                "Productivity performance (degradation)",
+                add_to_map=True,
+                metadata={'year_start': year_start, 'year_end': year_end}),
+            BandInfo(
+                "Productivity performance (ratio)",
+                metadata={'year_start': year_start, 'year_end': year_end}),
+            BandInfo(
+                "Productivity performance (units)",
+                metadata={'year_start': year_start})
+        ]
+    )
 
 
 def productivity_state(
@@ -370,6 +387,11 @@ def productivity_state(
     # is degradation)
     classes_chg = tg_classes.subtract(bl_classes).where(bl_ndvi_mean.subtract(tg_ndvi_mean).abs().lte(100), 0)
 
+    classes_chg = classes_chg.rename('Productivity_state_degradation')
+    bl_classes = bl_classes.rename('Productivity_state_classes_{year_bl_start}-{year_bl_end}')
+    tg_classes = tg_classes.rename('Productivity_state_classes_{year_tg_start}-{year_tg_end}')
+    bl_ndvi_mean = bl_ndvi_mean.rename('Productivity_state_NDVI_mean_{year_bl_start}-{year_bl_end}')
+    tg_ndvi_mean = tg_ndvi_mean.rename('Productivity_state_NDVI_mean_{year_tg_start}-{year_tg_end}')
     band_infos = [BandInfo("Productivity state (degradation)", add_to_map=True,
                         metadata={'year_bl_start': year_bl_start, 'year_bl_end': year_bl_end, 'year_tg_start': year_tg_start, 'year_tg_end': year_tg_end}),
                   BandInfo("Productivity state classes", metadata={'year_start': year_bl_start, 'year_end': year_bl_end}),
