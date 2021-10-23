@@ -1,4 +1,3 @@
-import json
 import ee
 import threading
 import random

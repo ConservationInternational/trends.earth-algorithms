@@ -7,8 +7,14 @@ import ee
 from .util import TEImage
 from te_schemas.schemas import BandInfo
 
-def download(asset, name, temporal_resolution, start_year, end_year, 
-             logger):
+def download(
+    asset,
+    name,
+    temporal_resolution,
+    start_year,
+    end_year, 
+    logger
+):
     """
     Download dataset from GEE assets.
     """
