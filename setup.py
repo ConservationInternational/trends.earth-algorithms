@@ -59,7 +59,8 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    packages=find_packages('te_algorithms'),
+    packages=['te_algorithms', 'te_algorithms.gdal', 'te_algorithms.gee'],
+    packages=find_packages('te_schemas'),
     package_dir={'te_algorithms': 'te_algorithms'},
     package_data={'te_algorithms': ['version.json']},
     include_package_data=True,
