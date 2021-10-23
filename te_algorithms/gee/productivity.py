@@ -388,10 +388,10 @@ def productivity_state(
     classes_chg = tg_classes.subtract(bl_classes).where(bl_ndvi_mean.subtract(tg_ndvi_mean).abs().lte(100), 0)
 
     classes_chg = classes_chg.rename('Productivity_state_degradation')
-    bl_classes = bl_classes.rename('Productivity_state_classes_{year_bl_start}-{year_bl_end}')
-    tg_classes = tg_classes.rename('Productivity_state_classes_{year_tg_start}-{year_tg_end}')
-    bl_ndvi_mean = bl_ndvi_mean.rename('Productivity_state_NDVI_mean_{year_bl_start}-{year_bl_end}')
-    tg_ndvi_mean = tg_ndvi_mean.rename('Productivity_state_NDVI_mean_{year_tg_start}-{year_tg_end}')
+    bl_classes = bl_classes.rename(f'Productivity_state_classes_{year_bl_start}-{year_bl_end}')
+    tg_classes = tg_classes.rename(f'Productivity_state_classes_{year_tg_start}-{year_tg_end}')
+    bl_ndvi_mean = bl_ndvi_mean.rename(f'Productivity_state_NDVI_mean_{year_bl_start}-{year_bl_end}')
+    tg_ndvi_mean = tg_ndvi_mean.rename(f'Productivity_state_NDVI_mean_{year_tg_start}-{year_tg_end}')
     band_infos = [BandInfo("Productivity state (degradation)", add_to_map=True,
                         metadata={'year_bl_start': year_bl_start, 'year_bl_end': year_bl_end, 'year_tg_start': year_tg_start, 'year_tg_end': year_tg_end}),
                   BandInfo("Productivity state classes", metadata={'year_start': year_bl_start, 'year_end': year_bl_end}),
