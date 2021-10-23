@@ -166,7 +166,7 @@ def soc(
             ).divide(stack_soc.select(0))
         ).multiply(100)
     ).rename(
-        f'Percent increase in soil organic carbon ({year_start}-{year_end})'
+        f'Percent_SOC_increase_{year_start}-{year_end}'
     )
 
     logger.debug("Setting up output.")
@@ -188,7 +188,7 @@ def soc(
         d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map,
                               metadata={'year': year}))
     stack_soc = stack_soc.rename([
-        f'Soil organic carbon ({year})'
+        f'SOC_{year}'
         for year in range(year_start, year_end + 1)
     ])
     out.addBands(stack_soc, d_soc)
@@ -201,16 +201,16 @@ def soc(
                                  metadata={'year': year,
                                            'nesting': nesting.dumps()}))
         stack_lc = stack_lc.rename([
-            f'Land cover ({year})'
+            f'Land_cover_{year}'
             for year in range(year_start, year_end + 1)
         ])
         out.addBands(stack_lc, d_lc)
     else:
         logger.debug("Adding initial and final LC layers.")
-        lc_initial = stack_lc.select(0).rename(f'Land cover ({year_start})')
+        lc_initial = stack_lc.select(0).rename(f'Land_cover_{year_start}')
         lc_final = stack_lc.select(
             len(stack_lc.getInfo()['bands']) - 1
-        ).rename(f'Land cover ({year_end})')
+        ).rename(f'Land_cover_{year_end}')
         out.addBands(
             lc_initial.addBands(lc_final),
             [
