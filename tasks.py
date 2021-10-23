@@ -73,13 +73,12 @@ def set_version(c, v=None):
     else:
         version_update = True
     
-    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('utf-8').strip('\n')[0:8]
     release_date = datetime.now(timezone.utc).strftime('%Y/%m/%d %H:%M:%SZ')
 
     # Set in version.json
     print('Setting version to {} in version.json'.format(v))
     with open(c.version_file_details, 'w') as f:
-        json.dump({"version": v, "revision": revision, "release_date": release_date}, f,  indent=4)
+        json.dump({"version": v, "release_date": release_date}, f,  indent=4)
 
     if version_update:
         # Set in version.txt
@@ -156,5 +155,5 @@ ns = Collection(set_version, set_tag)
 
 ns.configure({
     'version_file_raw': 'version.txt',
-    'version_file_details': 'version.json',
+    'version_file_details': 'te_algorithms/version.json',
 })
