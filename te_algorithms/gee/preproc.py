@@ -1,7 +1,7 @@
 import ee
 
 
-def modis_ndvi_annual_integral(year_start, year_end):
+def modis_ndvi_annual_integral(year_initial, year_final):
     """Calculate annual trend of integrated NDVI.
 
     Calculates the trend of annual integrated NDVI using NDVI data from the
@@ -9,9 +9,9 @@ def modis_ndvi_annual_integral(year_start, year_end):
     are masked out using a Mann-Kendall test.
 
     Args:
-        year_start: The starting year (to define the period the trend is
+        year_initial: The starting year (to define the period the trend is
             calculated over).
-        year_end: The ending year (to define the period the trend is
+        year_final: The ending year (to define the period the trend is
             calculated over).
 
     Returns:
@@ -35,7 +35,7 @@ def modis_ndvi_annual_integral(year_start, year_end):
     # Function to integrate observed NDVI datasets at the annual level
     def int_16d_1yr_o(ndvi_coll):
         img_coll = ee.List([])
-        for k in range(year_start, year_end):
+        for k in range(year_initial, year_final):
             ndvi_img = ndvi_coll.select('NDVI').filterDate('{}-01-01'.format(k), '{}-12-31'.format(k)).reduce(ee.Reducer.mean()).multiply(0.0001)
             img = ndvi_img.addBands(ee.Image(k).float()).rename(['ndvi', 'year']).set({'year': k})
             img_coll = img_coll.add(img)

@@ -9,8 +9,8 @@ from te_schemas.schemas import BandInfo
 
 
 def soc(
-    year_start,
-    year_end,
+    year_initial,
+    year_final,
     fl,
     trans_matrix,
     nesting,
@@ -27,7 +27,7 @@ def soc(
     # land cover - note it needs to be reprojected to match soc so that it can 
     # be output to cloud storage in the same stack
     lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2020") \
-            .select(ee.List.sequence(year_start - 1992, year_end - 1992, 1)) \
+            .select(ee.List.sequence(year_initial - 1992, year_final - 1992, 1)) \
             .reproject(crs=soc.projection())
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
@@ -46,7 +46,7 @@ def soc(
     stack_soc = ee.Image().select()
 
     # loop through all the years in the period of analysis to compute changes in SOC
-    for k in range(year_end - year_start):
+    for k in range(year_final - year_initial):
         # land cover map reclassified to UNCCD 7 classes (1: forest, 2: 
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
         lc_t0 = lc.select(k).remap(nesting.get_list()[0], nesting.get_list()[1])
@@ -161,27 +161,27 @@ def soc(
     soc_pch = (
         (
             (
-                stack_soc.select(year_end - year_start)
+                stack_soc.select(year_final - year_initial)
                 .subtract(stack_soc.select(0))
             ).divide(stack_soc.select(0))
         ).multiply(100)
     ).rename(
-        f'Percent_SOC_increase_{year_start}-{year_end}'
+        f'Percent_SOC_increase_{year_initial}-{year_final}'
     )
 
     logger.debug("Setting up output.")
     out = TEImage(soc_pch,
                   [BandInfo("Soil organic carbon (degradation)", add_to_map=True,
-                   metadata={'year_start': year_start,
-                             'year_end': year_end,
+                   metadata={'year_initial': year_initial,
+                             'year_final': year_final,
                              'trans_matrix': trans_matrix.dumps(),
                              'nesting': nesting.dumps()})])
 
     logger.debug("Adding annual SOC layers.")
     # Output all annual SOC layers
     d_soc = []
-    for year in range(year_start, year_end + 1):
-        if (year == year_start) or (year == year_end):
+    for year in range(year_initial, year_final + 1):
+        if (year == year_initial) or (year == year_final):
             add_to_map = True
         else:
             add_to_map = False
@@ -189,39 +189,39 @@ def soc(
                               metadata={'year': year}))
     stack_soc = stack_soc.rename([
         f'SOC_{year}'
-        for year in range(year_start, year_end + 1)
+        for year in range(year_initial, year_final + 1)
     ])
     out.addBands(stack_soc, d_soc)
 
     if dl_annual_lc:
         logger.debug("Adding all annual LC layers.")
         d_lc = []
-        for year in range(year_start, year_end + 1):
+        for year in range(year_initial, year_final + 1):
             d_lc.append(BandInfo("Land cover (7 class)",
                                  metadata={'year': year,
                                            'nesting': nesting.dumps()}))
         stack_lc = stack_lc.rename([
             f'Land_cover_{year}'
-            for year in range(year_start, year_end + 1)
+            for year in range(year_initial, year_final + 1)
         ])
         out.addBands(stack_lc, d_lc)
     else:
         logger.debug("Adding initial and final LC layers.")
-        lc_initial = stack_lc.select(0).rename(f'Land_cover_{year_start}')
+        lc_initial = stack_lc.select(0).rename(f'Land_cover_{year_initial}')
         lc_final = stack_lc.select(
             len(stack_lc.getInfo()['bands']) - 1
-        ).rename(f'Land_cover_{year_end}')
+        ).rename(f'Land_cover_{year_final}')
         out.addBands(
             lc_initial.addBands(lc_final),
             [
                 BandInfo(
                     "Land cover (7 class)",
-                    metadata={'year': year_start,
+                    metadata={'year': year_initial,
                               'nesting': nesting.dumps()}
                 ),
                 BandInfo(
                     "Land cover (7 class)",
-                    metadata={'year': year_end,
+                    metadata={'year': year_final,
                               'nesting': nesting.dumps()}
                 )
             ]

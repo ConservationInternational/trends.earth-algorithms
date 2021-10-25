@@ -9,8 +9,8 @@ from te_schemas.schemas import BandInfo
 
 
 def land_cover(
-    year_baseline,
-    year_target,
+    year_initial,
+    year_final,
     trans_matrix,
     nesting,
     logger
@@ -26,8 +26,8 @@ def land_cover(
     lc = lc.updateMask(lc.neq(-32768))
 
     # Remap LC according to input matrix
-    lc_remapped = lc.select('y{}'.format(year_baseline)).remap(nesting.get_list()[0], nesting.get_list()[1])
-    for year in range(year_baseline + 1, year_target + 1):
+    lc_remapped = lc.select('y{}'.format(year_initial)).remap(nesting.get_list()[0], nesting.get_list()[1])
+    for year in range(year_initial + 1, year_final + 1):
         lc_remapped = lc_remapped.addBands(lc.select('y{}'.format(year)).remap(nesting.get_list()[0], nesting.get_list()[1]))
 
     # Target land cover map reclassified to IPCC 6 classes
@@ -47,37 +47,37 @@ def land_cover(
     # Remap persistence classes so they are sequential. This
     # makes it easier to assign a clear color ramp in QGIS.
     lc_tr = lc_tr.remap(trans_matrix.get_persistence_list()[0], 
-                        trans_matrix.get_persistence_list()[1]).rename(f'Land_cover_transitions_{year_baseline}-{year_target}')
+                        trans_matrix.get_persistence_list()[1]).rename(f'Land_cover_transitions_{year_initial}-{year_final}')
 
     logger.debug("Setting up output.")
-    lc_baseline_esa = lc.select('y{}'.format(year_baseline)).rename(
-            f'Land_cover_{year_baseline}')
-    lc_target_esa = lc.select('y{}'.format(year_target)).rename(
-            f'Land_cover_{year_target}')
+    lc_baseline_esa = lc.select('y{}'.format(year_initial)).rename(
+            f'Land_cover_{year_initial}')
+    lc_target_esa = lc.select('y{}'.format(year_final)).rename(
+            f'Land_cover_{year_final}')
     out = TEImage(
         lc_dg.addBands(lc_baseline_esa).addBands(lc_target_esa).addBands(lc_tr),
         [
             BandInfo(
                 "Land cover (degradation)",
                 add_to_map=True,
-                metadata={'year_baseline': year_baseline,
-                          'year_target': year_target,
+                metadata={'year_initial': year_initial,
+                          'year_final': year_final,
                           'trans_matrix': trans_matrix.dumps(),
                           'nesting': nesting.dumps()}
             ),
             BandInfo(
                 "Land cover (ESA classes)",
-                metadata={'year': year_baseline}
+                metadata={'year': year_initial}
             ),
             BandInfo(
                 "Land cover (ESA classes)",
-                metadata={'year': year_target}
+                metadata={'year': year_final}
             ),
             BandInfo(
                 "Land cover transitions",
                 add_to_map=True,
-                metadata={'year_baseline': year_baseline,
-                          'year_target': year_target,
+                metadata={'year_initial': year_initial,
+                          'year_final': year_final,
                           'nesting': nesting.dumps()}
                 )
         ]
@@ -86,8 +86,10 @@ def land_cover(
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")
     d_lc = []
-    for year in range(year_baseline, year_target + 1):
-        if (year == year_baseline) or (year == year_target):
+    years = [*range(year_initial, year_final + 1)] + [additional_years]
+    years = list(set(years))
+    for year in years:
+        if (year == year_initial) or (year == year_final):
             add_to_map = True
         else:
             add_to_map = False
@@ -96,8 +98,7 @@ def land_cover(
                     metadata={'year': year,
                               'nesting': nesting.dumps()}))
     lc_remapped = lc_remapped.rename([
-        f'Land_cover_{year}'
-        for year in range(year_baseline, year_target + 1)
+        f'Land_cover_{year}' for year in years
     ])
     out.addBands(lc_remapped, d_lc)
 

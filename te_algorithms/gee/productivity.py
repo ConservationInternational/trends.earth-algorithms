@@ -9,15 +9,15 @@ from .util import TEImage
 from te_schemas.schemas import BandInfo
 
 
-def ndvi_trend(year_start, year_end, ndvi_1yr, logger):
+def ndvi_trend(year_initial, year_final, ndvi_1yr, logger):
     """Calculate temporal NDVI analysis.
     Calculates the trend of temporal NDVI using NDVI data from the
     MODIS Collection 6 MOD13Q1 dataset. Areas where changes are not significant
     are masked out using a Mann-Kendall test.
     Args:
-        year_start: The starting year (to define the period the trend is
+        year_initial: The starting year (to define the period the trend is
             calculated over).
-        year_end: The ending year (to define the period the trend is
+        year_final: The ending year (to define the period the trend is
             calculated over).
     Returns:
         Output of google earth engine task.
@@ -26,7 +26,7 @@ def ndvi_trend(year_start, year_end, ndvi_1yr, logger):
 
     def f_img_coll(ndvi_stack):
         img_coll = ee.List([])
-        for k in range(year_start, year_end + 1):
+        for k in range(year_initial, year_final + 1):
             ndvi_img = ndvi_stack.select('y' + str(k)).addBands(ee.Image(k).float()).rename(['ndvi', 'year'])
             img_coll = img_coll.add(ndvi_img)
         return ee.ImageCollection(img_coll)
@@ -43,12 +43,12 @@ def ndvi_trend(year_start, year_end, ndvi_1yr, logger):
     return (lf_trend, mk_trend)
 
 
-def p_restrend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
+def p_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     logger.debug("Entering p_restrend function.")
 
     def f_img_coll(ndvi_stack):
         img_coll = ee.List([])
-        for k in range(year_start, year_end + 1):
+        for k in range(year_initial, year_final + 1):
             ndvi_img = ndvi_stack.select('y{}'.format(k))\
                 .addBands(climate_1yr.select('y{}'.format(k)))\
                 .rename(['ndvi', 'clim']).set({'year': k})
@@ -70,9 +70,9 @@ def p_restrend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
         return ndvi_r.rename(['year', 'ndvi_res'])
 
     # Function to compute differences between observed and predicted NDVI and compilation in an image collection
-    def stack(year_start, year_end):
+    def stack(year_initial, year_final):
         img_coll = ee.List([])
-        for k in range(year_start, year_end + 1):
+        for k in range(year_initial, year_final + 1):
             ndvi = ndvi_1yr_o.filter(ee.Filter.eq('year', k)).select('ndvi').median()
             clim = clim_1yr_o.filter(ee.Filter.eq('year', k)).select('ndvi').median()
             img = ndvi.addBands(clim.addBands(ee.Image(k).float())).rename(['ndvi', 'clim', 'year']).set({'year': k})
@@ -80,10 +80,10 @@ def p_restrend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
         return ee.ImageCollection(img_coll)
 
     ## Function create image collection of residuals
-    def f_ndvi_clim_r_coll(year_start, year_end):
+    def f_ndvi_clim_r_coll(year_initial, year_final):
         res_list = ee.List([])
-        #for(i = year_start i <= year_end i += 1):
-        for i in range(year_start, year_end + 1):
+        #for(i = year_initial i <= year_final i += 1):
+        for i in range(year_initial, year_final + 1):
             res_image = f_ndvi_clim_r_img(i)
             res_list = res_list.add(res_image)
         return ee.ImageCollection(res_list)
@@ -98,7 +98,7 @@ def p_restrend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
     ndvi_1yr_p = ee.ImageCollection(ee.List(ndvi_1yr_coll.select('clim').iterate(f_ndvi_clim_p, first)))
 
     ## Apply function to compute NDVI annual residuals
-    ndvi_1yr_r = f_ndvi_clim_r_coll(year_start, year_end)
+    ndvi_1yr_r = f_ndvi_clim_r_coll(year_initial, year_final)
 
     ## Fit a linear regression to the NDVI residuals
     lf_trend = ndvi_1yr_r.select(['year', 'ndvi_res']).reduce(ee.Reducer.linearFit())
@@ -109,12 +109,12 @@ def p_restrend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
     return (lf_trend, mk_trend)
 
 
-def s_restrend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
+def s_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     #TODO: Copy this code over
     logger.debug("Entering s_restrend function.")
 
 
-def ue_trend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
+def ue_trend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     # Convert the climate layer to meters (for precip) so that RUE layer can be
     # scaled correctly
     # TODO: Need to handle scaling for ET for WUE
@@ -123,7 +123,7 @@ def ue_trend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
 
     def f_img_coll(ndvi_stack):
         img_coll = ee.List([])
-        for k in range(year_start, year_end + 1):
+        for k in range(year_initial, year_final + 1):
             ndvi_img = ndvi_stack.select('y{}'.format(k)).divide(climate_1yr.select('y{}'.format(k)))\
                 .addBands(ee.Image(k).float())\
                 .rename(['ue', 'year']).set({'year': k})
@@ -143,8 +143,8 @@ def ue_trend(year_start, year_end, ndvi_1yr, climate_1yr, logger):
 
 
 def productivity_trajectory(
-    year_start,
-    year_end,
+    year_initial,
+    year_final,
     method,
     prod_asset,
     climate_asset,
@@ -163,26 +163,26 @@ def productivity_trajectory(
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
 
-    ndvi_mean = ndvi_dataset.select(ee.List(['y{}'.format(i) for i in range(year_start, year_end + 1)])) \
+    ndvi_mean = ndvi_dataset.select(ee.List(['y{}'.format(i) for i in range(year_initial, year_final + 1)])) \
         .reduce(ee.Reducer.mean()).rename(['ndvi'])
 
     # Run the selected algorithm
     if method == 'ndvi_trend':
-        lf_trend, mk_trend = ndvi_trend(year_start, year_end, ndvi_dataset, logger)
+        lf_trend, mk_trend = ndvi_trend(year_initial, year_final, ndvi_dataset, logger)
     elif method == 'p_restrend':
-        lf_trend, mk_trend = p_restrend(year_start, year_end, ndvi_dataset, climate_1yr, logger)
+        lf_trend, mk_trend = p_restrend(year_initial, year_final, ndvi_dataset, climate_1yr, logger)
         if climate_1yr == None:
             climate_1yr = precp_gpcc
     elif method == 's_restrend':
         #TODO: need to code this
         raise GEEIOError("s_restrend method not yet supported")
     elif method == 'ue':
-        lf_trend, mk_trend = ue_trend(year_start, year_end, ndvi_dataset, climate_1yr, logger)
+        lf_trend, mk_trend = ue_trend(year_initial, year_final, ndvi_dataset, climate_1yr, logger)
     else:
         raise GEEIOError("Unrecognized method '{}'".format(method))
 
     # Define Kendall parameter values for a significance of 0.05
-    period = year_end - year_start + 1
+    period = year_final - year_initial + 1
     kendall90 = stats.get_kendall_coef(period, 90)
     kendall95 = stats.get_kendall_coef(period, 95)
     kendall99 = stats.get_kendall_coef(period, 99)
@@ -206,23 +206,23 @@ def productivity_trajectory(
         [
             BandInfo(
                 "Productivity trajectory (trend)",
-                metadata={'year_start': year_start, 'year_end': year_end}
+                metadata={'year_initial': year_initial, 'year_final': year_final}
             ),
             BandInfo(
                 "Productivity trajectory (significance)", add_to_map=True,
-                metadata={'year_start': year_start, 'year_end': year_end}
+                metadata={'year_initial': year_initial, 'year_final': year_final}
             ),
             BandInfo(
                 "Mean annual NDVI integral",
-                metadata={'year_start': year_start, 'year_end': year_end}
+                metadata={'year_initial': year_initial, 'year_final': year_final}
             )
         ]
     )
 
 
 def productivity_performance(
-    year_start,
-    year_end,
+    year_initial,
+    year_final,
     prod_asset,
     geojson,
     logger
@@ -246,18 +246,18 @@ def productivity_performance(
     poly = ee.Geometry(geojson, opt_geodesic=False)
 
     # compute mean ndvi for the period
-    ndvi_avg = ndvi_1yr.select(ee.List(['y{}'.format(i) for i in range(year_start, year_end + 1)])) \
+    ndvi_avg = ndvi_1yr.select(ee.List(['y{}'.format(i) for i in range(year_initial, year_final + 1)])) \
         .reduce(ee.Reducer.mean()).rename(['ndvi']).clip(poly)
 
-    # Handle case of year_start that isn't included in the CCI data
-    if year_start > 2020:
-        lc_year_start = 2020
-    elif year_start < 1992:
-        lc_year_start = 1992
+    # Handle case of year_initial that isn't included in the CCI data
+    if year_initial > 2020:
+        lc_year_initial = 2020
+    elif year_initial < 1992:
+        lc_year_initial = 1992
     else:
-        lc_year_start = year_start
+        lc_year_initial = year_initial
     # reclassify lc to ipcc classes
-    lc_t0 = lc.select('y{}'.format(lc_year_start)) \
+    lc_t0 = lc.select('y{}'.format(lc_year_initial)) \
         .remap([10, 11, 12, 20, 30, 40, 50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90, 100, 160, 170, 110, 130, 180, 190, 120, 121, 122, 140, 150, 151, 152, 153, 200, 201, 202, 210], 
                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36])
 
@@ -315,13 +315,13 @@ def productivity_performance(
             BandInfo(
                 "Productivity performance (degradation)",
                 add_to_map=True,
-                metadata={'year_start': year_start, 'year_end': year_end}),
+                metadata={'year_initial': year_initial, 'year_final': year_final}),
             BandInfo(
                 "Productivity performance (ratio)",
-                metadata={'year_start': year_start, 'year_end': year_end}),
+                metadata={'year_initial': year_initial, 'year_final': year_final}),
             BandInfo(
                 "Productivity performance (units)",
-                metadata={'year_start': year_start})
+                metadata={'year_initial': year_initial})
         ]
     )
 
@@ -394,8 +394,8 @@ def productivity_state(
     tg_ndvi_mean = tg_ndvi_mean.rename(f'Productivity_state_NDVI_mean_{year_tg_start}-{year_tg_end}')
     band_infos = [BandInfo("Productivity state (degradation)", add_to_map=True,
                         metadata={'year_bl_start': year_bl_start, 'year_bl_end': year_bl_end, 'year_tg_start': year_tg_start, 'year_tg_end': year_tg_end}),
-                  BandInfo("Productivity state classes", metadata={'year_start': year_bl_start, 'year_end': year_bl_end}),
-                  BandInfo("Productivity state classes", metadata={'year_start': year_tg_start, 'year_end': year_tg_end}),
-                  BandInfo("Productivity state NDVI mean", metadata={'year_start': year_bl_start, 'year_end': year_bl_end}),
-                  BandInfo("Productivity state NDVI mean", metadata={'year_start': year_tg_start, 'year_end': year_tg_end})]
+                  BandInfo("Productivity state classes", metadata={'year_initial': year_bl_start, 'year_final': year_bl_end}),
+                  BandInfo("Productivity state classes", metadata={'year_initial': year_tg_start, 'year_final': year_tg_end}),
+                  BandInfo("Productivity state NDVI mean", metadata={'year_initial': year_bl_start, 'year_final': year_bl_end}),
+                  BandInfo("Productivity state NDVI mean", metadata={'year_initial': year_tg_start, 'year_final': year_tg_end})]
     return TEImage(classes_chg.addBands(bl_classes).addBands(tg_classes).addBands(bl_ndvi_mean).addBands(tg_ndvi_mean).int16(), band_infos)
