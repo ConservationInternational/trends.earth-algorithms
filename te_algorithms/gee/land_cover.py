@@ -87,19 +87,24 @@ def land_cover(
 
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")
-    d_lc = []
     years = [*range(year_initial, year_final + 1)] + additional_years
     years = list(set(years))
-    lc_remapped = lc.select('y{}'.format(year_initial)).remap(
+    lc_remapped = lc.select('y{}'.format(years[0])).remap(
         nesting.get_list()[0], nesting.get_list()[1]
     )
+    d_lc = [BandInfo(
+        "Land cover (7 class)",
+        add_to_map=True,  # because this is initial year
+        metadata={'year': years[0],
+                  'nesting': nesting.dumps()}
+    )]
     for year in years[1:]:
         lc_remapped = lc_remapped.addBands(
             lc.select('y{}'.format(year)).remap(
                 nesting.get_list()[0], nesting.get_list()[1]
             )
         )
-        if (year == year_initial) or (year == year_final):
+        if year == year_final:
             add_to_map = True
         else:
             add_to_map = False
