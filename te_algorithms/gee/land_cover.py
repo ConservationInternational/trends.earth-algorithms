@@ -13,6 +13,7 @@ def land_cover(
     year_final,
     trans_matrix,
     nesting,
+    additional_years,  # allows including years of lc outside of period
     logger
 ):
     """
@@ -86,7 +87,7 @@ def land_cover(
     # Return the full land cover timeseries so it is available for reporting
     logger.debug("Adding annual lc layers.")
     d_lc = []
-    years = [*range(year_initial, year_final + 1)] + [additional_years]
+    years = [*range(year_initial, year_final + 1)] + additional_years
     years = list(set(years))
     for year in years:
         if (year == year_initial) or (year == year_final):
