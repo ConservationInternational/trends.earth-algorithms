@@ -26,16 +26,13 @@ def land_cover(
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
-    # Remap LC according to input matrix
-    lc_remapped = lc.select('y{}'.format(year_initial)).remap(nesting.get_list()[0], nesting.get_list()[1])
-    for year in range(year_initial + 1, year_final + 1):
-        lc_remapped = lc_remapped.addBands(lc.select('y{}'.format(year)).remap(nesting.get_list()[0], nesting.get_list()[1]))
-
-    # Target land cover map reclassified to IPCC 6 classes
-    lc_bl = lc_remapped.select(0)
-
-    # baseline land cover map reclassified to IPCC 6 classes
-    lc_tg = lc_remapped.select(len(lc_remapped.getInfo()['bands']) - 1)
+    # Initial and final land cover map reclassified to IPCC classes
+    lc_bl = lc.select('y{}'.format(year_initial)).remap(
+        nesting.get_list()[0], nesting.get_list()[1]
+    )
+    lc_tg = lc.select('y{}'.format(year_final)).remap(
+        nesting.get_list()[0], nesting.get_list()[1]
+    )
 
     # compute transition map (first digit for baseline land cover, and second 
     # digit for target year land cover)
@@ -43,12 +40,16 @@ def land_cover(
 
     # definition of land cover transitions as degradation (-1), improvement 
     # (1), or no relevant change (0)
-    lc_dg = lc_tr.remap(trans_matrix.get_list()[0], trans_matrix.get_list()[1]).rename('Land_cover_degradation')
+    lc_dg = lc_tr.remap(
+        trans_matrix.get_list()[0], trans_matrix.get_list()[1]
+    ).rename('Land_cover_degradation')
 
     # Remap persistence classes so they are sequential. This
     # makes it easier to assign a clear color ramp in QGIS.
-    lc_tr = lc_tr.remap(trans_matrix.get_persistence_list()[0], 
-                        trans_matrix.get_persistence_list()[1]).rename(f'Land_cover_transitions_{year_initial}-{year_final}')
+    lc_tr = lc_tr.remap(
+        trans_matrix.get_persistence_list()[0],
+        trans_matrix.get_persistence_list()[1]
+    ).rename(f'Land_cover_transitions_{year_initial}-{year_final}')
 
     logger.debug("Setting up output.")
     lc_baseline_esa = lc.select('y{}'.format(year_initial)).rename(
@@ -89,7 +90,15 @@ def land_cover(
     d_lc = []
     years = [*range(year_initial, year_final + 1)] + additional_years
     years = list(set(years))
-    for year in years:
+    lc_remapped = lc.select('y{}'.format(year_initial)).remap(
+        nesting.get_list()[0], nesting.get_list()[1]
+    )
+    for year in years[1:]:
+        lc_remapped = lc_remapped.addBands(
+            lc.select('y{}'.format(year)).remap(
+                nesting.get_list()[0], nesting.get_list()[1]
+            )
+        )
         if (year == year_initial) or (year == year_final):
             add_to_map = True
         else:
