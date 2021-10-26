@@ -163,20 +163,23 @@ def soc(
         (
             (
                 stack_soc.select(year_final - soc_t0)
-                .subtract(year_initial - soc_t0),
-            ).divide(year_initial - soc_t0)
+                .subtract(stack_soc.select(year_initial - soc_t0))
+            ).divide(stack_soc.select(year_initial - soc_t0))
         ).multiply(100)
     ).rename(
         f'Percent_SOC_increase_{year_initial}-{year_final}'
     )
 
     logger.debug("Setting up output.")
-    out = TEImage(soc_pch,
-                  [BandInfo("Soil organic carbon (degradation)", add_to_map=True,
-                   metadata={'year_initial': year_initial,
-                             'year_final': year_final,
-                             'trans_matrix': trans_matrix.dumps(),
-                             'nesting': nesting.dumps()})])
+    out = TEImage(
+        soc_pch,
+        [BandInfo("Soil organic carbon (degradation)",
+         add_to_map=True,
+         metadata={'year_initial': year_initial,
+                   'year_final': year_final,
+                   'trans_matrix': trans_matrix.dumps(),
+                   'nesting': nesting.dumps()})]
+    )
 
     logger.debug("Adding annual SOC layers.")
     # Output annual SOC layers
@@ -184,7 +187,7 @@ def soc(
     soc_stack_out = stack_soc.select(year_initial)
     years = [*range(year_initial, year_final + 1)]
     for year in years[1:]:
-        soc_stack_out = soc_stack_out.addBands(stack_soc.select(year))
+        soc_stack_out = soc_stack_out.addBands(stack_soc.select(year - soc_t0))
         if (year == year_initial) or (year == year_final):
             add_to_map = True
         else:
