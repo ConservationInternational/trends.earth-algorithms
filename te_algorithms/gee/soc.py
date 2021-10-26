@@ -24,10 +24,16 @@ def soc(
     soc = ee.Image("users/geflanddegradation/toolbox_datasets/soc_sgrid_30cm")
     soc_t0 = soc.updateMask(soc.neq(-32768))
 
+    # Reference all SOC calculations to the year 2000
+    soc_t0_year = 2000
+
+    # First band in the LC layer stack is 1992
+    lc_band0_year = 1992
+
     # land cover - note it needs to be reprojected to match soc so that it can 
     # be output to cloud storage in the same stack
     lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2020") \
-            .select(ee.List.sequence(year_initial - 1992, year_final - 1992, 1)) \
+            .select(ee.List.sequence(soc_t0_year - 1992, year_final - 1992, 1)) \
             .reproject(crs=soc.projection())
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
@@ -46,7 +52,6 @@ def soc(
     stack_soc = ee.Image().select()
 
     # loop through all the years in the period of analysis to compute changes in SOC
-    soc_t0_year = 2000
     for k in range(year_final - soc_t0_year):
         # land cover map reclassified to UNCCD 7 classes (1: forest, 2: 
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
@@ -184,7 +189,7 @@ def soc(
     logger.debug("Adding annual SOC layers.")
     # Output annual SOC layers
     d_soc = []
-    soc_stack_out = stack_soc.select(year_initial)
+    soc_stack_out = stack_soc.select(year_initial - soc_t0_year)
     years = [*range(year_initial, year_final + 1)]
     for year in years[1:]:
         soc_stack_out = soc_stack_out.addBands(stack_soc.select(year - soc_t0_year))
@@ -199,29 +204,24 @@ def soc(
                 metadata={'year': year}
             )
         )
-    soc_stack_out = soc_stack_out.rename([
-        f'SOC_{year}' for year in years
-    ])
+    soc_stack_out = soc_stack_out.rename([f'SOC_{year}' for year in years])
     out.addBands(soc_stack_out, d_soc)
 
     if dl_annual_lc:
         logger.debug("Adding all annual LC layers.")
         d_lc = []
-        for year in range(year_initial, year_final + 1):
+        lc_stack_out = stack_lc.select(year - lc_band0_year)
+        for year in years[1:]:
+            lc_stack_out = lc_stack_out.addBands(stack_lc.select(year - lc_band0_year))
             d_lc.append(BandInfo("Land cover (7 class)",
                                  metadata={'year': year,
                                            'nesting': nesting.dumps()}))
-        stack_lc = stack_lc.rename([
-            f'Land_cover_{year}'
-            for year in range(year_initial, year_final + 1)
-        ])
-        out.addBands(stack_lc, d_lc)
+        stack_lc = stack_lc.rename([f'Land_cover_{year}' for year in years])
+        out.addBands(lc_stack_out, d_lc)
     else:
         logger.debug("Adding initial and final LC layers.")
-        lc_initial = stack_lc.select(0).rename(f'Land_cover_{year_initial}')
-        lc_final = stack_lc.select(
-            len(stack_lc.getInfo()['bands']) - 1
-        ).rename(f'Land_cover_{year_final}')
+        lc_initial = stack_lc.select(year_initial - lc_band0_year).rename(f'Land_cover_{year_initial}')
+        lc_final = stack_lc.select(year_final - lc_band0_year).rename(f'Land_cover_{year_final}')
         out.addBands(
             lc_initial.addBands(lc_final),
             [
