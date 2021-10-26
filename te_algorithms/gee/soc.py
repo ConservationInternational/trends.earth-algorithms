@@ -33,7 +33,7 @@ def soc(
     # land cover - note it needs to be reprojected to match soc so that it can 
     # be output to cloud storage in the same stack
     lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2020") \
-            .select(ee.List.sequence(soc_t0_year - 1992, year_final - 1992, 1)) \
+            .select(ee.List.sequence(soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1)) \
             .reproject(crs=soc.projection())
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
@@ -219,10 +219,10 @@ def soc(
         d_lc = []
         for year in years:
             if year == years[0]:
-                lc_stack_out = stack_lc.select(year - lc_band0_year)
+                lc_stack_out = stack_lc.select(year - soc_t0_year)
             else:
                 lc_stack_out = lc_stack_out.addBands(
-                    stack_lc.select(year - lc_band0_year)
+                    stack_lc.select(year - soc_t0_year)
                 )
             d_lc.append(BandInfo("Land cover (7 class)",
                                  metadata={'year': year,
@@ -234,10 +234,10 @@ def soc(
     else:
         logger.debug("Adding initial and final LC layers.")
         lc_initial = stack_lc.select(
-            year_initial - lc_band0_year
+            year_initial - soc_t0_year
         ).rename(f'Land_cover_{year_initial}')
         lc_final = stack_lc.select(
-            year_final - lc_band0_year
+            year_final - soc_t0_year
         ).rename(f'Land_cover_{year_final}')
         out.addBands(
             lc_initial.addBands(lc_final),
