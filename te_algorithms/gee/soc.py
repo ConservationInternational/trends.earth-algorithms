@@ -46,7 +46,8 @@ def soc(
     stack_soc = ee.Image().select()
 
     # loop through all the years in the period of analysis to compute changes in SOC
-    for k in range(year_final - year_initial):
+    soc_t0 = 2000
+    for k in range(year_final - soc_t0):
         # land cover map reclassified to UNCCD 7 classes (1: forest, 2: 
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
         lc_t0 = lc.select(k).remap(nesting.get_list()[0], nesting.get_list()[1])
@@ -161,9 +162,9 @@ def soc(
     soc_pch = (
         (
             (
-                stack_soc.select(year_final - year_initial)
-                .subtract(stack_soc.select(0))
-            ).divide(stack_soc.select(0))
+                stack_soc.select(year_final - soc_t0)
+                .subtract(year_initial - soc_t0),
+            ).divide(year_initial - soc_t0)
         ).multiply(100)
     ).rename(
         f'Percent_SOC_increase_{year_initial}-{year_final}'
@@ -178,20 +179,27 @@ def soc(
                              'nesting': nesting.dumps()})])
 
     logger.debug("Adding annual SOC layers.")
-    # Output all annual SOC layers
+    # Output annual SOC layers
     d_soc = []
-    for year in range(year_initial, year_final + 1):
+    soc_stack_out = stack_soc.select(year_initial)
+    years = [*range(year_initial, year_final + 1)]
+    for year in years[1:]:
+        soc_stack_out = soc_stack_out.addBands(stack_soc.select(year))
         if (year == year_initial) or (year == year_final):
             add_to_map = True
         else:
             add_to_map = False
-        d_soc.append(BandInfo("Soil organic carbon", add_to_map=add_to_map,
-                              metadata={'year': year}))
-    stack_soc = stack_soc.rename([
-        f'SOC_{year}'
-        for year in range(year_initial, year_final + 1)
+        d_soc.append(
+            BandInfo(
+                "Soil organic carbon",
+                add_to_map=add_to_map,
+                metadata={'year': year}
+            )
+        )
+    soc_stack_out = soc_stack_out.rename([
+        f'SOC_{year}' for year in years
     ])
-    out.addBands(stack_soc, d_soc)
+    out.addBands(soc_stack_out, d_soc)
 
     if dl_annual_lc:
         logger.debug("Adding all annual LC layers.")
