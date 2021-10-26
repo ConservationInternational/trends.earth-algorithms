@@ -46,8 +46,8 @@ def soc(
     stack_soc = ee.Image().select()
 
     # loop through all the years in the period of analysis to compute changes in SOC
-    soc_t0 = 2000
-    for k in range(year_final - soc_t0):
+    soc_t0_year = 2000
+    for k in range(year_final - soc_t0_year):
         # land cover map reclassified to UNCCD 7 classes (1: forest, 2: 
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
         lc_t0 = lc.select(k).remap(nesting.get_list()[0], nesting.get_list()[1])
@@ -162,9 +162,9 @@ def soc(
     soc_pch = (
         (
             (
-                stack_soc.select(year_final - soc_t0)
-                .subtract(stack_soc.select(year_initial - soc_t0))
-            ).divide(stack_soc.select(year_initial - soc_t0))
+                stack_soc.select(year_final - soc_t0_year)
+                .subtract(stack_soc.select(year_initial - soc_t0_year))
+            ).divide(stack_soc.select(year_initial - soc_t0_year))
         ).multiply(100)
     ).rename(
         f'Percent_SOC_increase_{year_initial}-{year_final}'
@@ -187,7 +187,7 @@ def soc(
     soc_stack_out = stack_soc.select(year_initial)
     years = [*range(year_initial, year_final + 1)]
     for year in years[1:]:
-        soc_stack_out = soc_stack_out.addBands(stack_soc.select(year - soc_t0))
+        soc_stack_out = soc_stack_out.addBands(stack_soc.select(year - soc_t0_year))
         if (year == year_initial) or (year == year_final):
             add_to_map = True
         else:
