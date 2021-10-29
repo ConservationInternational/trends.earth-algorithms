@@ -84,7 +84,7 @@ setup(
         ],
         'gdal': [
             'GDAL>=3.0.0',
-            'numpy>=3.0.0'
+            'numpy>=1.17.0'
         ],
         'dev': ['check-manifest'],
         'test': ['coverage'],
