@@ -6,54 +6,7 @@ import marshmallow_dataclass
 from osgeo import gdal, osr
 
 from te_schemas.jobs import JobBand, Path
-
-
-@marshmallow_dataclass.dataclass
-class DataFile:
-    path: Path
-    bands: List[JobBand]
-
-    def array_rows_for_name(self, name_filter):
-        names = [b.name for b in self.bands]
-
-        return [
-            index for index, name in enumerate(names)
-            if name == name_filter
-        ]
-
-    def array_row_for_name(self, name_filter):
-        '''throw an error if more than one result'''
-        out = self.array_rows_for_name(name_filter)
-
-        if len(out) > 1:
-            raise RuntimeError(
-                f'more than one band found for name {name_filter}'
-            )
-        else:
-            return out[0]
-
-    def append(self, datafile):
-        '''
-        Extends bands with those from another datafile
-
-        This assumes that both DataFile share the same path (where the path
-        is the one of the original DataFile)
-        '''
-        datafiles = [self, datafile]
-
-        self.bands = [b for d in datafiles for b in d.bands]
-
-    def extend(self, datafiles):
-        '''
-        Extends bands with those from another datafile
-
-        This assumes that both DataFile share the same path (where the path
-        is the one of the original DataFile)
-        '''
-
-        datafiles = [self] + datafiles
-
-        self.bands = [b for d in datafiles for b in d.bands]
+from te_schemas.datafile import DataFile
 
 
 @marshmallow_dataclass.dataclass
