@@ -69,6 +69,7 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
+        'openpyxl==3.0.9',
         'marshmallow>=3.14.0',
         'marshmallow-dataclass>=8.5.3',
         'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop'

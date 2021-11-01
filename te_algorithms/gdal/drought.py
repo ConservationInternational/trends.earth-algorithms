@@ -21,23 +21,14 @@ from te_schemas import (
     SchemaBase
 )
 
+from te_schemas.datafile import DataFile
 from te_schemas.jobs import JobBand
 
-from . import logger
+from .. import logger
 from . import util
 
-try:
-    from trends_earth_binaries.util_numba import *
-    logger.info("Using numba-compiled version of util_numba.")
-    from trends_earth_binaries.drought_numba import *
-    logger.info("Using numba-compiled version of ldn_numba.")
-except (ModuleNotFoundError, ImportError) as e:
-    from .util_numba import *
-    logger.warning(f"Failed import of numba-compiled code: {e}. "
-                   "Falling back to python version of util_numba.")
-    from .drought_numba import *
-    logger.warning(f"Failed import of numba-compiled code: {e}. "
-                   "Falling back to python version of drought_numba.")
+from .util_numba import *
+from .drought_numba import *
 
 import marshmallow_dataclass
 
@@ -111,7 +102,7 @@ def accumulate_drought_summary_tables(
 
 @dataclasses.dataclass()
 class DroughtSummaryWorkerParams(SchemaBase):
-    in_df: util.DataFile
+    in_df: DataFile
     out_file: str
     drought_period: int
     mask_file: str
@@ -135,8 +126,8 @@ def _process_block(
         cell_areas_raw, mask.shape[1], axis=1
     ).astype(np.float64)
 
-    spi_rows = params.in_df.array_rows_for_name(SPI_BAND_NAME)
-    pop_rows = params.in_df.array_rows_for_name(POPULATION_BAND_NAME)
+    spi_rows = params.in_df.indices_for_name(SPI_BAND_NAME)
+    pop_rows = params.in_df.indices_for_name(POPULATION_BAND_NAME)
 
     assert len(spi_rows) == len(pop_rows)
 
@@ -207,7 +198,7 @@ def _process_block(
             'yoff': yoff
         }
 
-    jrc_row = params.in_df.array_row_for_name(JRC_BAND_NAME)
+    jrc_row = params.in_df.index_for_name(JRC_BAND_NAME)
     dvi_value_sum_and_count = jrc_sum_and_count(in_array[jrc_row, :, :], mask)
 
     return (
@@ -385,7 +376,7 @@ class DroughtSummary:
         n_out_bands = int(
             2 * math.ceil(
                 len(
-                    self.params.in_df.array_rows_for_name(SPI_BAND_NAME)
+                    self.params.in_df.indices_for_name(SPI_BAND_NAME)
                 ) / self.params.drought_period
             ) + 1
         )
