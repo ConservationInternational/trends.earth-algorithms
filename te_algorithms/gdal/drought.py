@@ -1,7 +1,6 @@
 import os
 import dataclasses
 import math
-import multiprocessing
 
 from typing import (
     List,
@@ -18,8 +17,12 @@ from osgeo import (
 )
 from te_schemas import (
     schemas,
-    SchemaBase
+    SchemaBase,
+    land_cover,
+    reporting,
+    aoi
 )
+
 
 from te_schemas.datafile import DataFile
 from te_schemas.jobs import JobBand
@@ -31,11 +34,6 @@ from .util_numba import *
 from .drought_numba import *
 
 import marshmallow_dataclass
-
-import sys
-
-if not hasattr(sys, 'argv'):
-    sys.argv  = ['']
 
 
 NODATA_VALUE = -32768
@@ -101,7 +99,7 @@ def accumulate_drought_summary_tables(
 
 
 @dataclasses.dataclass()
-class DroughtSummaryWorkerParams(SchemaBase):
+class DroughtSummaryParams(SchemaBase):
     in_df: DataFile
     out_file: str
     drought_period: int
@@ -109,7 +107,7 @@ class DroughtSummaryWorkerParams(SchemaBase):
 
 
 def _process_block(
-    params: DroughtSummaryWorkerParams,
+    params: DroughtSummaryParams,
     in_array,
     mask,
     xoff: int,
@@ -215,7 +213,7 @@ def _process_block(
 
 @dataclasses.dataclass()
 class LineParams:
-    params: DroughtSummaryWorkerParams
+    params: DroughtSummaryParams
     image_info: util.ImageInfo
     y: int
     win_ysize: int
@@ -296,7 +294,7 @@ def _process_line(line_params: LineParams):
 
 @dataclasses.dataclass()
 class DroughtSummary:
-    params: DroughtSummaryWorkerParams
+    params: DroughtSummaryParams
 
     def __init__(self):
         self.image_info = util.get_image_info(self.params.in_df.path)
@@ -348,29 +346,29 @@ class DroughtSummary:
 
         return out
 
-    def multiprocess_lines(self, line_params_list):
-        out_ds = self._get_out_ds()
-
-        out = []
-        with multiprocessing.Pool(3) as p:
-            for result in p.imap_unordered(
-                _process_line,
-                line_params_list,
-                chunksize=20
-            ):
-                if self.is_killed():
-                    p.terminate()
-                    break
-                # self.emit_progress(n / len(line_params_list))
-
-                out.append(result[0])
-                for key, value in result[1].items():
-                    logger.debug(f'key {key}, value {value}')
-                    out_ds.GetRasterBand(key).WriteArray(**value)
-
-        out = accumulate_drought_summary_tables(out)
-
-        return out
+    # def multiprocess_lines(self, line_params_list):
+    #     out_ds = self._get_out_ds()
+    #
+    #     out = []
+    #     with multiprocessing.Pool(3) as p:
+    #         for result in p.imap_unordered(
+    #             _process_line,
+    #             line_params_list,
+    #             chunksize=20
+    #         ):
+    #             if self.is_killed():
+    #                 p.terminate()
+    #                 break
+    #             # self.emit_progress(n / len(line_params_list))
+    #
+    #             out.append(result[0])
+    #             for key, value in result[1].items():
+    #                 logger.debug(f'key {key}, value {value}')
+    #                 out_ds.GetRasterBand(key).WriteArray(**value)
+    #
+    #     out = accumulate_drought_summary_tables(out)
+    #
+    #     return out
 
     def _get_out_ds(self):
         n_out_bands = int(
@@ -388,3 +386,338 @@ class DroughtSummary:
         )
 
         return out_ds
+
+
+def save_summary_table_excel(
+        output_path: Path,
+        summary_table: SummaryTableDrought,
+        years: List[int]
+):
+    """Save summary table into an xlsx file on disk"""
+    template_summary_table_path = Path(
+        __file__).parents[1] / "data/summary_table_drought.xlsx"
+    workbook = openpyxl.load_workbook(str(template_summary_table_path))
+    _render_drought_workbook(
+        workbook,
+        summary_table,
+        years
+    )
+    try:
+        workbook.save(output_path)
+        log(u'Indicator table saved to {}'.format(output_path))
+
+    except IOError:
+        error_message = (
+            f"Error saving output table - check that {output_path!r} is accessible "
+            f"and not already open."
+        )
+        log(error_message)
+
+
+def _get_population_list_by_drought_class(pop_by_drought, pop_type):
+    return reporting.PopulationList(
+        'Total population by drought class',
+        [
+            reporting.Population(
+                'Mild drought',
+                pop_by_drought.get(1, 0.),
+                type=pop_type
+            ),
+            reporting.Population(
+                'Moderate drought',
+                pop_by_drought.get(2, 0.),
+                type=pop_type
+            ),
+            reporting.Population(
+                'Severe drought',
+                pop_by_drought.get(3, 0.),
+                type=pop_type
+            ),
+            reporting.Population(
+                'Extreme drought',
+                pop_by_drought.get(4, 0.),
+                type=pop_type
+            ),
+            reporting.Population(
+                'Non-drought',
+                pop_by_drought.get(0, 0.),
+                type=pop_type
+            ),
+            reporting.Population(
+                'No data',
+                pop_by_drought.get(-32768, 0.),
+                type=pop_type
+            )
+        ]
+    )
+
+def save_reporting_json(
+    output_path: Path,
+    st: SummaryTableDrought,
+    params: dict,
+    task_name: str,
+    aoi: aoi.AOI,
+    summary_table_kwargs: dict
+):
+
+    drought_tier_one = {}
+    drought_tier_two = {}
+
+    for n, year in enumerate(range(
+        int(params['layer_spi_years'][0]),
+        int(params['layer_spi_years'][-1]) + 1
+    )):
+
+        drought_tier_one[year] = reporting.AreaList(
+            "Area by drought class",
+            'sq km',
+            [
+                reporting.Area(
+                    'Mild drought',
+                    st.annual_area_by_drought_class[n].get(1, 0.)),
+                reporting.Area(
+                    'Moderate drought',
+                    st.annual_area_by_drought_class[n].get(2, 0.)),
+                reporting.Area(
+                    'Severe drought',
+                    st.annual_area_by_drought_class[n].get(3, 0.)),
+                reporting.Area(
+                    'Extreme drought',
+                    st.annual_area_by_drought_class[n].get(4, 0.)),
+                reporting.Area(
+                    'Non-drought',
+                    st.annual_area_by_drought_class[n].get(0, 0.)),
+                reporting.Area(
+                    'No data',
+                    st.annual_area_by_drought_class[n].get(-32768, 0.))
+            ]
+        )
+
+        drought_tier_two[year] = {
+            'Total population': _get_population_list_by_drought_class(
+                st.annual_population_by_drought_class_total[n],
+                "Total population"
+            )
+        }
+        if st.annual_population_by_drought_class_male:
+            drought_tier_two[year]['Male population'] = _get_population_list_by_drought_class(
+                _get_population_list_by_drought_class(
+                    st.annual_population_by_drought_class_male[n],
+                    "Male population"
+                )
+            )
+        if st.annual_population_by_drought_class_female:
+            drought_tier_two[year]['Female population'] = _get_population_list_by_drought_class(
+                _get_population_list_by_drought_class(
+                    st.annual_population_by_drought_class_female[n],
+                    "Female population"
+                )
+            )
+
+    drought_tier_three = {
+        2018: reporting.Value(
+            'Mean value',
+            st.dvi_value_sum_and_count[0] / st.dvi_value_sum_and_count[1]
+        )
+    }
+
+    ##########################################################################
+    # Format final JSON output
+    te_summary = reporting.TrendsEarthDroughtSummary(
+            metadata=reporting.ReportMetadata(
+                title='Trends.Earth Summary Report',
+                date=dt.datetime.now(dt.timezone.utc),
+
+                trends_earth_version=schemas.TrendsEarthVersion(
+                    version=__version__,
+                    revision=__revision__,
+                    release_date=dt.datetime.strptime(
+                        __release_date__,
+                        '%Y/%m/%d %H:%M:%SZ'
+                    )
+                ),
+
+                area_of_interest=schemas.AreaOfInterest(
+                    name=task_name,  # TODO replace this with area of interest name once implemented in TE
+                    geojson=aoi.get_geojson(),
+                    crs_wkt=aoi.get_crs_wkt()
+                )
+            ),
+
+            drought=reporting.DroughtReport(
+                tier_one=drought_tier_one,
+                tier_two=drought_tier_two,
+                tier_three=drought_tier_three
+            )
+        )
+
+    try:
+        te_summary_json = json.loads(
+            reporting.TrendsEarthDroughtSummary.Schema().dumps(te_summary)
+        )
+        with open(output_path, 'w') as f:
+            json.dump(te_summary_json, f, indent=4)
+
+        return True
+
+    except IOError:
+        log(u'Error saving {}'.format(output_path))
+        error_message = (
+            "Error saving indicator table JSON - check that "
+            f"{output_path} is accessible and not already open."
+        )
+
+        return False
+
+
+def _render_drought_workbook(
+    template_workbook,
+    summary_table: SummaryTableDrought,
+    years: List[int]
+):
+    _write_drought_area_sheet(
+        template_workbook["Area under drought by year"],
+        summary_table,
+        years
+    )
+
+    _write_drought_pop_total_sheet(
+        template_workbook["Pop under drought (total)"],
+        summary_table,
+        years
+    )
+
+    _write_dvi_sheet(
+        template_workbook["Drought Vulnerability Index"],
+        summary_table,
+        years
+    )
+
+    return template_workbook
+
+
+def _get_col_for_drought_class(
+    annual_values_by_drought,
+    drought_code
+):
+    out = []
+    for values_by_drought in annual_values_by_drought:
+        out.append(values_by_drought.get(drought_code, 0.))
+    return np.array(out)
+
+
+def _write_dvi_sheet(
+    sheet,
+    st: SummaryTableDrought,
+    years
+):
+
+    # Make this more informative when fuller DVI calculations are available...
+    cell = sheet.cell(6, 2)
+    cell.value = 2018
+    cell = sheet.cell(6, 3)
+    cell.value = st.dvi_value_sum_and_count[0] / st.dvi_value_sum_and_count[1]
+
+    utils.maybe_add_image_to_sheet(
+        "trends_earth_logo_bl_300width.png", sheet, "H1")
+
+
+def _write_drought_area_sheet(
+    sheet,
+    st: SummaryTableDrought,
+    years
+):
+    summary.write_col_to_sheet(
+        sheet,
+        np.array(years),
+        2, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_area_by_drought_class, 1),
+        4, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_area_by_drought_class, 2),
+        6, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_area_by_drought_class, 3),
+        8, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_area_by_drought_class, 4),
+        10, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_area_by_drought_class, 0),
+        12, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_area_by_drought_class, -32768),
+        14, 7
+    )
+    utils.maybe_add_image_to_sheet(
+        "trends_earth_logo_bl_300width.png", sheet, "L1")
+
+
+def _write_drought_pop_total_sheet(
+    sheet,
+    st: SummaryTableDrought,
+    years
+):
+    summary.write_col_to_sheet(
+        sheet,
+        np.array(years),
+        2, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_population_by_drought_class_total, 1),
+        4, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_population_by_drought_class_total, 2),
+        6, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_population_by_drought_class_total, 3),
+        8, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_population_by_drought_class_total, 4),
+        10, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_population_by_drought_class_total, 0),
+        12, 7
+    )
+    summary.write_col_to_sheet(
+        sheet,
+        _get_col_for_drought_class(
+            st.annual_population_by_drought_class_total, -32768),
+        14, 7
+    )
+    utils.maybe_add_image_to_sheet(
+        "trends_earth_logo_bl_300width.png", sheet, "L1")
+
