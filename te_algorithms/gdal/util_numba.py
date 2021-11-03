@@ -138,12 +138,8 @@ def accumulate_dicts(z):
 
 @numba.jit(nopython=True)
 def _combine_dicts(z1, z2):
-    logger.debug(f'z1 {z1}, z2 {z2}')
     out = z1
     for key in z2:
-        logger.debug(f'key {key}')
-        logger.debug(f'key in out {key in out}')
-        logger.debug(f'z2[key] {z2[key]}')
         if key in out:
             out[key] += z2[key]
         else:

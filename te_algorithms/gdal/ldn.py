@@ -143,7 +143,6 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
     else:
         out = tables[0]
         for table in tables[1:]:
-            logger.debug(f'accumulating soc_by_lc_annual_totals')
             out.soc_by_lc_annual_totals = [
                 accumulate_dicts([a,  b])
                 for a, b in zip(
@@ -151,7 +150,6 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
                     table.soc_by_lc_annual_totals
                 )
             ]
-            logger.debug(f'accumulating lc_annual_totals')
             out.lc_annual_totals = [
                 accumulate_dicts([a,  b])
                 for a, b in zip(
@@ -159,7 +157,6 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
                     table.lc_annual_totals
                 )
             ]
-            logger.debug(f'accumulating lc_trans_zonal_areas')
             out.lc_trans_zonal_areas = [
                 accumulate_dicts([a,  b])
                 for a, b in zip(
@@ -177,56 +174,48 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
                 out.lc_trans_zonal_areas_periods ==
                 table.lc_trans_zonal_areas_periods
             )
-            logger.debug(f'accumulating lc_trans_prod_bizonal')
             out.lc_trans_prod_bizonal = accumulate_dicts(
                 [
                     out.lc_trans_prod_bizonal,
                     table.lc_trans_prod_bizonal
                 ]
             )
-            logger.debug(f'accumulating lc_trans_zonal_soc_initial')
             out.lc_trans_zonal_soc_initial = accumulate_dicts(
                 [
                     out.lc_trans_zonal_soc_initial,
                     table.lc_trans_zonal_soc_initial
                 ]
             )
-            logger.debug(f'accumulating lc_trans_zonal_soc_final')
             out.lc_trans_zonal_soc_final = accumulate_dicts(
                 [
                     out.lc_trans_zonal_soc_final,
                     table.lc_trans_zonal_soc_final
                 ]
             )
-            logger.debug(f'accumulating sdg_zonal_population_total')
             out.sdg_zonal_population_total = accumulate_dicts(
                 [
                     out.sdg_zonal_population_total,
                     table.sdg_zonal_population_total
                 ]
             )
-            logger.debug(f'accumulating sdg_summary')
             out.sdg_summary = accumulate_dicts(
                 [
                     out.sdg_summary,
                     table.sdg_summary
                 ]
             )
-            logger.debug(f'accumulating prod_summary')
             out.prod_summary = accumulate_dicts(
                 [
                     out.prod_summary,
                     table.prod_summary
                 ]
             )
-            logger.debug(f'accumulating soc_summary')
             out.soc_summary = accumulate_dicts(
                 [
                     out.soc_summary,
                     table.soc_summary
                 ]
             )
-            logger.debug(f'accumulating lc_summary')
             out.lc_summary = accumulate_dicts(
                 [
                     out.lc_summary,
@@ -245,7 +234,9 @@ def _compute_progress_summary(
     baseline_period,
     progress_period,
     mask_worker_function: Callable = None,
-    mask_worker_params: dict = None
+    mask_worker_params: dict = None,
+    progress_worker_function: Callable = None,
+    progress_worker_params: dict = None
 ):
     # Calculate progress summary
     progress_vrt, progress_band_dict = _get_progress_summary_input_vrt(
@@ -276,7 +267,7 @@ def _compute_progress_summary(
         mask_tif = tempfile.NamedTemporaryFile(suffix='.tif').name
         logger.info(f'Saving mask to {mask_tif}')
         logger.info(str(job_output_path.parent / mask_name_fragment.format(index=index)))
-        geojson = ogr.CreateGeometryFromWkt(wkt_aoi).ExportToJson()
+        geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
         if mask_worker_function:
             mask_result = mask_worker_function(
                 mask_tif,
@@ -297,28 +288,34 @@ def _compute_progress_summary(
                 index=index
             )
             progress_paths.append(progress_out_path)
+
             logger.info(f'Calculating progress summary table and saving layer to: {progress_out_path}')
-            deg_worker = worker.StartWorker(
-                DegradationSummaryWorker,
-                summary_name_fragment.format(index=index),
-                DegradationProgressSummaryParams(
-                    prod_mode=prod_mode,
-                    in_file=str(progress_vrt),
-                    out_file=str(progress_out_path),
-                    band_dict=progress_band_dict,
-                    model_band_number=1,
-                    n_out_bands=4,
-                    mask_file=mask_tif
-                ),
-                _process_block_progress
+            progress_params = DegradationProgressSummaryParams(
+                prod_mode=prod_mode,
+                in_file=str(progress_vrt),
+                out_file=str(progress_out_path),
+                band_dict=progress_band_dict,
+                model_band_number=1,
+                n_out_bands=4,
+                mask_file=mask_tif
             )
-            if not deg_worker.success:
-                if deg_worker.was_killed():
+            if progress_worker_function:
+                result = progress_worker_function(
+                    progress_params,
+                    _process_block_progress,
+                    **progress_worker_params
+                )
+            else:
+                summarizer = DegradationSummary(progress_params, _process_block_progress)
+                result = summarizer.work()
+            if not result:
+                if result.is_killed():
                     error_message = "Cancelled calculation of progress summary table."
                 else:
                     error_message = "Error calculating progress summary table."
+                    result = None
             else:
-                progress_summary_tables.append(_accumulate_ld_progress_summary_tables(deg_worker.get_return()))
+                progress_summary_tables.append(_accumulate_ld_progress_summary_tables(result))
 
         else:
             error_message = "Error creating mask."
@@ -1942,7 +1939,7 @@ def _render_ld_workbook(
 
 
 def _calculate_summary_table(
-        bbox,
+        wkt_aoi,
         pixel_aligned_bbox,
         in_dfs: List[DataFile],
         output_sdg_path: Path,
@@ -1980,7 +1977,7 @@ def _calculate_summary_table(
 
     error_message = ""
     logger.info(f'Reprojecting inputs and saving to {output_layers_path}')
-    if mask_worker_function:
+    if reproject_worker_function:
         reproject_result = reproject_worker_function(
             indic_vrt,
             str(output_layers_path),
@@ -2001,7 +1998,7 @@ def _calculate_summary_table(
         # the VRT
         mask_tif = tempfile.NamedTemporaryFile(suffix='.tif').name
         logger.info(f'Saving mask to {mask_tif}')
-        geojson = util.wkt_geom_to_geojson_file_string(bbox)
+        geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
 
         if mask_worker_function:
             mask_result = mask_worker_function(
@@ -2124,7 +2121,7 @@ def _compute_ld_summary_table(
     reproj_paths = []
     sdg_paths = []
     for index, (
-        wkt_bounding_box,
+        wkt_aoi,
         pixel_aligned_bbox
     ) in enumerate(zip(wkt_aois, bbs), start=1):
         sdg_path = output_job_path.parent / output_name_pattern.format(
@@ -2137,7 +2134,7 @@ def _compute_ld_summary_table(
         reproj_paths.append(reproj_path)
 
         result, error_message = _calculate_summary_table(
-            bbox=wkt_bounding_box,
+            wkt_aoi=wkt_aoi,
             pixel_aligned_bbox=pixel_aligned_bbox,
             output_sdg_path=sdg_path,
             output_layers_path=reproj_path,
