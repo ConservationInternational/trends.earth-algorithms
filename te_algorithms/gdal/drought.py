@@ -1,12 +1,18 @@
 import os
 import dataclasses
 import math
+import logging
+import json
+import tempfile
+import datetime as dt
+import openpyxl
 
 from typing import (
     List,
     Dict,
     Tuple,
-    Optional
+    Optional,
+    Callable
 )
 from pathlib import Path
 
@@ -20,18 +26,22 @@ from te_schemas import (
     SchemaBase,
     land_cover,
     reporting,
-    aoi
 )
+
+from te_schemas.aoi import AOI
 
 
 from te_schemas.datafile import DataFile
-from te_schemas.jobs import JobBand
+from te_schemas.jobs import Job, JobBand
 
-from .. import logger
-from . import util
-
+from .. import (
+    __version__,
+    __release_date__
+)
+from . import util, workers
 from .util_numba import *
 from .drought_numba import *
+from . import xl
 
 import marshmallow_dataclass
 
@@ -42,6 +52,8 @@ MASK_VALUE = -32767
 POPULATION_BAND_NAME = "Population (density, persons per sq km / 10)"
 SPI_BAND_NAME = "Standardized Precipitation Index (SPI)"
 JRC_BAND_NAME = "Drought Vulnerability (JRC)"
+
+logger = logging.getLogger(__name__)
 
 
 @marshmallow_dataclass.dataclass
@@ -260,7 +272,6 @@ def _process_line(line_params: LineParams):
             win_xsize = line_params.image_info.x_size - x
 
         logger.debug(f'image_info: {line_params.image_info}')
-        logger.debug(f'line_params: {line_params}')
         logger.debug(f'x {x}, win_xsize {win_xsize}')
         
         src_array = src_ds.ReadAsArray(
@@ -292,17 +303,19 @@ def _process_line(line_params: LineParams):
     return results
 
 
-@dataclasses.dataclass()
 class DroughtSummary:
-    params: DroughtSummaryParams
-
-    def __init__(self):
+    def __init__(
+        self,
+        params: DroughtSummaryParams
+    ):
+        self.params = params
         self.image_info = util.get_image_info(self.params.in_df.path)
 
     def is_killed(self):
         return False
 
     def emit_progress(self, *args, **kwargs):
+        '''Reimplement to display progress messages'''
         pass
 
     def get_line_params(self):
@@ -339,7 +352,6 @@ class DroughtSummary:
             for result in results:
                 out.append(result[0])
                 for key, value in result[1].items():
-                    logger.debug(f'key {key}, value {value}')
                     out_ds.GetRasterBand(key).WriteArray(**value)
 
         out = accumulate_drought_summary_tables(out)
@@ -388,6 +400,288 @@ class DroughtSummary:
         return out_ds
 
 
+def summarise_drought_vulnerability(
+    drought_job: Job,
+    aoi: AOI,
+    job_output_path: Path,
+) -> Job:
+    logger.info('at top of summarise_drought_vulnerability')
+
+    params = drought_job.params
+
+    drought_period = 4
+
+    spi_dfs = _prepare_dfs(
+        params['layer_spi_path'],
+        params['layer_spi_bands'],
+        params['layer_spi_band_indices']
+    )
+
+    population_dfs = _prepare_dfs(
+        params['layer_population_path'],
+        params['layer_population_bands'],
+        params['layer_population_band_indices']
+    )
+
+    jrc_df = _prepare_dfs(
+        params['layer_jrc_path'],
+        [params['layer_jrc_band']],
+        [params['layer_jrc_band_index']]
+    )
+
+    summary_table, out_path = _compute_drought_summary_table(
+        aoi=aoi,
+        compute_bbs_from=params['layer_spi_path'],
+        output_job_path=job_output_path.parent / f"{job_output_path.stem}.json",
+        in_dfs=spi_dfs + population_dfs + jrc_df,
+        drought_period=drought_period
+    )
+
+    out_bands = []
+    logger.info(f"processing for years {params['layer_spi_years'][0]} - "
+                 f"int(params['layer_spi_years'][-1])")
+    for period_number, year_initial in enumerate(
+        range(
+            int(params['layer_spi_years'][0]),
+            int(params['layer_spi_years'][-1]),
+            drought_period
+        )
+    ):
+        if (year_initial + drought_period - 1) > params['layer_spi_years'][-1]:
+            year_final = params['layer_spi_years'][-1]
+        else:
+            year_final = year_initial + drought_period - 1
+
+        out_bands.append(JobBand(
+            name="Minimum SPI over period",
+            no_data_value=NODATA_VALUE,
+            metadata={
+                'year_initial': year_initial,
+                'year_final': year_final,
+                'lag': int(params['layer_spi_lag'])
+            },
+            activated=True
+        ))
+
+        out_bands.append(JobBand(
+            name="Population density at minimum SPI over period",
+            no_data_value=NODATA_VALUE,
+            metadata={
+                'year_initial': year_initial,
+                'year_final': year_final
+            },
+            activated=True
+        ))
+
+    out_df = DataFile(out_path.name, out_bands)
+
+    drought_job.results.bands.extend(out_df.bands)
+
+    # Also save bands to a key file for ease of use in PRAIS
+    key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
+    with open(key_json, 'w') as f:
+        json.dump(DataFile.Schema().dump(out_df), f, indent=4)
+
+    summary_json_output_path = job_output_path.parent / f"{job_output_path.stem}_summary.json"
+    save_reporting_json(
+        summary_json_output_path,
+        summary_table,
+        drought_job.params,
+        drought_job.task_name,
+        aoi
+    )
+
+    summary_table_output_path = job_output_path.parent / f"{job_output_path.stem}_summary.xlsx"
+    save_summary_table_excel(
+        summary_table_output_path,
+        summary_table,
+        years=[int(y) for y in params['layer_spi_years']]
+    )
+
+    drought_job.results.data_path = out_path
+    drought_job.results.other_paths.extend(
+        [
+            summary_json_output_path,
+            summary_table_output_path,
+            key_json
+        ]
+    )
+    drought_job.end_date = dt.datetime.now(dt.timezone.utc)
+    drought_job.progress = 100
+
+    return drought_job
+
+
+def _prepare_dfs(
+    path,
+    band_str_list,
+    band_indices
+) -> List[DataFile]:
+    dfs = []
+    for band_str, band_index in zip(band_str_list, band_indices):
+        band = JobBand(**band_str)
+        dfs.append(
+            DataFile(
+                path=util.save_vrt(
+                    path,
+                    band_index
+                ),
+                bands=[band]
+            )
+        )
+    return dfs
+
+
+def _calculate_summary_table(
+        bbox,
+        pixel_aligned_bbox,
+        in_dfs: List[DataFile],
+        output_tif_path: Path,
+        mask_worker_process_name,
+        drought_worker_process_name,
+        drought_period: int,
+        mask_worker_function: Callable = None,
+        mask_worker_params: dict = None,
+        drought_worker_function: Callable = None,
+        drought_worker_params: dict = None
+) -> Tuple[
+    Optional[SummaryTableDrought],
+    str
+]:
+    # Combine all raster into a VRT and crop to the AOI
+    indic_vrt = tempfile.NamedTemporaryFile(suffix='.vrt').name
+    logger.info(u'Saving indicator VRT to: {}'.format(indic_vrt))
+    # The plus one is because band numbers start at 1, not zero
+    gdal.BuildVRT(
+        indic_vrt,
+        [item.path for item in in_dfs],
+        outputBounds=pixel_aligned_bbox,
+        resolution='highest',
+        resampleAlg=gdal.GRA_NearestNeighbour,
+        separate=True
+    )
+
+    # Compute a mask layer that will be used in the tabulation code to
+    # mask out areas outside of the AOI. Do this instead of using
+    # gdal.Clip to save having to clip and rewrite all of the layers in
+    # the VRT
+    mask_vrt = tempfile.NamedTemporaryFile(suffix='.tif').name
+    logger.info('Saving mask to {mask_vrt}')
+    geojson = util.wkt_geom_to_geojson_file_string(bbox)
+    error_message = ""
+    if mask_worker_function:
+        result = mask_worker_function(
+            mask_vrt,
+            geojson,
+            indic_vrt,
+            **mask_worker_params
+        )
+    else:
+        mask_worker = workers.Mask(
+            mask_vrt,
+            geojson,
+            indic_vrt
+        )
+        mask_result = mask_worker.work()
+
+        if mask_result:
+            # Combine all in_dfs together and update path to refer to indicator 
+            # VRT
+            in_df = DataFile(indic_vrt, [b for d in in_dfs for b in d.bands])
+            params = DroughtSummaryParams(
+                in_df=in_df,
+                out_file=str(output_tif_path),
+                mask_file=mask_vrt,
+                drought_period=drought_period
+            )
+
+            logger.info(f'Calculating summary table and saving to: {output_tif_path}')
+            if drought_worker_function:
+                result = drought_worker_function(
+                    params,
+                    **drought_worker_function_params
+                )
+                if not result:
+                    if summarizer.is_killed():
+                        error_message = "Cancelled calculation of summary table."
+                    else:
+                        error_message = "Error calculating summary table."
+                        result = None
+                else:
+                    result = drought_worker.get_return()
+            else:
+                summarizer = DroughtSummary(params)
+                result = summarizer.process_lines(
+                    summarizer.get_line_params()
+                )
+        else:
+            error_message = "Error creating mask."
+            result = None
+
+    return result, error_message
+
+
+def _compute_drought_summary_table(
+    aoi,
+    compute_bbs_from,
+    in_dfs,
+    output_job_path: Path,
+    drought_period: int
+) -> Tuple[SummaryTableDrought, Path, Path]:
+    """Computes summary table and the output tif file(s)"""
+    wkt_bounding_boxes = aoi.meridian_split(as_extent=False, out_format='wkt')
+    bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
+    output_name_pattern = {
+        1: f"{output_job_path.stem}" + ".tif",
+        2: f"{output_job_path.stem}" + "_{index}.tif"
+    }[len(wkt_bounding_boxes)]
+    mask_name_fragment = {
+        1: "Generating mask",
+        2: "Generating mask (part {index} of 2)",
+    }[len(wkt_bounding_boxes)]
+    drought_name_fragment = {
+        1: "Calculating summary table",
+        2: "Calculating summary table (part {index} of 2)",
+    }[len(wkt_bounding_boxes)]
+
+    summary_tables = []
+    out_paths = []
+    for index, ( 
+        wkt_bounding_box,
+        pixel_aligned_bbox
+    ) in enumerate(zip(wkt_bounding_boxes, bbs), start=1):
+        logger.info(f'Calculating summary table {index} of {len(wkt_bounding_boxes)}')
+        out_path = output_job_path.parent / output_name_pattern.format(
+            index=index
+        )
+        out_paths.append(out_path)
+        result, error_message = _calculate_summary_table(
+            bbox=wkt_bounding_box,
+            pixel_aligned_bbox=pixel_aligned_bbox,
+            output_tif_path=out_path,
+            mask_worker_process_name=mask_name_fragment.format(index=index),
+            drought_worker_process_name=drought_name_fragment.format(index=index),
+            in_dfs=in_dfs,
+            drought_period=drought_period
+        )
+        if result is None:
+            raise RuntimeError(error_message)
+        else:
+            summary_tables.append(result)
+
+    summary_table = accumulate_drought_summary_tables(summary_tables)
+
+    if len(out_paths) > 1:
+        out_path = output_job_path.parent / f"{output_job_path.stem}.vrt"
+        gdal.BuildVRT(str(out_path), [str(p) for p in out_paths])
+    else:
+        out_path = out_paths[0]
+
+    return summary_table, out_path
+
+
+
+
 def save_summary_table_excel(
         output_path: Path,
         summary_table: SummaryTableDrought,
@@ -404,14 +698,14 @@ def save_summary_table_excel(
     )
     try:
         workbook.save(output_path)
-        log(u'Indicator table saved to {}'.format(output_path))
+        logger.info(u'Indicator table saved to {}'.format(output_path))
 
     except IOError:
         error_message = (
             f"Error saving output table - check that {output_path!r} is accessible "
             f"and not already open."
         )
-        log(error_message)
+        logger.error(error_message)
 
 
 def _get_population_list_by_drought_class(pop_by_drought, pop_type):
@@ -456,8 +750,7 @@ def save_reporting_json(
     st: SummaryTableDrought,
     params: dict,
     task_name: str,
-    aoi: aoi.AOI,
-    summary_table_kwargs: dict
+    aoi: AOI
 ):
 
     drought_tier_one = {}
@@ -530,7 +823,7 @@ def save_reporting_json(
 
                 trends_earth_version=schemas.TrendsEarthVersion(
                     version=__version__,
-                    revision=__revision__,
+                    revision=None,
                     release_date=dt.datetime.strptime(
                         __release_date__,
                         '%Y/%m/%d %H:%M:%SZ'
@@ -561,7 +854,7 @@ def save_reporting_json(
         return True
 
     except IOError:
-        log(u'Error saving {}'.format(output_path))
+        logger.error('Error saving {output_path}')
         error_message = (
             "Error saving indicator table JSON - check that "
             f"{output_path} is accessible and not already open."
@@ -618,7 +911,7 @@ def _write_dvi_sheet(
     cell = sheet.cell(6, 3)
     cell.value = st.dvi_value_sum_and_count[0] / st.dvi_value_sum_and_count[1]
 
-    utils.maybe_add_image_to_sheet(
+    xl.maybe_add_image_to_sheet(
         "trends_earth_logo_bl_300width.png", sheet, "H1")
 
 
@@ -627,48 +920,48 @@ def _write_drought_area_sheet(
     st: SummaryTableDrought,
     years
 ):
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         np.array(years),
         2, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_area_by_drought_class, 1),
         4, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_area_by_drought_class, 2),
         6, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_area_by_drought_class, 3),
         8, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_area_by_drought_class, 4),
         10, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_area_by_drought_class, 0),
         12, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_area_by_drought_class, -32768),
         14, 7
     )
-    utils.maybe_add_image_to_sheet(
+    xl.maybe_add_image_to_sheet(
         "trends_earth_logo_bl_300width.png", sheet, "L1")
 
 
@@ -677,47 +970,47 @@ def _write_drought_pop_total_sheet(
     st: SummaryTableDrought,
     years
 ):
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         np.array(years),
         2, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_population_by_drought_class_total, 1),
         4, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_population_by_drought_class_total, 2),
         6, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_population_by_drought_class_total, 3),
         8, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_population_by_drought_class_total, 4),
         10, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_population_by_drought_class_total, 0),
         12, 7
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(
             st.annual_population_by_drought_class_total, -32768),
         14, 7
     )
-    utils.maybe_add_image_to_sheet(
+    xl.maybe_add_image_to_sheet(
         "trends_earth_logo_bl_300width.png", sheet, "L1")
 

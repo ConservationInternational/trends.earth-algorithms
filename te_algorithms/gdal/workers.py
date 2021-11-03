@@ -1,19 +1,44 @@
+import dataclasses
+import json
+import os
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
-class ClipWorker(worker.AbstractWorker):
-    def __init__(self, in_file, out_file, geojson, output_bounds=None):
-        worker.AbstractWorker.__init__(self)
+from osgeo import gdal
 
-        self.in_file=in_file
-        self.out_file=out_file
-        self.output_bounds=output_bounds
+from te_schemas.datafile import DataFile
 
-        self.geojson=geojson
+
+# Function to get a temporary filename that handles closing the file created by
+# NamedTemporaryFile - necessary when the file is for usage in another process
+# (i.e. GDAL)
+def _get_temp_filename(suffix):
+    f = NamedTemporaryFile(suffix=suffix, delete=False)
+    f.close()
+    return f.name
+
+
+@dataclasses.dataclass()
+class DroughtSummaryParams:
+    in_df: DataFile
+    out_file: str
+    drought_period: int
+    mask_file: str
+
+
+@dataclasses.dataclass()
+class Clip:
+    in_file: Path
+    out_file: Path
+    output_bounds: list
+    geojson: dict
+
+    def progress_callback(self, *args, **kwargs):
+        '''Reimplement to display progress messages'''
+        pass
 
     def work(self):
-        self.toggle_show_progress.emit(True)
-        self.toggle_show_cancel.emit(True)
-
-        json_file=GetTempFilename('.geojson')
+        json_file = _get_temp_filename('.geojson')
         with open(json_file, 'w') as f:
             json.dump(self.geojson, f, separators=(',', ': '))
 
@@ -50,27 +75,17 @@ class ClipWorker(worker.AbstractWorker):
         else:
             return None
 
-    def progress_callback(self, fraction, message, data):
-        if self.killed:
-            return False
-        else:
-            self.progress.emit(100 * fraction)
 
-            return True
+@dataclasses.dataclass()
+class Warp:
+    in_file: Path
+    out_file: Path
 
-
-class WarpWorker(worker.AbstractWorker):
-    '''Used as a substitute for gdal translate given warp is multithreaded'''
-    def __init__(self, in_file, out_file):
-        worker.AbstractWorker.__init__(self)
-
-        self.in_file = in_file
-        self.out_file = out_file
+    def progress_callback(self, *args, **kwargs):
+        '''Reimplement to display progress messages'''
+        pass
 
     def work(self):
-        self.toggle_show_progress.emit(True)
-        self.toggle_show_cancel.emit(True)
-
         gdal.UseExceptions()
 
         res = gdal.Warp(
@@ -100,27 +115,18 @@ class WarpWorker(worker.AbstractWorker):
         else:
             return None
 
-    def progress_callback(self, fraction, message, data):
-        if self.killed:
-            return False
-        else:
-            self.progress.emit(100 * fraction)
-            return True
+@dataclasses.dataclass()
+class Mask:
+    out_file: Path
+    geojson: dict
+    model_file: Path
 
-
-class MaskWorker(worker.AbstractWorker):
-    def __init__(self, out_file, geojson, model_file=None):
-        worker.AbstractWorker.__init__(self)
-
-        self.out_file=out_file
-        self.geojson=geojson
-        self.model_file=model_file
+    def progress_callback(self, *args, **kwargs):
+        '''Reimplement to display progress messages'''
+        pass
 
     def work(self):
-        self.toggle_show_progress.emit(True)
-        self.toggle_show_cancel.emit(True)
-
-        json_file=GetTempFilename('.geojson')
+        json_file = _get_temp_filename('.geojson')
         with open(json_file, 'w') as f:
             json.dump(self.geojson, f, separators=(',', ': '))
 
@@ -163,26 +169,16 @@ class MaskWorker(worker.AbstractWorker):
         else:
             return None
 
-    def progress_callback(self, fraction, message, data):
-        if self.killed:
-            return False
-        else:
-            self.progress.emit(100 * fraction)
+@dataclasses.dataclass()
+class Translate:
+    out_file: Path
+    in_file: Path
 
-            return True
-
-
-class TranslateWorker(worker.AbstractWorker):
-    def __init__(self, out_file, in_file):
-        worker.AbstractWorker.__init__(self)
-
-        self.out_file = out_file
-        self.in_file = in_file
+    def progress_callback(self, *args, **kwargs):
+        '''Reimplement to display progress messages'''
+        pass
 
     def work(self):
-        self.toggle_show_progress.emit(True)
-        self.toggle_show_cancel.emit(True)
-
         gdal.UseExceptions()
 
         res = gdal.Translate(
@@ -196,11 +192,3 @@ class TranslateWorker(worker.AbstractWorker):
             return True
         else:
             return None
-
-    def progress_callback(self, fraction, message, data):
-        if self.killed:
-            return False
-        else:
-            self.progress.emit(100 * fraction)
-
-            return True

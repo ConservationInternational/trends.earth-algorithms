@@ -165,6 +165,7 @@ def save_vrt(source_path: pathlib.Path, source_band_index: int) -> str:
     )
     return temporary_file.name
 
+
 def wkt_geom_to_geojson_file_string(wkt):
     out_file = tempfile.NamedTemporaryFile(suffix='.geojson').name
     out_ds = ogr.GetDriverByName('GeoJSON').CreateDataSource(out_file)
@@ -179,3 +180,4 @@ def wkt_geom_to_geojson_file_string(wkt):
 
     with open(out_file, 'r') as f:
         return json.load(f)
+
