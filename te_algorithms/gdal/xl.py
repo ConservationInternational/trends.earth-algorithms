@@ -18,3 +18,9 @@ def write_col_to_sheet(sheet, d, col, first_row):
         cell = sheet.cell(row=row + first_row, column=col)
         cell.value = d[row]
 
+
+def write_table_to_sheet(sheet, d, first_row, first_col):
+    for row in range(d.shape[0]):
+        for col in range(d.shape[1]):
+            cell = sheet.cell(row=row + first_row, column=col + first_col)
+            cell.value = d[row, col]

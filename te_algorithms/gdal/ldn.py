@@ -12,7 +12,8 @@ from typing import (
     Dict,
     Tuple,
     Union,
-    Optional
+    Optional,
+    Callable
 )
 from pathlib import Path
 
@@ -42,20 +43,13 @@ from .. import (
     __release_date__
 )
 
-from .. import logger
 import logging
 
-from .util import save_vrt
+from . import util, workers, xl
 from .util_numba import *
 from .ldn_numba import *
 
-formatter = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-logfilename = r'D:\qgis.log'
-logging.basicConfig(
-    filename=logfilename, level=logging.DEBUG, format=formatter
-)
-
-
+logger = logging.getLogger(__name__)
 
 NODATA_VALUE = -32768
 MASK_VALUE = -32767
@@ -149,6 +143,7 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
     else:
         out = tables[0]
         for table in tables[1:]:
+            logger.debug(f'accumulating soc_by_lc_annual_totals')
             out.soc_by_lc_annual_totals = [
                 accumulate_dicts([a,  b])
                 for a, b in zip(
@@ -156,6 +151,7 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
                     table.soc_by_lc_annual_totals
                 )
             ]
+            logger.debug(f'accumulating lc_annual_totals')
             out.lc_annual_totals = [
                 accumulate_dicts([a,  b])
                 for a, b in zip(
@@ -163,6 +159,7 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
                     table.lc_annual_totals
                 )
             ]
+            logger.debug(f'accumulating lc_trans_zonal_areas')
             out.lc_trans_zonal_areas = [
                 accumulate_dicts([a,  b])
                 for a, b in zip(
@@ -180,48 +177,56 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
                 out.lc_trans_zonal_areas_periods ==
                 table.lc_trans_zonal_areas_periods
             )
+            logger.debug(f'accumulating lc_trans_prod_bizonal')
             out.lc_trans_prod_bizonal = accumulate_dicts(
                 [
                     out.lc_trans_prod_bizonal,
                     table.lc_trans_prod_bizonal
                 ]
             )
+            logger.debug(f'accumulating lc_trans_zonal_soc_initial')
             out.lc_trans_zonal_soc_initial = accumulate_dicts(
                 [
                     out.lc_trans_zonal_soc_initial,
                     table.lc_trans_zonal_soc_initial
                 ]
             )
+            logger.debug(f'accumulating lc_trans_zonal_soc_final')
             out.lc_trans_zonal_soc_final = accumulate_dicts(
                 [
                     out.lc_trans_zonal_soc_final,
                     table.lc_trans_zonal_soc_final
                 ]
             )
+            logger.debug(f'accumulating sdg_zonal_population_total')
             out.sdg_zonal_population_total = accumulate_dicts(
                 [
                     out.sdg_zonal_population_total,
                     table.sdg_zonal_population_total
                 ]
             )
+            logger.debug(f'accumulating sdg_summary')
             out.sdg_summary = accumulate_dicts(
                 [
                     out.sdg_summary,
                     table.sdg_summary
                 ]
             )
+            logger.debug(f'accumulating prod_summary')
             out.prod_summary = accumulate_dicts(
                 [
                     out.prod_summary,
                     table.prod_summary
                 ]
             )
+            logger.debug(f'accumulating soc_summary')
             out.soc_summary = accumulate_dicts(
                 [
                     out.soc_summary,
                     table.soc_summary
                 ]
             )
+            logger.debug(f'accumulating lc_summary')
             out.lc_summary = accumulate_dicts(
                 [
                     out.lc_summary,
@@ -232,16 +237,15 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
         return out
 
 
-    return params
-
-
 def _compute_progress_summary(
     df,
     prod_mode,
     job_output_path,
     area_of_interest,
     baseline_period,
-    progress_period
+    progress_period,
+    mask_worker_function: Callable = None,
+    mask_worker_params: dict = None
 ):
     # Calculate progress summary
     progress_vrt, progress_band_dict = _get_progress_summary_input_vrt(
@@ -270,25 +274,34 @@ def _compute_progress_summary(
     error_message = None
     for index, wkt_aoi in enumerate(wkt_aois, start=1):
         mask_tif = tempfile.NamedTemporaryFile(suffix='.tif').name
-        log(f'Saving mask to {mask_tif}')
+        logger.info(f'Saving mask to {mask_tif}')
+        logger.info(str(job_output_path.parent / mask_name_fragment.format(index=index)))
         geojson = ogr.CreateGeometryFromWkt(wkt_aoi).ExportToJson()
-        mask_worker = worker.StartWorker(
-            calculate.MaskWorker,
-            str(job_output_path.parent / mask_name_fragment.format(index=index)),
-            mask_tif,
-            geojson,
-            str(progress_vrt)
-        )
-        if mask_worker.success:
+        if mask_worker_function:
+            mask_result = mask_worker_function(
+                mask_tif,
+                geojson,
+                str(progress_vrt),
+                **mask_worker_params
+            )
+        else:
+            mask_worker = workers.Mask(
+                mask_tif,
+                geojson,
+                str(progress_vrt),
+            )
+            mask_result = mask_worker.work()
+
+        if mask_result:
             progress_out_path = job_output_path.parent / progress_name_pattern.format(
                 index=index
             )
             progress_paths.append(progress_out_path)
-            log(f'Calculating progress summary table and saving layer to: {progress_out_path}')
+            logger.info(f'Calculating progress summary table and saving layer to: {progress_out_path}')
             deg_worker = worker.StartWorker(
                 DegradationSummaryWorker,
                 summary_name_fragment.format(index=index),
-                DegradationProgressSummaryWorkerParams(
+                DegradationProgressSummaryParams(
                     prod_mode=prod_mode,
                     in_file=str(progress_vrt),
                     out_file=str(progress_out_path),
@@ -311,7 +324,7 @@ def _compute_progress_summary(
             error_message = "Error creating mask."
 
     if error_message:
-        log(error_message)
+        logger.error(error_message)
         raise RuntimeError(f"Error calculating progress: {error_message}")
 
     progress_summary_table = _accumulate_ld_progress_summary_tables(progress_summary_tables)
@@ -378,6 +391,7 @@ def compute_ldn(
     dataset_output_path: Path
 ) -> Job:
     """Calculate final SDG 15.3.1 indicator and save to disk"""
+    logger.debug('at top of compute_ldn')
 
     summary_tables = {}
     summary_table_stable_kwargs = {}
@@ -385,7 +399,7 @@ def compute_ldn(
     period_dfs = []
     period_vrts = []
 
-    log(f'ldn_job.params.items(): {ldn_job.params.keys()}')
+    logger.debug(f'ldn_job.params.keys(): {ldn_job.params.keys()}')
     for period_name, period_params in ldn_job.params.items():
         lc_dfs = _prepare_land_cover_dfs(period_params)
         soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
@@ -670,7 +684,7 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
     lc_path = params["layer_lc_path"]
     lc_dfs = [
         DataFile(
-            path=save_vrt(
+            path=util.save_vrt(
                 lc_path,
                 params["layer_lc_deg_band_index"]
             ),
@@ -683,7 +697,7 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
     ):
         lc_dfs.append(
             DataFile(
-                path=save_vrt(
+                path=util.save_vrt(
                     lc_path,
                     lc_aux_band_index
                 ),
@@ -692,7 +706,7 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
         )
     lc_dfs.append(
         DataFile(
-            path=save_vrt(
+            path=util.save_vrt(
                 params["layer_lc_trans_path"],
                 params["layer_lc_trans_band_index"],
             ),
@@ -708,7 +722,7 @@ def _prepare_population_df(
 ) -> DataFile:
     population_path = params["layer_population_path"]
     population_df = DataFile(
-        path=save_vrt(
+        path=util.save_vrt(
             population_path,
             params["layer_population_band_index"]
         ),
@@ -724,7 +738,7 @@ def _prepare_soil_organic_carbon_dfs(
     soc_path = params["layer_soc_path"]
     soc_dfs = [
         DataFile(
-            path=save_vrt(
+            path=util.save_vrt(
                 soc_path,
                 params["layer_soc_deg_band_index"]
             ),
@@ -738,7 +752,7 @@ def _prepare_soil_organic_carbon_dfs(
     ):
         soc_dfs.append(
             DataFile(
-                path=save_vrt(
+                path=util.save_vrt(
                     soc_path,
                     soc_aux_band_index
                 ),
@@ -753,21 +767,21 @@ def _prepare_trends_earth_mode_dfs(
     params: Dict
 ) -> Tuple[DataFile, DataFile, DataFile]:
     traj_vrt_df = DataFile(
-        path=save_vrt(
+        path=util.save_vrt(
             params["layer_traj_path"],
             params["layer_traj_band_index"],
         ),
         bands=[JobBand(**params["layer_traj_band"])]
     )
     perf_vrt_df = DataFile(
-        path=save_vrt(
+        path=util.save_vrt(
             params["layer_perf_path"],
             params["layer_perf_band_index"],
         ),
         bands=[JobBand(**params["layer_perf_band"])]
     )
     state_vrt_df = DataFile(
-        path=save_vrt(
+        path=util.save_vrt(
             params["layer_state_path"],
             params["layer_state_band_index"],
         ),
@@ -780,7 +794,7 @@ def _prepare_jrc_lpd_mode_df(
     params: Dict
 ) -> DataFile:
     return DataFile(
-        path=save_vrt(
+        path=util.save_vrt(
             params["layer_lpd_path"],
             params["layer_lpd_band_index"]
         ),
@@ -868,14 +882,14 @@ def save_summary_table_excel(
     )
     try:
         workbook.save(output_path)
-        log(u'Indicator table saved to {}'.format(output_path))
+        logger.info(u'Indicator table saved to {}'.format(output_path))
 
     except IOError:
         error_message = (
             f"Error saving output table - check that {output_path!r} is accessible "
             f"and not already open."
         )
-        log(error_message)
+        logger.error(error_message)
 
 
 def save_reporting_json(
@@ -1222,7 +1236,7 @@ def save_reporting_json(
         return True
 
     except IOError:
-        log(u'Error saving {}'.format(output_path))
+        logger.error(u'Error saving {}'.format(output_path))
         error_message = (
             "Error saving indicator table JSON - check that "
             f"{output_path} is accessible and not already open."
@@ -1295,7 +1309,7 @@ def _get_progress_summary_input_vrt(df, prod_mode):
     ]
 
     band_vrts = [
-        save_vrt(df.path, band_num + 1) for name, band_num in df_band_list
+        util.save_vrt(df.path, band_num + 1) for name, band_num in df_band_list
     ]
     out_vrt = tempfile.NamedTemporaryFile(suffix='.vrt').name
     gdal.BuildVRT(
@@ -1311,7 +1325,7 @@ def _get_progress_summary_input_vrt(df, prod_mode):
 
 
 @dataclasses.dataclass()
-class DegradationProgressSummaryWorkerParams(SchemaBase):
+class DegradationProgressSummaryParams(SchemaBase):
     prod_mode: str
     in_file: str
     out_file: str
@@ -1322,7 +1336,7 @@ class DegradationProgressSummaryWorkerParams(SchemaBase):
 
 
 def _process_block_progress(
-    params: DegradationProgressSummaryWorkerParams,
+    params: DegradationProgressSummaryParams,
     in_array,
     mask,
     xoff: int,
@@ -1435,7 +1449,7 @@ def _process_block_progress(
 
 
 @dataclasses.dataclass()
-class DegradationSummaryWorkerParams(SchemaBase):
+class DegradationSummaryParams(SchemaBase):
     in_df: DataFile
     prod_mode: str
     in_file: str
@@ -1450,7 +1464,7 @@ class DegradationSummaryWorkerParams(SchemaBase):
 
 
 def _process_block_summary(
-    params: DegradationSummaryWorkerParams,
+    params: DegradationSummaryParams,
     in_array,
     mask,
     xoff: int,
@@ -1478,9 +1492,9 @@ def _process_block_summary(
     write_arrays = []
 
     # Calculate cell area for each horizontal line
-    # log('y: {}'.format(y))
-    # log('x: {}'.format(x))
-    # log('rows: {}'.format(rows))
+    # logger.debug('y: {}'.format(y))
+    # logger.debug('x: {}'.format(x))
+    # logger.debug('rows: {}'.format(rows))
 
     # Make an array of the same size as the input arrays containing
     # the area of each cell (which is identical for all cells in a
@@ -1751,25 +1765,28 @@ def _process_block_summary(
     )
 
 
-class DegradationSummaryWorker(worker.AbstractWorker):
+class DegradationSummary:
     def __init__(
         self,
         params: Union[
-            DegradationSummaryWorkerParams,
-            DegradationProgressSummaryWorkerParams
+            DegradationSummaryParams,
+            DegradationProgressSummaryParams
         ],
         processing_function
     ):
 
-        worker.AbstractWorker.__init__(self)
-
         self.params = params
         self.processing_function = processing_function
 
-    def work(self):
-        self.toggle_show_progress.emit(True)
-        self.toggle_show_cancel.emit(True)
+    def is_killed(self):
+        return False
 
+    def emit_progress(self, *args, **kwargs):
+        '''Reimplement to display progress messages'''
+        pass
+
+
+    def work(self):
         mask_ds = gdal.Open(self.params.mask_file)
         band_mask = mask_ds.GetRasterBand(1)
 
@@ -1831,11 +1848,11 @@ class DegradationSummaryWorker(worker.AbstractWorker):
             cell_areas.shape = (cell_areas.size, 1)
 
             for x in range(0, xsize, x_block_size):
-                if self.killed:
-                    log("Processing killed by user after processing "
+                if self.is_killed():
+                    logger.info("Processing killed by user after processing "
                         f"{n} out of {n_blocks} blocks.")
                     break
-                self.progress.emit((n / n_blocks) * 100)
+                self.emit_progress((n / n_blocks) * 100)
                 
                 if x + x_block_size < xsize:
                     win_xsize = x_block_size
@@ -1872,7 +1889,7 @@ class DegradationSummaryWorker(worker.AbstractWorker):
                     dst_ds_deg.GetRasterBand(band_num).WriteArray(**data)
 
                 n += 1
-            if self.killed:
+            if self.is_killed():
                 break
 
             lat += pixel_height * win_ysize
@@ -1880,12 +1897,12 @@ class DegradationSummaryWorker(worker.AbstractWorker):
         # pr.disable()
         # pr.dump_stats('calculate_ld_stats')
 
-        if self.killed:
+        if self.is_killed():
             del dst_ds_deg
             os.remove(self.params.out_file)
             return None
         else:
-            self.progress.emit(100)
+            self.emit_progress(100)
             return out
 
 
@@ -1937,7 +1954,13 @@ def _calculate_summary_table(
         mask_worker_process_name,
         deg_worker_process_name,
         period_name: str,
-        periods: dict
+        periods: dict,
+        reproject_worker_function: Callable = None,
+        reproject_worker_params: dict = None,
+        mask_worker_function: Callable = None,
+        mask_worker_params: dict = None,
+        deg_worker_function: Callable = None,
+        deg_worker_params: dict = None
 ) -> Tuple[
     Optional[SummaryTableLD],
     str
@@ -1945,7 +1968,7 @@ def _calculate_summary_table(
     # build vrt
     # Combines SDG 15.3.1 input raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(suffix='.vrt').name
-    log(u'Saving indicator VRT to: {}'.format(indic_vrt))
+    logger.info(u'Saving indicator VRT to: {}'.format(indic_vrt))
     gdal.BuildVRT(
         indic_vrt,
         [item.path for item in in_dfs],
@@ -1954,31 +1977,49 @@ def _calculate_summary_table(
         resampleAlg=gdal.GRA_NearestNeighbour,
         separate=True
     )
-    log(f'Reprojecting indicator VRT and saving to {output_layers_path}')
-    reproject_worker = worker.StartWorker(
-        calculate.WarpWorker,
-        reproject_worker_process_name,
-        indic_vrt,
-        str(output_layers_path)
-    )
-    error_message = ""
 
-    if reproject_worker.success:
+    error_message = ""
+    logger.info(f'Reprojecting inputs and saving to {output_layers_path}')
+    if mask_worker_function:
+        reproject_result = reproject_worker_function(
+            indic_vrt,
+            str(output_layers_path),
+            **reproject_worker_params
+        )
+
+    else:
+        reproject_worker = workers.Warp(
+            indic_vrt,
+            str(output_layers_path)
+        )
+        reproject_result = reproject_worker.work()
+
+    if reproject_result:
         # Compute a mask layer that will be used in the tabulation code to
         # mask out areas outside of the AOI. Do this instead of using
         # gdal.Clip to save having to clip and rewrite all of the layers in
         # the VRT
         mask_tif = tempfile.NamedTemporaryFile(suffix='.tif').name
-        log(u'Saving mask to {}'.format(mask_tif))
-        geojson = ogr.CreateGeometryFromWkt(bbox).ExportToJson()
-        mask_worker = worker.StartWorker(
-            calculate.MaskWorker,
-            mask_worker_process_name,
-            mask_tif,
-            geojson,
-            str(output_layers_path)
-        )
-        if mask_worker.success:
+        logger.info(f'Saving mask to {mask_tif}')
+        geojson = util.wkt_geom_to_geojson_file_string(bbox)
+
+        if mask_worker_function:
+            mask_result = mask_worker_function(
+                mask_tif,
+                geojson,
+                str(output_layers_path),
+                **mask_worker_params
+            )
+
+        else:
+            mask_worker = workers.Mask(
+                mask_tif,
+                geojson,
+                str(output_layers_path)
+            )
+            mask_result = mask_worker.work()
+
+        if mask_result:
             in_df = combine_data_files(output_layers_path, in_dfs)
 
             n_out_bands = 2
@@ -1990,33 +2031,38 @@ def _calculate_summary_table(
             else:
                 model_band_number = in_df.index_for_name(LC_DEG_BAND_NAME) + 1
 
-            log(u'Calculating summary table and saving SDG to: {}'.format(output_sdg_path))
-            deg_worker = worker.StartWorker(
-                DegradationSummaryWorker,
-                deg_worker_process_name,
-                DegradationSummaryWorkerParams(
-                    in_df=in_df,
-                    in_file=in_df.path,
-                    prod_mode=prod_mode,
-                    out_file=str(output_sdg_path),
-                    model_band_number=model_band_number,
-                    n_out_bands=n_out_bands,
-                    mask_file=mask_tif,
-                    nesting=lc_legend_nesting,
-                    trans_matrix=lc_trans_matrix,
-                    period_name=period_name,
-                    periods=periods
-                ),
-                _process_block_summary
+            logger.info(f'Calculating summary table and saving to {output_sdg_path}')
+
+            params = DegradationSummaryParams(
+                in_df=in_df,
+                prod_mode=prod_mode,
+                in_file=in_df.path,
+                out_file=str(output_sdg_path),
+                model_band_number=model_band_number,
+                n_out_bands=n_out_bands,
+                mask_file=mask_tif,
+                nesting=lc_legend_nesting,
+                trans_matrix=lc_trans_matrix,
+                period_name=period_name,
+                periods=periods
             )
-            if not deg_worker.success:
-                if deg_worker.was_killed():
+
+            if deg_worker_function:
+                result = deg_worker_function(
+                    params,
+                    **deg_worker_params
+                )
+            else:
+                summarizer = DegradationSummary(params, _process_block_summary)
+                result = summarizer.work()
+            if not result:
+                if result.is_killed():
                     error_message = "Cancelled calculation of summary table."
                 else:
-                    error_message = "Error calculating degradation summary table."
-                result = None
+                    error_message = "Error calculating summary table."
+                    result = None
             else:
-                result = _accumulate_ld_summary_tables(deg_worker.get_return())
+                result = _accumulate_ld_summary_tables(result)
 
         else:
             error_message = "Error creating mask."
@@ -2133,12 +2179,12 @@ def _get_summary_array(d):
 
 
 def _write_overview_sheet(sheet, summary_table: SummaryTableLD):
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_summary_array(summary_table.sdg_summary),
         6, 6
     )
-    utils.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
+    xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 
 def _write_productivity_sheet(
@@ -2146,41 +2192,41 @@ def _write_productivity_sheet(
     st: SummaryTableLD,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg
 ):
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet, _get_summary_array(st.prod_summary),
         6, 6
     )
-    summary.write_table_to_sheet(
+    xl.write_table_to_sheet(
         sheet,
         _get_prod_table(st.lc_trans_prod_bizonal, 5, lc_trans_matrix),
         16, 3
     )
-    summary.write_table_to_sheet(
+    xl.write_table_to_sheet(
         sheet,
         _get_prod_table(st.lc_trans_prod_bizonal, 4, lc_trans_matrix),
         28, 3
     )
-    summary.write_table_to_sheet(
+    xl.write_table_to_sheet(
         sheet,
         _get_prod_table(st.lc_trans_prod_bizonal, 3, lc_trans_matrix),
         40, 3
     )
-    summary.write_table_to_sheet(
+    xl.write_table_to_sheet(
         sheet,
         _get_prod_table(st.lc_trans_prod_bizonal, 2, lc_trans_matrix),
         52, 3
     )
-    summary.write_table_to_sheet(
+    xl.write_table_to_sheet(
         sheet,
         _get_prod_table(st.lc_trans_prod_bizonal, 1, lc_trans_matrix),
         64, 3
     )
-    summary.write_table_to_sheet(
+    xl.write_table_to_sheet(
         sheet,
         _get_prod_table(st.lc_trans_prod_bizonal, NODATA_VALUE, lc_trans_matrix),
         76, 3
     )
-    utils.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
+    xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 
 def _write_soc_sheet(
@@ -2188,13 +2234,13 @@ def _write_soc_sheet(
     st: SummaryTableLD,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg
 ):
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet, _get_summary_array(st.soc_summary),
         6, 6
     )
 
     # First write baseline
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_totals_by_lc_class_as_array(
             st.soc_by_lc_annual_totals[0],
@@ -2204,7 +2250,7 @@ def _write_soc_sheet(
         7, 16,
     )
     # Now write target
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         _get_totals_by_lc_class_as_array(
             st.soc_by_lc_annual_totals[-1],
@@ -2219,7 +2265,7 @@ def _write_soc_sheet(
         lc_trans_matrix,
         excluded_codes=[6]  # exclude water
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         lc_bl_no_water,
         5, 16
@@ -2230,7 +2276,7 @@ def _write_soc_sheet(
         lc_trans_matrix,
         excluded_codes=[6]  # exclude water
     )
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet,
         lc_final_no_water,
         6, 16
@@ -2246,7 +2292,7 @@ def _write_soc_sheet(
         lc_trans_matrix,
         excluded_codes=[6]  # exclude water
     )
-    utils.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
+    xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 
 def _write_land_cover_sheet(
@@ -2261,11 +2307,11 @@ def _write_land_cover_sheet(
         ) if p == period
     ][0]
 
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet, _get_summary_array(st.lc_summary),
         6, 6
     )
-    summary.write_table_to_sheet(
+    xl.write_table_to_sheet(
         sheet,
         _get_lc_trans_table(
             lc_trans_zonal_areas,
@@ -2273,18 +2319,18 @@ def _write_land_cover_sheet(
         ),
         26, 3
     )
-    utils.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
+    xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 def _write_population_sheet(
     sheet,
     st: SummaryTableLD
 ):
 
-    summary.write_col_to_sheet(
+    xl.write_col_to_sheet(
         sheet, _get_summary_array(st.sdg_zonal_population_total),
         6, 6
     )
-    utils.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
+    xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 
 def _get_prod_table(lc_trans_prod_bizonal, prod_code, lc_trans_matrix):

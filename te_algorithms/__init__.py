@@ -1,9 +1,6 @@
 import os
 import re
 import json
-import logging
-
-logger = logging.getLogger(__name__)
 
 plugin_dir = os.path.dirname(os.path.realpath(__file__))
 with open(os.path.join(plugin_dir, 'version.json')) as f:

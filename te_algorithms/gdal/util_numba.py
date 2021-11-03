@@ -1,5 +1,5 @@
 import numpy as np
-
+import logging
 
 try:
     import numba
@@ -22,6 +22,7 @@ except ImportError:
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
 
+logger = logging.getLogger(__name__)
 
 # Ensure mask and nodata values are saved as 16 bit integers to keep numba 
 # happy
@@ -102,7 +103,7 @@ def zonal_total_weighted(z, d, weights, mask):
 
 
 @numba.jit(nopython=True)
-@cc.export('bizonal_total', 'DictType(UniTuple(i2, 2), f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])')
+@cc.export('bizonal_total', 'DictType(UniTuple(i8, 2), f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])')
 def bizonal_total(z1, z2, d, mask):
     z1 = z1.copy().ravel()
     z2 = z2.copy().ravel()
@@ -129,7 +130,7 @@ def bizonal_total(z1, z2, d, mask):
 
 @numba.jit(nopython=True)
 def accumulate_dicts(z):
-    out = z[0]
+    out = z[0].copy()
     for d in z[1:]:
         _combine_dicts(out, d)
     return out
@@ -137,8 +138,12 @@ def accumulate_dicts(z):
 
 @numba.jit(nopython=True)
 def _combine_dicts(z1, z2):
+    logger.debug(f'z1 {z1}, z2 {z2}')
     out = z1
     for key in z2:
+        logger.debug(f'key {key}')
+        logger.debug(f'key in out {key in out}')
+        logger.debug(f'z2[key] {z2[key]}')
         if key in out:
             out[key] += z2[key]
         else:

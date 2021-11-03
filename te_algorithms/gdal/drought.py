@@ -38,10 +38,9 @@ from .. import (
     __version__,
     __release_date__
 )
-from . import util, workers
+from . import util, workers, xl
 from .util_numba import *
 from .drought_numba import *
-from . import xl
 
 import marshmallow_dataclass
 
@@ -405,7 +404,7 @@ def summarise_drought_vulnerability(
     aoi: AOI,
     job_output_path: Path,
 ) -> Job:
-    logger.info('at top of summarise_drought_vulnerability')
+    logger.debug('at top of summarise_drought_vulnerability')
 
     params = drought_job.params
 
@@ -566,11 +565,12 @@ def _calculate_summary_table(
     # gdal.Clip to save having to clip and rewrite all of the layers in
     # the VRT
     mask_vrt = tempfile.NamedTemporaryFile(suffix='.tif').name
-    logger.info('Saving mask to {mask_vrt}')
+
+    logger.info(f'Saving mask to {mask_vrt}')
     geojson = util.wkt_geom_to_geojson_file_string(bbox)
     error_message = ""
     if mask_worker_function:
-        result = mask_worker_function(
+        mask_result = mask_worker_function(
             mask_vrt,
             geojson,
             indic_vrt,
@@ -584,39 +584,37 @@ def _calculate_summary_table(
         )
         mask_result = mask_worker.work()
 
-        if mask_result:
-            # Combine all in_dfs together and update path to refer to indicator 
-            # VRT
-            in_df = DataFile(indic_vrt, [b for d in in_dfs for b in d.bands])
-            params = DroughtSummaryParams(
-                in_df=in_df,
-                out_file=str(output_tif_path),
-                mask_file=mask_vrt,
-                drought_period=drought_period
-            )
+    if mask_result:
+        # Combine all in_dfs together and update path to refer to indicator 
+        # VRT
+        in_df = DataFile(indic_vrt, [b for d in in_dfs for b in d.bands])
+        params = DroughtSummaryParams(
+            in_df=in_df,
+            out_file=str(output_tif_path),
+            mask_file=mask_vrt,
+            drought_period=drought_period
+        )
 
-            logger.info(f'Calculating summary table and saving to: {output_tif_path}')
-            if drought_worker_function:
-                result = drought_worker_function(
-                    params,
-                    **drought_worker_function_params
-                )
-                if not result:
-                    if summarizer.is_killed():
-                        error_message = "Cancelled calculation of summary table."
-                    else:
-                        error_message = "Error calculating summary table."
-                        result = None
-                else:
-                    result = drought_worker.get_return()
-            else:
-                summarizer = DroughtSummary(params)
-                result = summarizer.process_lines(
-                    summarizer.get_line_params()
-                )
+        logger.info(f'Calculating summary table and saving to: {output_tif_path}')
+        if drought_worker_function:
+            result = drought_worker_function(
+                params,
+                **drought_worker_params
+            )
         else:
-            error_message = "Error creating mask."
-            result = None
+            summarizer = DroughtSummary(params)
+            result = summarizer.process_lines(
+                summarizer.get_line_params()
+            )
+        if not result:
+            if result.is_killed():
+                error_message = "Cancelled calculation of summary table."
+            else:
+                error_message = "Error calculating summary table."
+                result = None
+    else:
+        error_message = "Error creating mask."
+        result = None
 
     return result, error_message
 
