@@ -8,6 +8,9 @@ from osgeo import gdal
 
 from te_schemas.datafile import DataFile
 
+NODATA_VALUE = -32768
+MASK_VALUE = -32767
+
 
 # Function to get a temporary filename that handles closing the file created by
 # NamedTemporaryFile - necessary when the file is for usage in another process
@@ -48,9 +51,9 @@ class Clip:
             self.in_file,
             format='GTiff',
             cutlineDSName=json_file,
-            srcNodata=-32768,
+            srcNodata=NODATA_VALUE,
             outputBounds=self.output_bounds,
-            dstNodata=-32767,
+            dstNodata=MASK_VALUE,
             dstSRS="epsg:4326",
             outputType=gdal.GDT_Int16,
             resampleAlg=gdal.GRA_NearestNeighbour,
@@ -92,7 +95,7 @@ class Warp:
             self.out_file,
             self.in_file,
             format='GTiff',
-            srcNodata=-32768,
+            srcNodata=NODATA_VALUE,
             outputType=gdal.GDT_Int16,
             resampleAlg=gdal.GRA_NearestNeighbour,
             warpOptions=[
@@ -153,7 +156,7 @@ class Mask:
             json_file,
             format='GTiff',
             outputBounds=output_bounds,
-            initValues=-32767,  # Areas that are masked out
+            initValues=MASK_VALUE,  # Areas that are masked out
             burnValues=1,  # Areas that are NOT masked out
             xRes=x_res,
             yRes=y_res,

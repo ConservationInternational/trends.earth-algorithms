@@ -231,7 +231,6 @@ class LineParams:
     lat: float
 
 
-
 def _get_cell_areas(y, lat, win_y_size, image_info):
     cell_areas = np.array(
         [
@@ -245,6 +244,7 @@ def _get_cell_areas(y, lat, win_y_size, image_info):
     cell_areas.shape = (cell_areas.size, 1)
 
     return cell_areas
+
 
 def _process_line(line_params: LineParams):
 
@@ -532,7 +532,7 @@ def _prepare_dfs(
 
 
 def _calculate_summary_table(
-        bbox,
+        wkt_aoi,
         pixel_aligned_bbox,
         in_dfs: List[DataFile],
         output_tif_path: Path,
@@ -564,21 +564,21 @@ def _calculate_summary_table(
     # mask out areas outside of the AOI. Do this instead of using
     # gdal.Clip to save having to clip and rewrite all of the layers in
     # the VRT
-    mask_vrt = tempfile.NamedTemporaryFile(suffix='.tif').name
+    mask_tif = tempfile.NamedTemporaryFile(suffix='.tif').name
 
-    logger.info(f'Saving mask to {mask_vrt}')
-    geojson = util.wkt_geom_to_geojson_file_string(bbox)
+    logger.info(f'Saving mask to {mask_tif}')
+    geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
     error_message = ""
     if mask_worker_function:
         mask_result = mask_worker_function(
-            mask_vrt,
+            mask_tif,
             geojson,
             indic_vrt,
             **mask_worker_params
         )
     else:
         mask_worker = workers.Mask(
-            mask_vrt,
+            mask_tif,
             geojson,
             indic_vrt
         )
@@ -591,7 +591,7 @@ def _calculate_summary_table(
         params = DroughtSummaryParams(
             in_df=in_df,
             out_file=str(output_tif_path),
-            mask_file=mask_vrt,
+            mask_file=mask_tif,
             drought_period=drought_period
         )
 
@@ -627,34 +627,35 @@ def _compute_drought_summary_table(
     drought_period: int
 ) -> Tuple[SummaryTableDrought, Path, Path]:
     """Computes summary table and the output tif file(s)"""
-    wkt_bounding_boxes = aoi.meridian_split(as_extent=False, out_format='wkt')
+    wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
+
     output_name_pattern = {
         1: f"{output_job_path.stem}" + ".tif",
         2: f"{output_job_path.stem}" + "_{index}.tif"
-    }[len(wkt_bounding_boxes)]
+    }[len(wkt_aois)]
     mask_name_fragment = {
         1: "Generating mask",
         2: "Generating mask (part {index} of 2)",
-    }[len(wkt_bounding_boxes)]
+    }[len(wkt_aois)]
     drought_name_fragment = {
         1: "Calculating summary table",
         2: "Calculating summary table (part {index} of 2)",
-    }[len(wkt_bounding_boxes)]
+    }[len(wkt_aois)]
 
     summary_tables = []
     out_paths = []
-    for index, ( 
-        wkt_bounding_box,
+    for index, (
+        wkt_aoi,
         pixel_aligned_bbox
-    ) in enumerate(zip(wkt_bounding_boxes, bbs), start=1):
-        logger.info(f'Calculating summary table {index} of {len(wkt_bounding_boxes)}')
+    ) in enumerate(zip(wkt_aois, bbs), start=1):
+        logger.info(f'Calculating summary table {index} of {len(wkt_aois)}')
         out_path = output_job_path.parent / output_name_pattern.format(
             index=index
         )
         out_paths.append(out_path)
         result, error_message = _calculate_summary_table(
-            bbox=wkt_bounding_box,
+            wkt_aoi=wkt_aoi,
             pixel_aligned_bbox=pixel_aligned_bbox,
             output_tif_path=out_path,
             mask_worker_process_name=mask_name_fragment.format(index=index),
@@ -676,8 +677,6 @@ def _compute_drought_summary_table(
         out_path = out_paths[0]
 
     return summary_table, out_path
-
-
 
 
 def save_summary_table_excel(
@@ -759,6 +758,13 @@ def save_reporting_json(
         int(params['layer_spi_years'][-1]) + 1
     )):
 
+        total_land_area = sum([
+            value for key, value in st.annual_area_by_drought_class[n].items()
+            if key != MASK_VALUE
+        ])
+        logging.debug(
+            f'Total land area in {year} per drought data {total_land_area}')
+
         drought_tier_one[year] = reporting.AreaList(
             "Area by drought class",
             'sq km',
@@ -805,10 +811,13 @@ def save_reporting_json(
                 )
             )
 
+    if st.dvi_value_sum_and_count[1] == 0:
+        dvi_out = None
+    else:
+        dvi_out = st.dvi_value_sum_and_count[0] / st.dvi_value_sum_and_count[1]
     drought_tier_three = {
         2018: reporting.Value(
-            'Mean value',
-            st.dvi_value_sum_and_count[0] / st.dvi_value_sum_and_count[1]
+            'Mean value', dvi_out
         )
     }
 
@@ -907,7 +916,11 @@ def _write_dvi_sheet(
     cell = sheet.cell(6, 2)
     cell.value = 2018
     cell = sheet.cell(6, 3)
-    cell.value = st.dvi_value_sum_and_count[0] / st.dvi_value_sum_and_count[1]
+    if st.dvi_value_sum_and_count[1] == 0:
+        dvi_out = None
+    else:
+        dvi_out = st.dvi_value_sum_and_count[0] / st.dvi_value_sum_and_count[1]
+    cell.value = dvi_out
 
     xl.maybe_add_image_to_sheet(
         "trends_earth_logo_bl_300width.png", sheet, "H1")

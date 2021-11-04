@@ -32,9 +32,9 @@ from te_schemas import (
     land_cover,
     reporting,
     SchemaBase,
-    aoi
 )
 
+from te_schemas.aoi import AOI
 from te_schemas.jobs import Job, JobBand
 from te_schemas.datafile import DataFile, combine_data_files
 
@@ -230,7 +230,7 @@ def _compute_progress_summary(
     df,
     prod_mode,
     job_output_path,
-    area_of_interest,
+    aoi,
     baseline_period,
     progress_period,
     mask_worker_function: Callable = None,
@@ -244,8 +244,7 @@ def _compute_progress_summary(
         prod_mode
     )
 
-    wkt_aois = area_of_interest.meridian_split(
-            as_extent=False, out_format='wkt')
+    wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
 
     progress_name_pattern = {
         1: f"{job_output_path.stem}" + "_progress.tif",
@@ -383,7 +382,7 @@ def _compute_progress_summary(
 
 def compute_ldn(
     ldn_job: Job,
-    area_of_interest: aoi.AOI,
+    aoi: AOI,
     job_output_path: Path,
     dataset_output_path: Path
 ) -> Job:
@@ -425,7 +424,7 @@ def compute_ldn(
                 "year_final": period_params['periods']['productivity']['year_final']
             }
         summary_table_stable_kwargs[period_name] = {
-            "area_of_interest": area_of_interest,
+            "aoi": aoi,
             "lc_legend_nesting": land_cover.LCLegendNesting.Schema().loads(
                 period_params["layer_lc_deg_band"]["metadata"]['nesting'],
             ),
@@ -547,7 +546,7 @@ def compute_ldn(
             temp_df,
             prod_mode,
             job_output_path,
-            area_of_interest,
+            aoi,
             ldn_job.params['baseline']['period'],
             ldn_job.params['progress']['period']
         )
@@ -576,7 +575,7 @@ def compute_ldn(
         progress_summary_table,
         ldn_job.params,
         ldn_job.task_name,
-        area_of_interest,
+        aoi,
         summary_table_stable_kwargs
     )
 
@@ -800,7 +799,7 @@ def _prepare_jrc_lpd_mode_df(
 
 
 def _compute_summary_table_from_te_prod(
-        area_of_interest,
+        aoi,
         in_dfs,
         lc_legend_nesting: land_cover.LCLegendNesting,
         lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
@@ -814,7 +813,7 @@ def _compute_summary_table_from_te_prod(
     '''Compute summary table if a trends.earth productivity dataset is used'''
 
     return _compute_ld_summary_table(
-        area_of_interest=area_of_interest,
+        aoi=aoi,
         in_dfs=in_dfs,
         compute_bbs_from=compute_bbs_from,
         prod_mode=LdnProductivityMode.TRENDS_EARTH.value,
@@ -827,7 +826,7 @@ def _compute_summary_table_from_te_prod(
 
 
 def _compute_summary_table_from_lpd_prod(
-        area_of_interest,
+        aoi,
         in_dfs,
         lc_legend_nesting: land_cover.LCLegendNesting,
         lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
@@ -841,7 +840,7 @@ def _compute_summary_table_from_lpd_prod(
     '''Compute summary table if a JRC LPD productivity dataset is used'''
 
     return _compute_ld_summary_table(
-        area_of_interest=area_of_interest,
+        aoi=aoi,
         in_dfs=in_dfs,
         compute_bbs_from=compute_bbs_from,
         prod_mode=LdnProductivityMode.JRC_LPD.value,
@@ -895,7 +894,7 @@ def save_reporting_json(
         summary_table_progress: SummaryTableLDProgress,
         params: dict,
         task_name: str,
-        aoi: aoi.AOI,
+        aoi: AOI,
         summary_table_kwargs: dict):
 
     land_condition_reports = {}
@@ -1034,6 +1033,13 @@ def save_reporting_json(
         lc_by_year = {}
 
         for year_num, year in enumerate(land_cover_years):
+            total_land_area = sum([
+                value for key, value in st.lc_annual_totals[year_num].items()
+                if key != MASK_VALUE
+            ])
+            logging.debug(
+                f'Total land area in {year} per land cover data {total_land_area}')
+
             lc_by_year[int(year)] = {
                 lc_class: st.lc_annual_totals[year_num].get(i, 0.)
 
@@ -2073,7 +2079,7 @@ def _calculate_summary_table(
 
 
 def _compute_ld_summary_table(
-    area_of_interest,
+    aoi,
     in_dfs,
     compute_bbs_from,
     prod_mode,
@@ -2085,12 +2091,8 @@ def _compute_ld_summary_table(
 ) -> Tuple[SummaryTableLD, Path, Path]:
     """Computes summary table and the output tif file(s)"""
 
-    wkt_aois = area_of_interest.meridian_split(
-            as_extent=False, out_format='wkt')
-
-    bbs = area_of_interest.get_aligned_output_bounds(
-        compute_bbs_from
-    )
+    wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
+    bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
 
     output_name_pattern = {
         1: f"{output_job_path.stem}" + "_{layer}.tif",
