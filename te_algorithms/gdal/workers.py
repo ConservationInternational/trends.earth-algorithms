@@ -64,7 +64,7 @@ class Clip:
             creationOptions=[
                 'COMPRESS=LZW',
                 'NUM_THREADS=ALL_CPUs',
-                'GDAL_NUM_THREADS=ALL_CPUs',
+                'NUM_THREADS=ALL_CPUs',
                 'TILED=YES'
             ],
             multithread=True,
@@ -106,7 +106,7 @@ class Warp:
                 'COMPRESS=LZW',
                 'BIGTIFF=YES',
                 'NUM_THREADS=ALL_CPUs',
-                'GDAL_NUM_THREADS=ALL_CPUs',
+                'NUM_THREADS=ALL_CPUs',
                 'TILED=YES'
             ],
             multithread=True,

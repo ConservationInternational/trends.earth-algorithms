@@ -199,6 +199,7 @@ def _process_block(
             'yoff': yoff
         }
 
+        pop_at_max_drought[max_drought < -1000] = -pop_at_max_drought[max_drought < -1000]
         # Add two as output band numbers start at 1, not zero, and this is the 
         # second band for this period
         write_arrays[2*period_number + 2] = {
@@ -248,7 +249,8 @@ def _get_cell_areas(y, lat, win_y_size, image_info):
 
 def _process_line(line_params: LineParams):
 
-    mask_band = gdal.Open(line_params.params.mask_file).GetRasterBand(1)
+    mask_ds = gdal.Open(line_params.params.mask_file)
+    mask_band = mask_ds.GetRasterBand(1)
     src_ds = gdal.Open(str(line_params.params.in_df.path))
 
     cell_areas = _get_cell_areas(
@@ -320,8 +322,8 @@ class DroughtSummary:
     def get_line_params(self):
         '''Make a list of parameters to use in the _process_line function'''
         # Set initial lat to the top left corner latitude
-        self.src_ds = gdal.Open(str(self.params.in_df.path))
-        src_gt = self.src_ds.GetGeoTransform()
+        src_ds = gdal.Open(str(self.params.in_df.path))
+        src_gt = src_ds.GetGeoTransform()
         lat = src_gt[3]
 
         line_params = []
@@ -548,7 +550,7 @@ def _calculate_summary_table(
     str
 ]:
     # Combine all raster into a VRT and crop to the AOI
-    indic_vrt = tempfile.NamedTemporaryFile(suffix='.vrt').name
+    indic_vrt = tempfile.NamedTemporaryFile(suffix='drought_indicators.vrt', delete=False).name
     logger.info(u'Saving indicator VRT to: {}'.format(indic_vrt))
     # The plus one is because band numbers start at 1, not zero
     gdal.BuildVRT(
@@ -564,7 +566,7 @@ def _calculate_summary_table(
     # mask out areas outside of the AOI. Do this instead of using
     # gdal.Clip to save having to clip and rewrite all of the layers in
     # the VRT
-    mask_tif = tempfile.NamedTemporaryFile(suffix='.tif').name
+    mask_tif = tempfile.NamedTemporaryFile(suffix='drought_mask.tif', delete=False).name
 
     logger.info(f'Saving mask to {mask_tif}')
     geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)

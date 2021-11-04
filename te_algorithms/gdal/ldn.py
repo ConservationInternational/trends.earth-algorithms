@@ -263,7 +263,7 @@ def _compute_progress_summary(
     progress_paths = []
     error_message = None
     for index, wkt_aoi in enumerate(wkt_aois, start=1):
-        mask_tif = tempfile.NamedTemporaryFile(suffix='.tif').name
+        mask_tif = tempfile.NamedTemporaryFile(suffix='ld_progress_mask.tif', delete=False).name
         logger.info(f'Saving mask to {mask_tif}')
         logger.info(str(job_output_path.parent / mask_name_fragment.format(index=index)))
         geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
@@ -538,7 +538,7 @@ def compute_ldn(
         # calculations. Don't save these in the output folder as at end of this 
         # process all the DFs will be combined and referenced to a VRT in that 
         # folder
-        temp_overall_vrt = Path(tempfile.NamedTemporaryFile(suffix='.vrt').name)
+        temp_overall_vrt = Path(tempfile.NamedTemporaryFile(suffix='.vrt', delete=False).name)
         _combine_all_bands_into_vrt(period_vrts, temp_overall_vrt)
         temp_df = combine_data_files(temp_overall_vrt, period_dfs)
 
@@ -1032,14 +1032,17 @@ def save_reporting_json(
         # LC by year
         lc_by_year = {}
 
-        for year_num, year in enumerate(land_cover_years):
-            total_land_area = sum([
-                value for key, value in st.lc_annual_totals[year_num].items()
-                if key != MASK_VALUE
-            ])
-            logging.debug(
-                f'Total land area in {year} per land cover data {total_land_area}')
 
+        for year_num, year in enumerate(land_cover_years):
+            # total_land_area = sum([
+            #     value for key, value in st.lc_annual_totals[year_num].items()
+            #     if key != MASK_VALUE
+            # ])
+            # logging.debug(
+            #     f'Total land area in {year} per land cover data {total_land_area}')
+
+            for i, lc_class in enumerate(classes, start=1):
+                logging.debug(f'Total cover for class {i} in {year}: {st.lc_annual_totals[year_num].get(i, 0.)}')
             lc_by_year[int(year)] = {
                 lc_class: st.lc_annual_totals[year_num].get(i, 0.)
 
@@ -1314,7 +1317,7 @@ def _get_progress_summary_input_vrt(df, prod_mode):
     band_vrts = [
         util.save_vrt(df.path, band_num + 1) for name, band_num in df_band_list
     ]
-    out_vrt = tempfile.NamedTemporaryFile(suffix='.vrt').name
+    out_vrt = tempfile.NamedTemporaryFile(suffix='ld_progress_inputs.vrt', delete=False).name
     gdal.BuildVRT(
         out_vrt,
         [vrt for vrt in band_vrts],
@@ -1659,7 +1662,7 @@ def _process_block_summary(
         mask
     )
     lc_annual_totals = []
-    for lc_row, lc_year in enumerate(lc_bands):
+    for lc_row, lc_year in lc_bands:
         a_lc = in_array[lc_row, :, :]
         lc_annual_totals.append(
             zonal_total(
@@ -1970,8 +1973,8 @@ def _calculate_summary_table(
 ]:
     # build vrt
     # Combines SDG 15.3.1 input raster into a VRT and crop to the AOI
-    indic_vrt = tempfile.NamedTemporaryFile(suffix='.vrt').name
-    logger.info(u'Saving indicator VRT to: {}'.format(indic_vrt))
+    indic_vrt = tempfile.NamedTemporaryFile(suffix='ld_summary_inputs.vrt', delete=False).name
+    logger.info(f'Saving indicator VRT to: {indic_vrt}')
     gdal.BuildVRT(
         indic_vrt,
         [item.path for item in in_dfs],
@@ -2002,7 +2005,7 @@ def _calculate_summary_table(
         # mask out areas outside of the AOI. Do this instead of using
         # gdal.Clip to save having to clip and rewrite all of the layers in
         # the VRT
-        mask_tif = tempfile.NamedTemporaryFile(suffix='.tif').name
+        mask_tif = tempfile.NamedTemporaryFile(suffix='ld_summary_mask.tif', delete=False).name
         logger.info(f'Saving mask to {mask_tif}')
         geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
 
