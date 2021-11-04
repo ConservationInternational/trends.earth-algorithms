@@ -579,7 +579,7 @@ def compute_ldn(
         summary_table_stable_kwargs
     )
 
-    ldn_job.results.other_paths.append(
+    ldn_job.results.other_paths.extend(
         [
             summary_json_output_path,
             key_json
