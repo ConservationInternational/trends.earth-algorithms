@@ -263,7 +263,7 @@ def _compute_progress_summary(
     progress_paths = []
     error_message = None
     for index, wkt_aoi in enumerate(wkt_aois, start=1):
-        mask_tif = tempfile.NamedTemporaryFile(suffix='ld_progress_mask.tif', delete=False).name
+        mask_tif = tempfile.NamedTemporaryFile(suffix='_ld_progress_mask.tif', delete=False).name
         logger.info(f'Saving mask to {mask_tif}')
         logger.info(str(job_output_path.parent / mask_name_fragment.format(index=index)))
         geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
@@ -1316,7 +1316,7 @@ def _get_progress_summary_input_vrt(df, prod_mode):
     band_vrts = [
         util.save_vrt(df.path, band_num + 1) for name, band_num in df_band_list
     ]
-    out_vrt = tempfile.NamedTemporaryFile(suffix='ld_progress_inputs.vrt', delete=False).name
+    out_vrt = tempfile.NamedTemporaryFile(suffix='_ld_progress_inputs.vrt', delete=False).name
     gdal.BuildVRT(
         out_vrt,
         [vrt for vrt in band_vrts],
@@ -1972,7 +1972,7 @@ def _calculate_summary_table(
 ]:
     # build vrt
     # Combines SDG 15.3.1 input raster into a VRT and crop to the AOI
-    indic_vrt = tempfile.NamedTemporaryFile(suffix='ld_summary_inputs.vrt', delete=False).name
+    indic_vrt = tempfile.NamedTemporaryFile(suffix='_ld_summary_inputs.vrt', delete=False).name
     logger.info(f'Saving indicator VRT to: {indic_vrt}')
     gdal.BuildVRT(
         indic_vrt,
@@ -2004,7 +2004,7 @@ def _calculate_summary_table(
         # mask out areas outside of the AOI. Do this instead of using
         # gdal.Clip to save having to clip and rewrite all of the layers in
         # the VRT
-        mask_tif = tempfile.NamedTemporaryFile(suffix='ld_summary_mask.tif', delete=False).name
+        mask_tif = tempfile.NamedTemporaryFile(suffix='_ld_summary_mask.tif', delete=False).name
         logger.info(f'Saving mask to {mask_tif}')
         geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
 

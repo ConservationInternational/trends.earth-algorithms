@@ -550,7 +550,7 @@ def _calculate_summary_table(
     str
 ]:
     # Combine all raster into a VRT and crop to the AOI
-    indic_vrt = tempfile.NamedTemporaryFile(suffix='drought_indicators.vrt', delete=False).name
+    indic_vrt = tempfile.NamedTemporaryFile(suffix='_drought_indicators.vrt', delete=False).name
     logger.info(u'Saving indicator VRT to: {}'.format(indic_vrt))
     # The plus one is because band numbers start at 1, not zero
     gdal.BuildVRT(
@@ -566,7 +566,7 @@ def _calculate_summary_table(
     # mask out areas outside of the AOI. Do this instead of using
     # gdal.Clip to save having to clip and rewrite all of the layers in
     # the VRT
-    mask_tif = tempfile.NamedTemporaryFile(suffix='drought_mask.tif', delete=False).name
+    mask_tif = tempfile.NamedTemporaryFile(suffix='_drought_mask.tif', delete=False).name
 
     logger.info(f'Saving mask to {mask_tif}')
     geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
