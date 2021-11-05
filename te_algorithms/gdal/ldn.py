@@ -380,11 +380,10 @@ def _compute_progress_summary(
     return progress_summary_table, DataFile(progress_path, out_bands)
 
 
-def compute_ldn(
+def summarise_land_degradation(
     ldn_job: Job,
     aoi: AOI,
-    job_output_path: Path,
-    dataset_output_path: Path
+    job_output_path: Path
 ) -> Job:
     """Calculate final SDG 15.3.1 indicator and save to disk"""
     logger.debug('at top of compute_ldn')
