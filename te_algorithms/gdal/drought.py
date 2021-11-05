@@ -199,7 +199,7 @@ def _process_block(
             'yoff': yoff
         }
 
-        pop_at_max_drought[max_drought < -1000] = -pop_at_max_drought[max_drought < -1000]
+        pop_at_max_drought_masked[max_drought < -1000] = -pop_at_max_drought_masked[max_drought < -1000]
         # Add two as output band numbers start at 1, not zero, and this is the 
         # second band for this period
         write_arrays[2*period_number + 2] = {
