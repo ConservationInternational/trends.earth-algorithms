@@ -2095,6 +2095,7 @@ def _compute_ld_summary_table(
 
     wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
+    assert len(wkt_aois) == len(bbs)
 
     output_name_pattern = {
         1: f"{output_job_path.stem}" + "_{layer}.tif",

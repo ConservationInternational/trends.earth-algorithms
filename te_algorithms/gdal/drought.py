@@ -6,6 +6,7 @@ import json
 import tempfile
 import datetime as dt
 import openpyxl
+from copy import deepcopy
 
 from typing import (
     List,
@@ -541,6 +542,8 @@ def _calculate_summary_table(
         mask_worker_process_name,
         drought_worker_process_name,
         drought_period: int,
+        reproject_worker_function: Callable = None,
+        reproject_worker_params: dict = None,
         mask_worker_function: Callable = None,
         mask_worker_params: dict = None,
         drought_worker_function: Callable = None,
@@ -562,60 +565,80 @@ def _calculate_summary_table(
         separate=True
     )
 
-    # Compute a mask layer that will be used in the tabulation code to
-    # mask out areas outside of the AOI. Do this instead of using
-    # gdal.Clip to save having to clip and rewrite all of the layers in
-    # the VRT
-    mask_tif = tempfile.NamedTemporaryFile(suffix='_drought_mask.tif', delete=False).name
-
-    logger.info(f'Saving mask to {mask_tif}')
-    geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
     error_message = ""
-    if mask_worker_function:
-        mask_result = mask_worker_function(
-            mask_tif,
-            geojson,
+    indic_reproj = tempfile.NamedTemporaryFile(suffix='_drought_indicators_reproj.vrt', delete=False).name
+    logger.info(f'Reprojecting inputs and saving to {indic_reproj}')
+    if reproject_worker_function:
+        reproject_result = reproject_worker_function(
             indic_vrt,
-            **mask_worker_params
+            str(indic_reproj),
+            **reproject_worker_params
         )
+
     else:
-        mask_worker = workers.Mask(
-            mask_tif,
-            geojson,
-            indic_vrt
+        reproject_worker = workers.Warp(
+            indic_vrt,
+            str(indic_reproj)
         )
-        mask_result = mask_worker.work()
+        reproject_result = reproject_worker.work()
 
-    if mask_result:
-        # Combine all in_dfs together and update path to refer to indicator 
-        # VRT
-        in_df = DataFile(indic_vrt, [b for d in in_dfs for b in d.bands])
-        params = DroughtSummaryParams(
-            in_df=in_df,
-            out_file=str(output_tif_path),
-            mask_file=mask_tif,
-            drought_period=drought_period
-        )
+    if reproject_result:
+        # Compute a mask layer that will be used in the tabulation code to
+        # mask out areas outside of the AOI. Do this instead of using
+        # gdal.Clip to save having to clip and rewrite all of the layers in
+        # the VRT
+        mask_tif = tempfile.NamedTemporaryFile(suffix='_drought_mask.tif', delete=False).name
 
-        logger.info(f'Calculating summary table and saving to: {output_tif_path}')
-        if drought_worker_function:
-            result = drought_worker_function(
-                params,
-                **drought_worker_params
+        logger.info(f'Saving mask to {mask_tif}')
+        geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
+        if mask_worker_function:
+            mask_result = mask_worker_function(
+                mask_tif,
+                geojson,
+                indic_reproj,
+                **mask_worker_params
             )
         else:
-            summarizer = DroughtSummary(params)
-            result = summarizer.process_lines(
-                summarizer.get_line_params()
+            mask_worker = workers.Mask(
+                mask_tif,
+                geojson,
+                indic_reproj 
             )
-        if not result:
-            if result.is_killed():
-                error_message = "Cancelled calculation of summary table."
+            mask_result = mask_worker.work()
+
+        if mask_result:
+            # Combine all in_dfs together and update path to refer to indicator 
+            # VRT
+            in_df = DataFile(indic_reproj, [b for d in in_dfs for b in d.bands])
+            params = DroughtSummaryParams(
+                in_df=in_df,
+                out_file=str(output_tif_path),
+                mask_file=mask_tif,
+                drought_period=drought_period
+            )
+
+            logger.info(f'Calculating summary table and saving to: {output_tif_path}')
+            if drought_worker_function:
+                result = drought_worker_function(
+                    params,
+                    **drought_worker_params
+                )
             else:
-                error_message = "Error calculating summary table."
-                result = None
+                summarizer = DroughtSummary(params)
+                result = summarizer.process_lines(
+                    summarizer.get_line_params()
+                )
+            if not result:
+                if result.is_killed():
+                    error_message = "Cancelled calculation of summary table."
+                else:
+                    error_message = "Error calculating summary table."
+                    result = None
+        else:
+            error_message = "Error creating mask."
+            result = None
     else:
-        error_message = "Error creating mask."
+        error_message = "Error reprojecting layers."
         result = None
 
     return result, error_message
@@ -631,6 +654,7 @@ def _compute_drought_summary_table(
     """Computes summary table and the output tif file(s)"""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
+    assert len(wkt_aois) == len(bbs)
 
     output_name_pattern = {
         1: f"{output_job_path.stem}" + ".tif",
@@ -662,7 +686,7 @@ def _compute_drought_summary_table(
             output_tif_path=out_path,
             mask_worker_process_name=mask_name_fragment.format(index=index),
             drought_worker_process_name=drought_name_fragment.format(index=index),
-            in_dfs=in_dfs,
+            in_dfs=deepcopy(in_dfs),
             drought_period=drought_period
         )
         if result is None:

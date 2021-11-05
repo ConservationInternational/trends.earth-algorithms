@@ -123,6 +123,7 @@ class Mask:
     out_file: Path
     geojson: dict
     model_file: Path
+    force_within_wgs84_globe: bool = True
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
@@ -138,18 +139,26 @@ class Mask:
         if self.model_file:
             # Assumes an image with no rotation
             gt=gdal.Info(self.model_file, format='json')['geoTransform']
-            x_size, y_size=gdal.Info(self.model_file, format='json')['size']
-            x_min=min(gt[0], gt[0] + x_size * gt[1])
-            x_max=max(gt[0], gt[0] + x_size * gt[1])
-            y_min=min(gt[3], gt[3] + y_size * gt[5])
-            y_max=max(gt[3], gt[3] + y_size * gt[5])
-            output_bounds=[x_min, y_min, x_max, y_max]
-            x_res=gt[1]
-            y_res=gt[5]
+            x_size, y_size = gdal.Info(self.model_file, format='json')['size']
+            x_min = min(gt[0], gt[0] + x_size * gt[1])
+            if self.force_within_wgs84_globe and x_min < -180:
+                x_min = -180
+            x_max = max(gt[0], gt[0] + x_size * gt[1])
+            if self.force_within_wgs84_globe and x_max > 180:
+                x_max = 180
+            y_min = min(gt[3], gt[3] + y_size * gt[5])
+            if self.force_within_wgs84_globe and y_min < -90:
+                y_min = -90
+            y_max = max(gt[3], gt[3] + y_size * gt[5])
+            if self.force_within_wgs84_globe and y_max > 90:
+                y_max = 90
+            output_bounds = [x_min, y_min, x_max, y_max]
+            x_res = gt[1]
+            y_res = gt[5]
         else:
-            output_bounds=None
-            x_res=None
-            y_res=None
+            output_bounds = None
+            x_res = None
+            y_res = None
 
         res = gdal.Rasterize(
             self.out_file,
