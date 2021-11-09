@@ -93,25 +93,25 @@ def _accumulate_ld_progress_summary_tables(
     else:
         out = tables[0]
         for table in tables[1:]:
-            out.sdg_summary = accumulate_dicts(
+            out.sdg_summary = util.accumulate_dicts(
                 [
                     out.sdg_summary,
                     table.sdg_summary
                 ]
             )
-            out.prod_summary = accumulate_dicts(
+            out.prod_summary = util.accumulate_dicts(
                 [
                     out.prod_summary,
                     table.prod_summary
                 ]
             )
-            out.soc_summary = accumulate_dicts(
+            out.soc_summary = util.accumulate_dicts(
                 [
                     out.soc_summary,
                     table.soc_summary
                 ]
             )
-            out.lc_summary = accumulate_dicts(
+            out.lc_summary = util.accumulate_dicts(
                 [
                     out.lc_summary,
                     table.lc_summary
@@ -144,21 +144,21 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
         out = tables[0]
         for table in tables[1:]:
             out.soc_by_lc_annual_totals = [
-                accumulate_dicts([a,  b])
+                util.accumulate_dicts([a,  b])
                 for a, b in zip(
                     out.soc_by_lc_annual_totals,
                     table.soc_by_lc_annual_totals
                 )
             ]
             out.lc_annual_totals = [
-                accumulate_dicts([a,  b])
+                util.accumulate_dicts([a,  b])
                 for a, b in zip(
                     out.lc_annual_totals,
                     table.lc_annual_totals
                 )
             ]
             out.lc_trans_zonal_areas = [
-                accumulate_dicts([a,  b])
+                util.accumulate_dicts([a,  b])
                 for a, b in zip(
                     out.lc_trans_zonal_areas,
                     table.lc_trans_zonal_areas
@@ -174,49 +174,49 @@ def _accumulate_ld_summary_tables(tables: List[SummaryTableLD]) -> SummaryTableL
                 out.lc_trans_zonal_areas_periods ==
                 table.lc_trans_zonal_areas_periods
             )
-            out.lc_trans_prod_bizonal = accumulate_dicts(
+            out.lc_trans_prod_bizonal = util.accumulate_dicts(
                 [
                     out.lc_trans_prod_bizonal,
                     table.lc_trans_prod_bizonal
                 ]
             )
-            out.lc_trans_zonal_soc_initial = accumulate_dicts(
+            out.lc_trans_zonal_soc_initial = util.accumulate_dicts(
                 [
                     out.lc_trans_zonal_soc_initial,
                     table.lc_trans_zonal_soc_initial
                 ]
             )
-            out.lc_trans_zonal_soc_final = accumulate_dicts(
+            out.lc_trans_zonal_soc_final = util.accumulate_dicts(
                 [
                     out.lc_trans_zonal_soc_final,
                     table.lc_trans_zonal_soc_final
                 ]
             )
-            out.sdg_zonal_population_total = accumulate_dicts(
+            out.sdg_zonal_population_total = util.accumulate_dicts(
                 [
                     out.sdg_zonal_population_total,
                     table.sdg_zonal_population_total
                 ]
             )
-            out.sdg_summary = accumulate_dicts(
+            out.sdg_summary = util.accumulate_dicts(
                 [
                     out.sdg_summary,
                     table.sdg_summary
                 ]
             )
-            out.prod_summary = accumulate_dicts(
+            out.prod_summary = util.accumulate_dicts(
                 [
                     out.prod_summary,
                     table.prod_summary
                 ]
             )
-            out.soc_summary = accumulate_dicts(
+            out.soc_summary = util.accumulate_dicts(
                 [
                     out.soc_summary,
                     table.soc_summary
                 ]
             )
-            out.lc_summary = accumulate_dicts(
+            out.lc_summary = util.accumulate_dicts(
                 [
                     out.lc_summary,
                     table.lc_summary
@@ -394,7 +394,6 @@ def summarise_land_degradation(
     period_dfs = []
     period_vrts = []
 
-    logger.debug(f'ldn_job.params.keys(): {ldn_job.params.keys()}')
     for period_name, period_params in ldn_job.params.items():
         lc_dfs = _prepare_land_cover_dfs(period_params)
         soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
@@ -955,41 +954,45 @@ def save_reporting_json(
                    'Water body']
         crosstab_prod = []
 
-        for prod_name, prod_code in zip(
-            [
-                'Increasing',
-                'Stable',
-                'Stressed',
-                'Moderate decline',
-                'Declining',
-                'No data'
-            ],
-            [5, 4, 3, 2, 1, NODATA_VALUE]
-        ):
-            crosstab_entries = []
+        if len([*st.lc_trans_prod_bizonal.keys()]) > 0:
+            # If no land cover data was available for first year of productivity 
+            # data, then won't be able to output these tables
 
-            for i, initial_class in enumerate(classes, start=1):
-                for f, final_class in enumerate(classes, start=1):
-                    transition = i * lc_trans_matrix.get_multiplier() + f
-                    crosstab_entries.append(
-                        reporting.CrossTabEntry(
-                            initial_class,
-                            final_class,
-                            value=st.lc_trans_prod_bizonal.get(
-                                (transition, prod_code),
-                                0.
+            for prod_name, prod_code in zip(
+                [
+                    'Increasing',
+                    'Stable',
+                    'Stressed',
+                    'Moderate decline',
+                    'Declining',
+                    'No data'
+                ],
+                [5, 4, 3, 2, 1, NODATA_VALUE]
+            ):
+                crosstab_entries = []
+
+                for i, initial_class in enumerate(classes, start=1):
+                    for f, final_class in enumerate(classes, start=1):
+                        transition = i * lc_trans_matrix.get_multiplier() + f
+                        crosstab_entries.append(
+                            reporting.CrossTabEntry(
+                                initial_class,
+                                final_class,
+                                value=st.lc_trans_prod_bizonal.get(
+                                    (transition, prod_code),
+                                    0.
+                                )
                             )
                         )
+                crosstab_prod.append(
+                    reporting.CrossTab(
+                        prod_name,
+                        unit='sq km',
+                        initial_year=period_params['periods']['productivity']['year_initial'],
+                        final_year=period_params['periods']['productivity']['year_final'],
+                        values=crosstab_entries
                     )
-            crosstab_prod.append(
-                reporting.CrossTab(
-                    prod_name,
-                    unit='sq km',
-                    initial_year=period_params['periods']['productivity']['year_initial'],
-                    final_year=period_params['periods']['productivity']['year_final'],
-                    values=crosstab_entries
                 )
-            )
 
         #######################################################################
         # Land cover tables
@@ -1033,12 +1036,12 @@ def save_reporting_json(
 
 
         for year_num, year in enumerate(land_cover_years):
-            # total_land_area = sum([
-            #     value for key, value in st.lc_annual_totals[year_num].items()
-            #     if key != MASK_VALUE
-            # ])
-            # logging.debug(
-            #     f'Total land area in {year} per land cover data {total_land_area}')
+            total_land_area = sum([
+                value for key, value in st.lc_annual_totals[year_num].items()
+                if key != MASK_VALUE
+            ])
+            logging.debug(
+                f'Total land area in {year} per land cover data {total_land_area}')
 
             for i, lc_class in enumerate(classes, start=1):
                 logging.debug(f'Total cover for class {i} in {year}: {st.lc_annual_totals[year_num].get(i, 0.)}')
@@ -1654,12 +1657,18 @@ def _process_block_summary(
 
     ###########################################################
     # Calculate crosstabs for productivity
-    lc_trans_prod_bizonal = bizonal_total(
-        a_lc_trans_prod_deg,
-        deg_prod5,
-        cell_areas,
-        mask
-    )
+    if a_lc_trans_prod_deg is not None:
+        lc_trans_prod_bizonal = bizonal_total(
+            a_lc_trans_prod_deg,
+            deg_prod5,
+            cell_areas,
+            mask
+        )
+    else:
+        # If no land cover data is available for first year of productivity 
+        # data, then can't do this bizonal total
+        lc_trans_prod_bizonal = {}
+
     lc_annual_totals = []
     for lc_row, lc_year in lc_bands:
         a_lc = in_array[lc_row, :, :]
@@ -2198,36 +2207,39 @@ def _write_productivity_sheet(
         sheet, _get_summary_array(st.prod_summary),
         6, 6
     )
-    xl.write_table_to_sheet(
-        sheet,
-        _get_prod_table(st.lc_trans_prod_bizonal, 5, lc_trans_matrix),
-        16, 3
-    )
-    xl.write_table_to_sheet(
-        sheet,
-        _get_prod_table(st.lc_trans_prod_bizonal, 4, lc_trans_matrix),
-        28, 3
-    )
-    xl.write_table_to_sheet(
-        sheet,
-        _get_prod_table(st.lc_trans_prod_bizonal, 3, lc_trans_matrix),
-        40, 3
-    )
-    xl.write_table_to_sheet(
-        sheet,
-        _get_prod_table(st.lc_trans_prod_bizonal, 2, lc_trans_matrix),
-        52, 3
-    )
-    xl.write_table_to_sheet(
-        sheet,
-        _get_prod_table(st.lc_trans_prod_bizonal, 1, lc_trans_matrix),
-        64, 3
-    )
-    xl.write_table_to_sheet(
-        sheet,
-        _get_prod_table(st.lc_trans_prod_bizonal, NODATA_VALUE, lc_trans_matrix),
-        76, 3
-    )
+    if len([*st.lc_trans_prod_bizonal.keys()]) > 0:
+        # If no land cover data was available for first year of productivity 
+        # data, then won't be able to output these tables
+        xl.write_table_to_sheet(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 5, lc_trans_matrix),
+            16, 3
+        )
+        xl.write_table_to_sheet(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 4, lc_trans_matrix),
+            28, 3
+        )
+        xl.write_table_to_sheet(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 3, lc_trans_matrix),
+            40, 3
+        )
+        xl.write_table_to_sheet(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 2, lc_trans_matrix),
+            52, 3
+        )
+        xl.write_table_to_sheet(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 1, lc_trans_matrix),
+            64, 3
+        )
+        xl.write_table_to_sheet(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, NODATA_VALUE, lc_trans_matrix),
+            76, 3
+        )
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 

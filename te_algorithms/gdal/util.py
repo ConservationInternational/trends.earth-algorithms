@@ -4,6 +4,7 @@ import tempfile
 from typing import List
 
 import marshmallow_dataclass
+from .util_numba import _accumulate_dicts
 
 from osgeo import gdal, osr, ogr
 
@@ -181,3 +182,15 @@ def wkt_geom_to_geojson_file_string(wkt):
     with open(out_file, 'r') as f:
         return json.load(f)
 
+
+def accumulate_dicts(z):
+    # allow to handle items that may be None (comes up with 
+    # lc_trans_prod_bizonal for example, when initial year of cover is not 
+    # available to match with productivity data)
+    z = [item for item in z if (item is not None and item is not {})]
+    if len(z) == 0:
+        return {}
+    elif len(z) == 1:
+        return z[0]
+    else:
+        return _accumulate_dicts(z)

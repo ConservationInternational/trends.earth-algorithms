@@ -128,15 +128,13 @@ def bizonal_total(z1, z2, d, mask):
     return tab
 
 
-@numba.jit(nopython=True)
-def accumulate_dicts(z):
+def _accumulate_dicts(z):
     out = z[0].copy()
     for d in z[1:]:
         _combine_dicts(out, d)
     return out
 
 
-@numba.jit(nopython=True)
 def _combine_dicts(z1, z2):
     out = z1
     for key in z2:

@@ -74,28 +74,28 @@ def accumulate_drought_summary_tables(
         out = tables[0]
         for table in tables[1:]:
             out.annual_area_by_drought_class = [
-                accumulate_dicts([a,  b])
+                util.accumulate_dicts([a,  b])
                 for a, b in zip(
                     out.annual_area_by_drought_class,
                     table.annual_area_by_drought_class
                 )
             ]
             out.annual_population_by_drought_class_total = [
-                accumulate_dicts([a,  b])
+                util.accumulate_dicts([a,  b])
                 for a, b in zip(
                     out.annual_population_by_drought_class_total,
                     table.annual_population_by_drought_class_total
                 )
             ]
             out.annual_population_by_drought_class_male = [
-                accumulate_dicts([a,  b])
+                util.accumulate_dicts([a,  b])
                 for a, b in zip(
                     out.annual_population_by_drought_class_male,
                     table.annual_population_by_drought_class_male
                 )
             ]
             out.annual_population_by_drought_class_female = [
-                accumulate_dicts([a,  b])
+                util.accumulate_dicts([a,  b])
                 for a, b in zip(
                     out.annual_population_by_drought_class_female,
                     table.annual_population_by_drought_class_female

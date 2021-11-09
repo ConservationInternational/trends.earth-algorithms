@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import os
+import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -11,6 +12,7 @@ from te_schemas.datafile import DataFile
 NODATA_VALUE = -32768
 MASK_VALUE = -32767
 
+logger = logging.getLogger(__name__)
 
 # Function to get a temporary filename that handles closing the file created by
 # NamedTemporaryFile - necessary when the file is for usage in another process
@@ -20,13 +22,8 @@ def _get_temp_filename(suffix):
     f.close()
     return f.name
 
-
-@dataclasses.dataclass()
-class DroughtSummaryParams:
-    in_df: DataFile
-    out_file: str
-    drought_period: int
-    mask_file: str
+def _log_progress(fraction, message, data):
+    logger.info('%s - %.2f%%', message, 100 * fraction)
 
 
 @dataclasses.dataclass()
@@ -37,8 +34,7 @@ class Clip:
     geojson: dict
 
     def progress_callback(self, *args, **kwargs):
-        '''Reimplement to display progress messages'''
-        pass
+        _log_progress(*args, **kwargs)
 
     def work(self):
         json_file = _get_temp_filename('.geojson')
@@ -86,7 +82,7 @@ class Warp:
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        pass
+        _log_progress(*args, **kwargs)
 
     def work(self):
         gdal.UseExceptions()
@@ -137,7 +133,7 @@ class Mask:
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        pass
+        _log_progress(*args, **kwargs)
 
     def work(self):
         json_file = _get_temp_filename('.geojson')
@@ -186,7 +182,7 @@ class Translate:
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        pass
+        _log_progress(*args, **kwargs)
 
     def work(self):
         gdal.UseExceptions()
