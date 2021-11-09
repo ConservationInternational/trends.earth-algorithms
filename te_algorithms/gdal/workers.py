@@ -99,14 +99,14 @@ class Warp:
             outputType=gdal.GDT_Int16,
             resampleAlg=gdal.GRA_NearestNeighbour,
             warpOptions=[
-                'NUM_THREADS=ALL_CPUs',
+                'NUM_THREADS=ALL_CPUS',
                 'GDAL_CACHEMAX=500',
             ],
             creationOptions=[
                 'COMPRESS=LZW',
                 'BIGTIFF=YES',
-                'NUM_THREADS=ALL_CPUs',
-                'NUM_THREADS=ALL_CPUs',
+                'NUM_THREADS=ALL_CPUS',
+                'NUM_THREADS=ALL_CPUS',
                 'TILED=YES'
             ],
             multithread=True,
@@ -117,6 +117,16 @@ class Warp:
             return True
         else:
             return None
+
+
+def _get_bounding_box(ds):
+    """ Return list of corner coordinates from a gdal Dataset """
+    xmin, xpixel, _, ymax, _, ypixel = ds.GetGeoTransform()
+    width, height = ds.RasterXSize, ds.RasterYSize
+    xmax = xmin + width * xpixel
+    ymin = ymax + height * ypixel
+    return (xmin, ymin, xmax, ymax)
+
 
 @dataclasses.dataclass()
 class Mask:
@@ -138,23 +148,11 @@ class Mask:
 
         if self.model_file:
             # Assumes an image with no rotation
-            gt=gdal.Info(self.model_file, format='json')['geoTransform']
-            x_size, y_size = gdal.Info(self.model_file, format='json')['size']
-            x_min = min(gt[0], gt[0] + x_size * gt[1])
-            if self.force_within_wgs84_globe and x_min < -180:
-                x_min = -180
-            x_max = max(gt[0], gt[0] + x_size * gt[1])
-            if self.force_within_wgs84_globe and x_max > 180:
-                x_max = 180
-            y_min = min(gt[3], gt[3] + y_size * gt[5])
-            if self.force_within_wgs84_globe and y_min < -90:
-                y_min = -90
-            y_max = max(gt[3], gt[3] + y_size * gt[5])
-            if self.force_within_wgs84_globe and y_max > 90:
-                y_max = 90
-            output_bounds = [x_min, y_min, x_max, y_max]
+            ds = gdal.Open(self.model_file)
+            gt = ds.GetGeoTransform()
             x_res = gt[1]
             y_res = gt[5]
+            output_bounds = _get_bounding_box(ds)
         else:
             output_bounds = None
             x_res = None

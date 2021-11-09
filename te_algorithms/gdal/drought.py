@@ -566,7 +566,7 @@ def _calculate_summary_table(
     )
 
     error_message = ""
-    indic_reproj = tempfile.NamedTemporaryFile(suffix='_drought_indicators_reproj.vrt', delete=False).name
+    indic_reproj = tempfile.NamedTemporaryFile(suffix='_drought_indicators_reproj.tif', delete=False).name
     logger.info(f'Reprojecting inputs and saving to {indic_reproj}')
     if reproject_worker_function:
         reproject_result = reproject_worker_function(
@@ -576,10 +576,7 @@ def _calculate_summary_table(
         )
 
     else:
-        reproject_worker = workers.Warp(
-            indic_vrt,
-            str(indic_reproj)
-        )
+        reproject_worker = workers.Warp(indic_vrt, str(indic_reproj))
         reproject_result = reproject_worker.work()
 
     if reproject_result:
@@ -587,7 +584,8 @@ def _calculate_summary_table(
         # mask out areas outside of the AOI. Do this instead of using
         # gdal.Clip to save having to clip and rewrite all of the layers in
         # the VRT
-        mask_tif = tempfile.NamedTemporaryFile(suffix='_drought_mask.tif', delete=False).name
+        mask_tif = tempfile.NamedTemporaryFile(
+            suffix='_drought_mask.tif', delete=False).name
 
         logger.info(f'Saving mask to {mask_tif}')
         geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
@@ -602,14 +600,17 @@ def _calculate_summary_table(
             mask_worker = workers.Mask(
                 mask_tif,
                 geojson,
-                indic_reproj 
+                indic_reproj
             )
             mask_result = mask_worker.work()
 
         if mask_result:
             # Combine all in_dfs together and update path to refer to indicator 
             # VRT
-            in_df = DataFile(indic_reproj, [b for d in in_dfs for b in d.bands])
+            in_df = DataFile(
+                indic_reproj,
+                [b for d in in_dfs for b in d.bands]
+            )
             params = DroughtSummaryParams(
                 in_df=in_df,
                 out_file=str(output_tif_path),
