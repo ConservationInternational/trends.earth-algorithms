@@ -67,10 +67,8 @@ def zonal_total(z, d, mask):
     z = z.copy().ravel()
     d = d.ravel()
     mask = mask.ravel()
-    # Carry over nodata values from data layer to z so that they aren't
-    # included in the totals
-    z[d == NODATA_VALUE] = NODATA_VALUE
     z[mask] = MASK_VALUE
+    d[d == NODATA_VALUE] = 0  # ignore nodata values
     #totals = numba.typed.Dict.empty(numba.types.int16, numba.types.float64)
     totals = dict()
     for i in range(z.shape[0]):
@@ -88,10 +86,8 @@ def zonal_total_weighted(z, d, weights, mask):
     d = d.ravel()
     weights = weights.ravel()
     mask = mask.ravel()
-    # Carry over nodata values from data layer to z so that they aren't
-    # included in the totals
-    z[d == NODATA_VALUE] = NODATA_VALUE
     z[mask] = MASK_VALUE
+    d[d == NODATA_VALUE] = 0  # ignore nodata values
     #totals = numba.typed.Dict.empty(numba.types.int16, numba.types.float64)
     totals = dict()
     for i in range(z.shape[0]):
@@ -109,13 +105,7 @@ def bizonal_total(z1, z2, d, mask):
     z2 = z2.copy().ravel()
     d = d.ravel()
     mask = mask.ravel()
-    # Carry over nodata values from data layer to z so that they aren't
-    # included in the totals
-    z1[d == NODATA_VALUE] = NODATA_VALUE
     z1[mask] = MASK_VALUE
-    # Carry over nodata values from data layer to z so that they aren't
-    # included in the totals
-    z2[d == NODATA_VALUE] = NODATA_VALUE
     z2[mask] = MASK_VALUE
     #tab = numba.typed.Dict.empty(numba.types.int64, numba.types.float64)
     tab = dict()
