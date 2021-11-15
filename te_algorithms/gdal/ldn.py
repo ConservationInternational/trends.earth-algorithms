@@ -51,8 +51,8 @@ from .ldn_numba import *
 
 logger = logging.getLogger(__name__)
 
-NODATA_VALUE = -32768
-MASK_VALUE = -32767
+NODATA_VALUE = np.int16(-32768)
+MASK_VALUE = np.int16(-32767)
 
 SDG_BAND_NAME = "SDG 15.3.1 Indicator"
 PROGRESS_BAND_NAME = "SDG 15.3.1 (progress)"
@@ -69,6 +69,15 @@ SOC_DEG_BAND_NAME = "Soil organic carbon (degradation)"
 SOC_BAND_NAME = "Soil organic carbon"
 POPULATION_BAND_NAME = "Population (density, persons per sq km / 10)"
 POP_AFFECTED_BAND_NAME = "Population affected by degradation (density, persons per sq km / 10)"
+
+PRODUCTIVITY_CLASS_KEY = {
+    'Increasing': 5,
+    'Stable': 4,
+    'Stressed': 3,
+    'Moderate decline': 2,
+    'Declining': 1,
+    'No data': NODATA_VALUE
+}
 
 
 class LdnProductivityMode(enum.Enum):
@@ -944,46 +953,30 @@ def save_reporting_json(
 
         #######################################################################
         # Productivity tables
-        # TODO: Remove these hardcoded values
-        classes = ['Tree-covered',
-                   'Grassland',
-                   'Cropland',
-                   'Wetland',
-                   'Artificial',
-                   'Other land',
-                   'Water body']
+        lc_trans_dict = lc_trans_matrix.get_transition_integers_key()
+
         crosstab_prod = []
-
+        # If no land cover data was available for first year of productivity 
+        # data, then won't be able to output these tables, so need to check 
+        # first if data is available
         if len([*st.lc_trans_prod_bizonal.keys()]) > 0:
-            # If no land cover data was available for first year of productivity 
-            # data, then won't be able to output these tables
-
-            for prod_name, prod_code in zip(
-                [
-                    'Increasing',
-                    'Stable',
-                    'Stressed',
-                    'Moderate decline',
-                    'Declining',
-                    'No data'
-                ],
-                [5, 4, 3, 2, 1, NODATA_VALUE]
-            ):
+            for prod_name, prod_code in PRODUCTIVITY_CLASS_KEY.items():
                 crosstab_entries = []
-
-                for i, initial_class in enumerate(classes, start=1):
-                    for f, final_class in enumerate(classes, start=1):
-                        transition = i * lc_trans_matrix.get_multiplier() + f
-                        crosstab_entries.append(
-                            reporting.CrossTabEntry(
-                                initial_class,
-                                final_class,
-                                value=st.lc_trans_prod_bizonal.get(
-                                    (transition, prod_code),
-                                    0.
-                                )
+                for transition, codes in lc_trans_dict.items():
+                    initial_class = lc_trans_matrix.legend.classByCode(
+                            codes['initial']).name_short
+                    final_class = lc_trans_matrix.legend.classByCode(
+                            codes['final']).name_short
+                    crosstab_entries.append(
+                        reporting.CrossTabEntry(
+                            initial_class,
+                            final_class,
+                            value=st.lc_trans_prod_bizonal.get(
+                                (transition, prod_code),
+                                0.
                             )
                         )
+                    )
                 crosstab_prod.append(
                     reporting.CrossTab(
                         prod_name,
@@ -1005,16 +998,16 @@ def save_reporting_json(
                 st.lc_trans_zonal_areas, st.lc_trans_zonal_areas_periods):
             lc_by_transition_type = []
 
-            for i, initial_class in enumerate(classes, start=1):
-                for f, final_class in enumerate(classes, start=1):
-                    transition = i * lc_trans_matrix.get_multiplier() + f
-                    lc_by_transition_type.append(
-                        reporting.CrossTabEntry(
-                            initial_class,
-                            final_class,
-                            value=lc_trans_zonal_areas.get(transition, 0.)
-                        )
+            for transition, codes in lc_trans_dict.items():
+                initial_class = lc_trans_matrix.legend.classByCode(codes['initial']).name_short
+                final_class = lc_trans_matrix.legend.classByCode(codes['final']).name_short
+                lc_by_transition_type.append(
+                    reporting.CrossTabEntry(
+                        initial_class,
+                        final_class,
+                        value=lc_trans_zonal_areas.get(transition, 0.)
                     )
+                )
             lc_by_transition_type = sorted(
                 lc_by_transition_type,
                 key=lambda i: i.value,
@@ -1033,8 +1026,6 @@ def save_reporting_json(
         ###
         # LC by year
         lc_by_year = {}
-
-
         for year_num, year in enumerate(land_cover_years):
             total_land_area = sum([
                 value for key, value in st.lc_annual_totals[year_num].items()
@@ -1043,12 +1034,12 @@ def save_reporting_json(
             logging.debug(
                 f'Total land area in {year} per land cover data {total_land_area}')
 
-            for i, lc_class in enumerate(classes, start=1):
-                logging.debug(f'Total cover for class {i} in {year}: {st.lc_annual_totals[year_num].get(i, 0.)}')
-            lc_by_year[int(year)] = {
-                lc_class: st.lc_annual_totals[year_num].get(i, 0.)
+            for lc_class in lc_trans_matrix.legend.key:
+                logging.debug(f'Total area of {lc_class.name_short} in {year}: {st.lc_annual_totals[year_num].get(lc_class.code, 0.)}')
 
-                for i, lc_class in enumerate(classes, start=1)
+            lc_by_year[int(year)] = {
+                lc_class.name_short: st.lc_annual_totals[year_num].get(lc_class.code, 0.)
+                for lc_class in lc_trans_matrix.legend.key + [lc_trans_matrix.legend.nodata]
             }
         lc_by_year_by_class = reporting.ValuesByYearDict(
             name='Area by year by land cover class',
@@ -1067,23 +1058,23 @@ def save_reporting_json(
         # Note that the last element is skipped, as it is water, and don't want
         # to count water in SOC totals
 
-        for i, initial_class in enumerate(classes[:-1], start=1):
-            for f, final_class in enumerate(classes[:-1], start=1):
-                transition = i * lc_trans_matrix.get_multiplier() + f
-                soc_by_transition.append(
-                    reporting.CrossTabEntryInitialFinal(
-                        initial_label=initial_class,
-                        final_label=final_class,
-                        initial_value=st.lc_trans_zonal_soc_initial.get(
-                            transition,
-                            0.
-                        ),
-                        final_value=st.lc_trans_zonal_soc_final.get(
-                            transition,
-                            0.
-                        )
+        for transition, codes in lc_trans_dict.items():
+            initial_class = lc_trans_matrix.legend.classByCode(codes['initial']).name_short
+            final_class = lc_trans_matrix.legend.classByCode(codes['final']).name_short
+            soc_by_transition.append(
+                reporting.CrossTabEntryInitialFinal(
+                    initial_label=initial_class,
+                    final_label=final_class,
+                    initial_value=st.lc_trans_zonal_soc_initial.get(
+                        transition,
+                        0.
+                    ),
+                    final_value=st.lc_trans_zonal_soc_final.get(
+                        transition,
+                        0.
                     )
                 )
+            )
         initial_soc_year = period_params['layer_soc_deg_years']['year_initial']
         final_soc_year = period_params['layer_soc_deg_years']['year_final']
         crosstab_soc_by_transition_per_ha = reporting.CrossTab(
@@ -1099,10 +1090,10 @@ def save_reporting_json(
         soc_by_year = {}
         for year_num, year in enumerate(soil_organic_carbon_years):
             soc_by_year[int(year)] = {
-                lc_class: st.soc_by_lc_annual_totals[year_num].get(i, 0.)
-
-                for i, lc_class in enumerate(classes[:-1], start=1)
+                lc_class.name_short: st.soc_by_lc_annual_totals[year_num].get(lc_class.code, 0.)
+                for lc_class in lc_trans_matrix.legend.key + [lc_trans_matrix.legend.nodata]
             }
+
         soc_by_year_by_class = reporting.ValuesByYearDict(
             name='Soil organic carbon by year by land cover class',
             unit='tonnes',
@@ -1365,12 +1356,19 @@ def _process_block_progress(
                      -1, -1, 0, 0, 1,
                      -1, -1, 0, 0, 1]
 
+    prod5_baseline = in_array[params.band_dict['prod5_baseline_bandnum'] - 1, :, :]
+    prod5_progress = in_array[params.band_dict['prod5_progress_bandnum'] - 1, :, :]
+    # TODO: recode zeros in prod5 to NODATA_VALUE as the JRC LPD on 
+    # trends.earth assets had 0 used instead of our standard nodata value
+    prod5_baseline[prod5_baseline == 0] = NODATA_VALUE
+    prod5_progress[prod5_progress == 0] = NODATA_VALUE
+
     # Productivity - can use the productivity degradation calculation function 
     # to do the recoding, as it calculates transitions and recodes them 
     # according to a matrix
     deg_prod_progress = calc_deg_lc(
-        in_array[params.band_dict['prod5_baseline_bandnum'] - 1, :, :],
-        in_array[params.band_dict['prod5_progress_bandnum'] - 1, :, :],
+        prod5_baseline,
+        prod5_progress,
         trans_code,
         trans_meaning,
         10
