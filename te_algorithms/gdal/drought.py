@@ -198,22 +198,13 @@ def _process_block(
         # dimension of pop_at_max_drought, throwing off the masking and 
         # multiplication by cell_areas as all those arrays will have a second 
         # dimension of 1
-        logging.info(f'new run')
-        logging.info(f'pop_at_max_drought.shape (pre-squeeze) {pop_at_max_drought.shape}')
         if in_array.shape[2] == 1:
             pop_at_max_drought = np.expand_dims(pop_at_max_drought, axis=1)
             max_drought = np.expand_dims(max_drought, axis=1)
-        logging.info(f'pop_at_max_drought.shape {pop_at_max_drought.shape}')
-        logging.info(f'in_array.shape {in_array.shape}')
-        logging.info(f'cell_areas.shape {cell_areas.shape}')
         # Account for scaling and convert from density
         pop_at_max_drought_masked = pop_at_max_drought * 10. * cell_areas
-        logging.info(f'pop_at_max_drought_masked.shape {pop_at_max_drought_masked.shape}')
         pop_at_max_drought_masked[pop_at_max_drought == NODATA_VALUE] = 0
         pop_at_max_drought_masked[max_drought < -1000] = -pop_at_max_drought_masked[max_drought < -1000]
-        logging.info(f'pop_at_max_drought_masked.shape {pop_at_max_drought_masked.shape}')
-        logging.info(f'max_drought.shape {max_drought.shape}')
-        logging.info(f'a_water_mask.shape {a_water_mask.shape}')
         pop_at_max_drought_masked[a_water_mask == 1] = 0
 
         # Add one as output band numbers start at 1, not zero
