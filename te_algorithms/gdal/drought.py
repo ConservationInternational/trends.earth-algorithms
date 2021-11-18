@@ -332,7 +332,7 @@ class DroughtSummary:
 
     def emit_progress(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        pass
+        util.log_progress(*args, **kwargs)
 
     def get_line_params(self):
         '''Make a list of parameters to use in the _process_line function'''

@@ -1,6 +1,7 @@
 import pathlib
 import json
 import tempfile
+import logging
 from typing import List
 
 import marshmallow_dataclass
@@ -194,3 +195,7 @@ def accumulate_dicts(z):
         return z[0]
     else:
         return _accumulate_dicts(z)
+
+
+def log_progress(fraction, message, data):
+    logging.info('%s - %.2f%%', message, 100 * fraction)

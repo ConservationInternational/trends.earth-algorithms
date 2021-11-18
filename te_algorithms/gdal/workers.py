@@ -7,6 +7,7 @@ from tempfile import NamedTemporaryFile
 
 from osgeo import gdal
 
+from . import util
 from te_schemas.datafile import DataFile
 
 NODATA_VALUE = -32768
@@ -22,9 +23,6 @@ def _get_temp_filename(suffix):
     f.close()
     return f.name
 
-def _log_progress(fraction, message, data):
-    logger.info('%s - %.2f%%', message, 100 * fraction)
-
 
 @dataclasses.dataclass()
 class Clip:
@@ -34,7 +32,7 @@ class Clip:
     geojson: dict
 
     def progress_callback(self, *args, **kwargs):
-        _log_progress(*args, **kwargs)
+        util.log_progress(*args, **kwargs)
 
     def work(self):
         json_file = _get_temp_filename('.geojson')
@@ -82,7 +80,7 @@ class Warp:
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        _log_progress(*args, **kwargs)
+        util.log_progress(*args, **kwargs)
 
     def work(self):
         gdal.UseExceptions()
@@ -133,7 +131,7 @@ class Mask:
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        _log_progress(*args, **kwargs)
+        util.log_progress(*args, **kwargs)
 
     def work(self):
         json_file = _get_temp_filename('.geojson')
@@ -182,7 +180,7 @@ class Translate:
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        _log_progress(*args, **kwargs)
+        util.log_progress(*args, **kwargs)
 
     def work(self):
         gdal.UseExceptions()

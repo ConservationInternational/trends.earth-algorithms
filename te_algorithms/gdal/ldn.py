@@ -55,14 +55,15 @@ NODATA_VALUE = np.int16(-32768)
 MASK_VALUE = np.int16(-32767)
 
 SDG_BAND_NAME = "SDG 15.3.1 Indicator"
-PROGRESS_BAND_NAME = "SDG 15.3.1 (progress)"
-PROD_COMPARISON_BAND_NAME = "Productivity Degradation (comparison)"
+SDG_STATUS_BAND_NAME = "SDG 15.3.1 Indicator (status)"
+PROD_DEG_COMPARISON_BAND_NAME = "Productivity degradation (comparison)"
 JRC_LPD_BAND_NAME = "Land Productivity Dynamics (from JRC)"
 TE_LPD_BAND_NAME = "Land Productivity Dynamics (from Trends.Earth)"
 TRAJ_BAND_NAME = "Productivity trajectory (significance)"
 PERF_BAND_NAME = "Productivity performance (degradation)"
 STATE_BAND_NAME = "Productivity state (degradation)"
 LC_DEG_BAND_NAME = "Land cover (degradation)"
+LC_DEG_COMPARISON_BAND_NAME = "Land cover degradation (comparison)"
 LC_BAND_NAME = "Land cover (7 class)"
 LC_TRANS_BAND_NAME = "Land cover transitions"
 SOC_DEG_BAND_NAME = "Soil organic carbon (degradation)"
@@ -342,7 +343,7 @@ def _compute_progress_summary(
 
     out_bands = [
         JobBand(
-            name=PROGRESS_BAND_NAME,
+            name=SDG_STATUS_BAND_NAME,
             no_data_value=NODATA_VALUE,
             metadata={
                 'baseline_year_initial': baseline_period['year_initial'],
@@ -354,7 +355,7 @@ def _compute_progress_summary(
             activated=True
         ),
         JobBand(
-            name=PROD_COMPARISON_BAND_NAME,
+            name=PROD_DEG_COMPARISON_BAND_NAME,
             no_data_value=NODATA_VALUE,
             metadata={
                 'baseline_year_initial': baseline_period['year_initial'],
@@ -376,7 +377,7 @@ def _compute_progress_summary(
             activated=True
         ),
         JobBand(
-            name=LC_DEG_BAND_NAME,
+            name=LC_DEG_COMPARISON_BAND_NAME,
             no_data_value=NODATA_VALUE,
             metadata={
                 'year_initial': baseline_period['year_initial'],
@@ -1798,7 +1799,7 @@ class DegradationSummary:
 
     def emit_progress(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        pass
+        util.log_progress(*args, **kwargs)
 
 
     def work(self):
