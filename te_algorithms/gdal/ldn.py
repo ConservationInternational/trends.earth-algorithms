@@ -1350,11 +1350,12 @@ def _process_block_progress(
                   31, 32, 33, 34, 35,
                   41, 42, 43, 44, 45,
                   51, 52, 53, 54, 55]
-    trans_meaning = [-1, -1, 0, 1, 1,
-                     -1, -1, 0, 1, 1,
-                     -1, -1, 0, 0, 1,
-                     -1, -1, 0, 0, 1,
-                     -1, -1, 0, 0, 1]
+
+    trans_meaning_sdg = [-1, -1, -1,  1, 1,
+                         -1, -1, -1,  0, 1,
+                         -1, -1,  0,  0, 1,
+                         -1, -1,  0,  0, 1,
+                         -1, -1,  0,  0, 1]
 
     prod5_baseline = in_array[params.band_dict['prod5_baseline_bandnum'] - 1, :, :]
     prod5_progress = in_array[params.band_dict['prod5_progress_bandnum'] - 1, :, :]
@@ -1370,7 +1371,7 @@ def _process_block_progress(
         prod5_baseline,
         prod5_progress,
         trans_code,
-        trans_meaning,
+        trans_meaning_sdg,
         10
     )
     prod_summary = zonal_total(
@@ -1738,12 +1739,14 @@ def _process_block_summary(
     pop_array_masked = pop_array.copy()
     pop_array_masked = pop_array * 10. * cell_areas  # Account for scaling and convert from density
     pop_array_masked[pop_array == NODATA_VALUE] = 0
+    pop_array_masked[water] = 0
     sdg_zonal_population_total = zonal_total(
         deg_sdg,
         pop_array_masked,
         mask
     )
     pop_array[deg_sdg == -1] = -pop_array[deg_sdg == -1]
+    pop_array[water] = 0
     # Save SO3 array
     write_arrays.append({
         'array': pop_array,
