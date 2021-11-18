@@ -52,6 +52,7 @@ MASK_VALUE = -32767
 POPULATION_BAND_NAME = "Population (density, persons per sq km / 10)"
 SPI_BAND_NAME = "Standardized Precipitation Index (SPI)"
 JRC_BAND_NAME = "Drought Vulnerability (JRC)"
+WATER_MASK_BAND_NAME = "Water mask"
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,7 @@ def _process_block(
 
     spi_rows = params.in_df.indices_for_name(SPI_BAND_NAME)
     pop_rows = params.in_df.indices_for_name(POPULATION_BAND_NAME)
+    a_water_mask = in_array[params.in_df.index_for_name(WATER_MASK_BAND_NAME), :, :]
 
     assert len(spi_rows) == len(pop_rows)
 
@@ -162,6 +164,7 @@ def _process_block(
         # Account for scaling and convert from density
         a_pop_masked = a_pop * 10. * cell_areas
         a_pop_masked[a_pop == NODATA_VALUE] = 0
+        a_pop_masked[a_water_mask == 1] = 0
         annual_population_by_drought_class_total.append(
             zonal_total(
                 a_drought_class,
@@ -185,32 +188,52 @@ def _process_block(
 
         # Max drought is at minimum SPI
         min_indices = np.expand_dims(np.argmin(spis, axis=0), axis=0)
-        max_drought = np.take_along_axis(spis, min_indices, axis=0)
-        pop_at_max_drought = np.take_along_axis(pops, min_indices, axis=0)
+        # squeeze to remove zero dim of len 1
+        max_drought = np.take_along_axis(spis, min_indices, axis=0).squeeze()
+        pop_at_max_drought = np.take_along_axis(pops, min_indices, axis=0).squeeze()
 
-        pop_at_max_drought_masked = pop_at_max_drought.copy()
+        # Need to add a dimension to max_drought and pop_at_max_drought if the 
+        # second dimension of in_array is (meaning there only 1 row in this 
+        # block) as otherwise after the squeeze we will be missing the second 
+        # dimension of pop_at_max_drought, throwing off the masking and 
+        # multiplication by cell_areas as all those arrays will have a second 
+        # dimension of 1
+        logging.info(f'new run')
+        logging.info(f'pop_at_max_drought.shape (pre-squeeze) {pop_at_max_drought.shape}')
+        if in_array.shape[2] == 1:
+            pop_at_max_drought = np.expand_dims(pop_at_max_drought, axis=1)
+            max_drought = np.expand_dims(max_drought, axis=1)
+        logging.info(f'pop_at_max_drought.shape {pop_at_max_drought.shape}')
+        logging.info(f'in_array.shape {in_array.shape}')
+        logging.info(f'cell_areas.shape {cell_areas.shape}')
         # Account for scaling and convert from density
         pop_at_max_drought_masked = pop_at_max_drought * 10. * cell_areas
+        logging.info(f'pop_at_max_drought_masked.shape {pop_at_max_drought_masked.shape}')
         pop_at_max_drought_masked[pop_at_max_drought == NODATA_VALUE] = 0
+        pop_at_max_drought_masked[max_drought < -1000] = -pop_at_max_drought_masked[max_drought < -1000]
+        logging.info(f'pop_at_max_drought_masked.shape {pop_at_max_drought_masked.shape}')
+        logging.info(f'max_drought.shape {max_drought.shape}')
+        logging.info(f'a_water_mask.shape {a_water_mask.shape}')
+        pop_at_max_drought_masked[a_water_mask == 1] = 0
 
         # Add one as output band numbers start at 1, not zero
         write_arrays[2*period_number + 1] = {
-            'array': max_drought.squeeze(),  # remove zero dim of len 1
+            'array': max_drought,
             'xoff': xoff,
             'yoff': yoff
         }
 
-        pop_at_max_drought_masked[max_drought < -1000] = -pop_at_max_drought_masked[max_drought < -1000]
         # Add two as output band numbers start at 1, not zero, and this is the 
         # second band for this period
         write_arrays[2*period_number + 2] = {
-            'array': pop_at_max_drought_masked.squeeze(),
+            'array': pop_at_max_drought_masked,
             'xoff': xoff,
             'yoff': yoff
         }
 
     jrc_row = params.in_df.index_for_name(JRC_BAND_NAME)
     dvi_value_sum_and_count = jrc_sum_and_count(in_array[jrc_row, :, :], mask)
+
 
     return (
         SummaryTableDrought(
@@ -431,11 +454,17 @@ def summarise_drought_vulnerability(
         [params['layer_jrc_band_index']]
     )
 
+    water_df = _prepare_dfs(
+        params['layer_water_path'],
+        [params['layer_water_band']],
+        [params['layer_water_band_index']]
+    )
+
     summary_table, out_path = _compute_drought_summary_table(
         aoi=aoi,
         compute_bbs_from=params['layer_spi_path'],
         output_job_path=job_output_path.parent / f"{job_output_path.stem}.json",
-        in_dfs=spi_dfs + population_dfs + jrc_df,
+        in_dfs=spi_dfs + population_dfs + jrc_df + water_df,
         drought_period=drought_period
     )
 
