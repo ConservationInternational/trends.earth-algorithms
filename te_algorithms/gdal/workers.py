@@ -58,7 +58,6 @@ class Clip:
             creationOptions=[
                 'COMPRESS=LZW',
                 'NUM_THREADS=ALL_CPUs',
-                'NUM_THREADS=ALL_CPUs',
                 'TILED=YES'
             ],
             multithread=True,
@@ -188,7 +187,11 @@ class Translate:
         res = gdal.Translate(
             self.out_file,
             self.in_file,
-            creationOptions=['COMPRESS=LZW'],
+            creationOptions=[
+                'COMPRESS=LZW',
+                'NUM_THREADS=ALL_CPUs',
+                'TILED=YES'
+            ],
             callback=self.progress_callback
         )
 
