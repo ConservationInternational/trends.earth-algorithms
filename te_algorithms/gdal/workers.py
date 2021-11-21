@@ -52,12 +52,12 @@ class Clip:
             outputType=gdal.GDT_Int16,
             resampleAlg=gdal.GRA_NearestNeighbour,
             warpOptions=[
-                'NUM_THREADS=ALL_CPUs',
+                'NUM_THREADS=ALL_CPUS',
                 'GDAL_CACHEMAX=500',
             ],
             creationOptions=[
                 'COMPRESS=LZW',
-                'NUM_THREADS=ALL_CPUs',
+                'NUM_THREADS=ALL_CPUS',
                 'TILED=YES'
             ],
             multithread=True,
@@ -98,7 +98,6 @@ class Warp:
             creationOptions=[
                 'COMPRESS=LZW',
                 'BIGTIFF=YES',
-                'NUM_THREADS=ALL_CPUS',
                 'NUM_THREADS=ALL_CPUS',
                 'TILED=YES'
             ],

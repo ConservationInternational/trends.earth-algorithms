@@ -1799,7 +1799,7 @@ class DegradationSummary:
 
     def emit_progress(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
-        util.log_progress(*args, **kwargs)
+        util.log_progress(*args, message='Processing land degradation summary')
 
 
     def work(self):
@@ -1868,7 +1868,7 @@ class DegradationSummary:
                     logger.info("Processing killed by user after processing "
                         f"{n} out of {n_blocks} blocks.")
                     break
-                self.emit_progress((n / n_blocks) * 100)
+                self.emit_progress(n / n_blocks)
                 
                 if x + x_block_size < xsize:
                     win_xsize = x_block_size
@@ -1918,7 +1918,7 @@ class DegradationSummary:
             os.remove(self.params.out_file)
             return None
         else:
-            self.emit_progress(100)
+            self.emit_progress(1)
             return out
 
 

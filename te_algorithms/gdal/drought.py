@@ -330,9 +330,9 @@ class DroughtSummary:
     def is_killed(self):
         return False
 
-    def emit_progress(self, *args, **kwargs):
+    def emit_progress(self, *args):
         '''Reimplement to display progress messages'''
-        util.log_progress(*args, **kwargs)
+        util.log_progress(*args, message='Processing drought summary')
 
     def get_line_params(self):
         '''Make a list of parameters to use in the _process_line function'''
@@ -460,8 +460,8 @@ def summarise_drought_vulnerability(
     )
 
     out_bands = []
-    logger.info(f"processing for years {params['layer_spi_years'][0]} - "
-                 f"int(params['layer_spi_years'][-1])")
+    logger.info(f"Processing for years {params['layer_spi_years'][0]} - "
+                 f"{int(params['layer_spi_years'][-1])}")
     for period_number, year_initial in enumerate(
         range(
             int(params['layer_spi_years'][0]),
