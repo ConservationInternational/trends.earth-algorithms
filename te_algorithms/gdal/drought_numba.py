@@ -4,7 +4,7 @@ import numpy as np
 try:
     import numba
     from numba.pycc import CC
-    cc = CC('ldn_numba')
+    cc = CC('drought_numba')
 except ImportError:
     # Will use these as regular Python functions if numba is not present.
     class DecoratorSubstitute(object):
