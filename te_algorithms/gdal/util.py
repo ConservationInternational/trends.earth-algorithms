@@ -2,7 +2,9 @@ import pathlib
 import json
 import tempfile
 import logging
+import shutil
 from typing import List
+from defusedxml.ElementTree import parse
 
 import marshmallow_dataclass
 from .util_numba import _accumulate_dicts
@@ -68,6 +70,17 @@ def setup_output_image(
     dst_srs.ImportFromWkt(src_ds.GetProjectionRef())
     dst_ds.SetProjection(dst_srs.ExportToWkt())
     return dst_ds
+
+
+def get_sourcefiles_in_vrt(vrt):
+    vrt_tree = parse(vrt)
+    vrt_root = vrt_tree.getroot()
+    filenames = []
+    for band in vrt_root.findall('VRTRasterBand'):
+        sources = band.findall('SimpleSource')
+        for source in sources:
+            filenames.append(source.find('SourceFilename').text)
+    return list(set(filenames))
 
 
 def combine_all_bands_into_vrt(

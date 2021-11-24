@@ -1,10 +1,9 @@
 import numpy as np
 
-
 try:
     import numba
     from numba.pycc import CC
-    cc = CC('drought_numba')
+
 except ImportError:
     # Will use these as regular Python functions if numba is not present.
     class DecoratorSubstitute(object):
@@ -12,18 +11,22 @@ except ImportError:
         def export(*args, **kwargs):
             def wrapper(func):
                 return func
+
             return wrapper
 
         # Make a numba.jit that doesn't do anything
         def jit(*args, **kwargs):
             def wrapper(func):
                 return func
+
             return wrapper
+
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
+else:
+    cc = CC('drought_numba')
 
-
-# Ensure mask and nodata values are saved as 16 bit integers to keep numba 
+# Ensure mask and nodata values are saved as 16 bit integers to keep numba
 # happy
 NODATA_VALUE = np.array([-32768], dtype=np.int16)
 MASK_VALUE = np.array([-32767], dtype=np.int16)
@@ -53,10 +56,7 @@ def drought_class(spi):
 
 
 @numba.jit(nopython=True)
-@cc.export(
-    'jrc_sum_and_count',
-    'Tuple((f8, i8))(f8[:,:], i2[:,:])'
-)
+@cc.export('jrc_sum_and_count', 'Tuple((f8, i8))(f8[:,:], i2[:,:])')
 def jrc_sum_and_count(jrc, mask):
     temp = jrc.copy().ravel()
     mask = mask.ravel()
@@ -77,7 +77,7 @@ def jrc_dvi_class(jrc):
     # -1 - -1.5: moderate drought (code as 2)
     # -1.5 - -2: severe drought (code as 3)
     # -2 - inf: extreme drought (code as 4)
-    
+
     shp = jrc.shape
     jrc = jrc.ravel()
     out = jrc.copy()

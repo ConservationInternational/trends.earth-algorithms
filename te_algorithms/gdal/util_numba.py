@@ -1,10 +1,11 @@
-import numpy as np
 import logging
+
+import numpy as np
 
 try:
     import numba
     from numba.pycc import CC
-    cc = CC('util_numba')
+
 except ImportError:
     # Will use these as regular Python functions if numba is not present.
     class DecoratorSubstitute(object):
@@ -12,22 +13,28 @@ except ImportError:
         def export(*args, **kwargs):
             def wrapper(func):
                 return func
+
             return wrapper
 
         # Make a numba.jit that doesn't do anything
         def jit(*args, **kwargs):
             def wrapper(func):
                 return func
+
             return wrapper
+
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
+else:
+    cc = CC('util_numba')
 
 logger = logging.getLogger(__name__)
 
-# Ensure mask and nodata values are saved as 16 bit integers to keep numba 
+# Ensure mask and nodata values are saved as 16 bit integers to keep numba
 # happy
 NODATA_VALUE = np.array([-32768], dtype=np.int16)
 MASK_VALUE = np.array([-32767], dtype=np.int16)
+
 
 # Calculate the area of a slice of the globe from the equator to the parallel
 # at latitude f (on WGS84 ellipsoid). Based on:
@@ -40,8 +47,11 @@ def slice_area(f):
     e = np.sqrt(1 - pow(b / a, 2))
     zp = 1 + e * np.sin(f)
     zm = 1 - e * np.sin(f)
-    return (np.pi * pow(b, 2) * ((2 * np.arctanh(e * np.sin(f))) /
-        (2 * e) + np.sin(f) / (zp * zm)))
+
+    return (
+        np.pi * pow(b, 2) *
+        ((2 * np.arctanh(e * np.sin(f))) / (2 * e) + np.sin(f) / (zp * zm))
+    )
 
 
 # Formula to calculate area of a raster cell on WGS84 ellipsoid, following
@@ -57,8 +67,11 @@ def calc_cell_area(ymin, ymax, x_width):
     # ymin: minimum latitude
     # ymax: maximum latitude
     # x_width: width of cell in degrees
-    return ((slice_area(np.deg2rad(ymax)) - slice_area(np.deg2rad(ymin)))
-            * (x_width / 360.))
+
+    return (
+        (slice_area(np.deg2rad(ymax)) - slice_area(np.deg2rad(ymin))) *
+        (x_width / 360.)
+    )
 
 
 @numba.jit(nopython=True)
@@ -71,16 +84,21 @@ def zonal_total(z, d, mask):
     d[d == NODATA_VALUE] = 0  # ignore nodata values
     #totals = numba.typed.Dict.empty(numba.types.int16, numba.types.float64)
     totals = dict()
+
     for i in range(z.shape[0]):
         if z[i] not in totals:
             totals[z[i]] = d[i]
         else:
             totals[z[i]] += d[i]
+
     return totals
 
 
 @numba.jit(nopython=True, boundscheck=True)
-@cc.export('zonal_total_weighted', 'DictType(i2, f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])')
+@cc.export(
+    'zonal_total_weighted',
+    'DictType(i2, f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])'
+)
 def zonal_total_weighted(z, d, weights, mask):
     z = z.copy().ravel()
     d = d.ravel()
@@ -90,16 +108,21 @@ def zonal_total_weighted(z, d, weights, mask):
     d[d == NODATA_VALUE] = 0  # ignore nodata values
     #totals = numba.typed.Dict.empty(numba.types.int16, numba.types.float64)
     totals = dict()
+
     for i in range(z.shape[0]):
         if z[i] not in totals:
             totals[z[i]] = d[i] * weights[i]
         else:
             totals[z[i]] += d[i] * weights[i]
+
     return totals
 
 
 @numba.jit(nopython=True)
-@cc.export('bizonal_total', 'DictType(UniTuple(i8, 2), f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])')
+@cc.export(
+    'bizonal_total',
+    'DictType(UniTuple(i8, 2), f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])'
+)
 def bizonal_total(z1, z2, d, mask):
     z1 = z1.copy().ravel()
     z2 = z2.copy().ravel()
@@ -109,29 +132,36 @@ def bizonal_total(z1, z2, d, mask):
     z2[mask] = MASK_VALUE
     #tab = numba.typed.Dict.empty(numba.types.int64, numba.types.float64)
     tab = dict()
+
     for i in range(z1.shape[0]):
         key = (z1[i], z2[i])
+
         if key not in tab:
             tab[key] = d[i]
         else:
             tab[key] += d[i]
+
     return tab
 
 
 def _accumulate_dicts(z):
     out = z[0].copy()
+
     for d in z[1:]:
         _combine_dicts(out, d)
+
     return out
 
 
 def _combine_dicts(z1, z2):
     out = z1
+
     for key in z2:
         if key in out:
             out[key] += z2[key]
         else:
             out[key] = z2[key]
+
     return out
 
 

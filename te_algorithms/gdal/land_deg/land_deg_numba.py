@@ -1,10 +1,9 @@
 import numpy as np
 
-
 try:
     import numba
     from numba.pycc import CC
-    cc = CC('ldn_numba')
+
 except ImportError:
     # Will use these as regular Python functions if numba is not present.
     class DecoratorSubstitute(object):
@@ -12,27 +11,44 @@ except ImportError:
         def export(*args, **kwargs):
             def wrapper(func):
                 return func
+
             return wrapper
 
         # Make a numba.jit that doesn't do anything
         def jit(*args, **kwargs):
             def wrapper(func):
                 return func
+
             return wrapper
+
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
+else:
+    cc = CC('land_deg_numba')
 
-
-# Ensure mask and nodata values are saved as 16 bit integers to keep numba 
+# Ensure mask and nodata values are saved as 16 bit integers to keep numba
 # happy
 NODATA_VALUE = np.array([-32768], dtype=np.int16)
 MASK_VALUE = np.array([-32767], dtype=np.int16)
 
 
 @numba.jit(nopython=True)
+@cc.export('recode_errors', '(i2[:,:], i2[:,:], DictType(i2, i2))')
+def recode_errors(x, recode, recode_dict):
+    x = x.ravel()
+    recode = recode.ravel()
+
+    for n in recode_dict:
+        deg_to, stable_to, imp_to = recode_dict[n]
+        x[x == -1 & recode == n] = deg_to
+        x[x == 0 & recode == n] = stable_to
+        x[x == 1 & recode == n] = imp_to
+
+
+@numba.jit(nopython=True)
 @cc.export('recode_traj', 'i2[:,:](i2[:,:])')
 def recode_traj(x):
-    # Recode trajectory into deg, stable, imp. Capture trends that are at least 
+    # Recode trajectory into deg, stable, imp. Capture trends that are at least
     # 95% significant.
     #
     # Remember that traj is coded as:
@@ -49,27 +65,29 @@ def recode_traj(x):
     x[(x >= -1) & (x <= 1)] = 0
     x[(x >= -3) & (x < -1)] = -1
     x[(x > 1) & (x <= 3)] = 1
+
     return np.reshape(x, shp)
 
 
 @numba.jit(nopython=True)
 @cc.export('recode_state', 'i2[:,:](i2[:,:])')
 def recode_state(x):
-    # Recode state into deg, stable, imp. Note the >= -10 is so no data 
-    # isn't coded as degradation. More than two changes in class is defined 
+    # Recode state into deg, stable, imp. Note the >= -10 is so no data
+    # isn't coded as degradation. More than two changes in class is defined
     # as degradation in state.
     shp = x.shape
     x = x.copy().ravel()
     x[(x > -2) & (x < 2)] = 0
     x[(x >= -10) & (x <= -2)] = -1
     x[x >= 2] = 1
+
     return np.reshape(x, shp)
 
 
 @numba.jit(nopython=True)
 @cc.export('calc_progress_lc_deg', 'i2[:,:](i2[:,:], i2[:,:])')
 def calc_progress_lc_deg(initial, final):
-    # First need to calculate transitions, then recode them as deg, stable, 
+    # First need to calculate transitions, then recode them as deg, stable,
     # improved
     #
     # -32768: no data
@@ -115,7 +133,7 @@ def calc_prod5(traj, state, perf):
 
     # Stressed
     x[(traj == 0) & (state == 0) & (perf == -1)] = 3
-    # Agreement in perf and state but positive trajectory is considered 
+    # Agreement in perf and state but positive trajectory is considered
     # moderate decline
     x[(traj == 1) & (state == -1) & (perf == -1)] = 2
     # Moderate decline if state neg but traj and perf stable
@@ -124,8 +142,7 @@ def calc_prod5(traj, state, perf):
     x[(traj == 0) & (state == -1) & (perf == -1)] = 1
 
     # Ensure NAs carry over to productivity indicator layer
-    x[(traj == NODATA_VALUE) |
-      (perf == NODATA_VALUE) |
+    x[(traj == NODATA_VALUE) | (perf == NODATA_VALUE) |
       (state == NODATA_VALUE)] = NODATA_VALUE
 
     return np.reshape(x, shp)
@@ -140,6 +157,7 @@ def prod5_to_prod3(prod5):
     out[(prod5 == 1) | (prod5 == 2)] = -1
     out[(prod5 == 3) | (prod5 == 4)] = 0
     out[prod5 == 5] = 1
+
     return np.reshape(out, shp)
 
 
@@ -151,6 +169,7 @@ def calc_lc_trans(lc_bl, lc_tg, multiplier):
     lc_tg = lc_tg.ravel()
     a_trans_bl_tg = lc_bl * multiplier + lc_tg
     a_trans_bl_tg[np.logical_or(lc_bl < 1, lc_tg < 1)] = NODATA_VALUE
+
     return np.reshape(a_trans_bl_tg, shp)
 
 
@@ -168,6 +187,7 @@ def recode_deg_soc(soc, water):
     out[(soc > -10) & (soc < 10)] = 0
     out[soc >= 10] = 1
     out[water] = NODATA_VALUE  # don't count soc in water
+
     return np.reshape(out, shp)
 
 
@@ -184,6 +204,7 @@ def calc_soc_pch(soc_bl, soc_tg):
         (soc_tg - soc_bl).astype(np.float64) / soc_bl.astype(np.float64)
     ) * 100.
     soc_chg[(soc_bl == NODATA_VALUE) | (soc_tg == NODATA_VALUE)] = NODATA_VALUE
+
     return np.reshape(soc_chg, shp)
 
 
@@ -206,6 +227,7 @@ def calc_deg_soc(soc_bl, soc_tg, water):
     out[(soc_chg > -10.) & (soc_chg < 10.)] = 0
     out[soc_chg >= 10.] = 1
     out[water] = NODATA_VALUE  # don't count soc in water
+
     return np.reshape(out, shp)
 
 
@@ -219,11 +241,12 @@ def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
     lc_bl = lc_bl.ravel()
     lc_tg = lc_tg.ravel()
     out = np.zeros(lc_bl.shape, dtype=np.int16)
+
     for code, meaning in zip(trans_code, trans_meaning):
         out[trans == code] = meaning
-    out[
-        np.logical_or(lc_bl == NODATA_VALUE, lc_tg == NODATA_VALUE)
-    ] = NODATA_VALUE
+    out[np.logical_or(lc_bl == NODATA_VALUE,
+                      lc_tg == NODATA_VALUE)] = NODATA_VALUE
+
     return np.reshape(out, shp)
 
 
@@ -246,8 +269,7 @@ def calc_deg_sdg(deg_prod3, deg_lc, deg_soc):
     # nodata masking was already done for prod3, but need to do it again in
     # case values from another layer overwrote those missing value
     # indicators. -32678 is missing
-    out[(deg_prod3 == NODATA_VALUE) |
-        (deg_lc == NODATA_VALUE) |
+    out[(deg_prod3 == NODATA_VALUE) | (deg_lc == NODATA_VALUE) |
         (deg_soc == NODATA_VALUE)] = NODATA_VALUE
 
     return np.reshape(out, shp)

@@ -125,7 +125,6 @@ class Mask:
     out_file: Path
     geojson: dict
     model_file: Path
-    force_within_wgs84_globe: bool = True
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
@@ -161,7 +160,66 @@ class Mask:
             yRes=y_res,
             outputSRS="epsg:4326",
             outputType=gdal.GDT_Int16,
-            creationOptions=['COMPRESS=LZW'],
+            creationOptions=[
+                'COMPRESS=LZW',
+                'NUM_THREADS=ALL_CPUS',
+                'TILED=YES'
+            ],
+            callback=self.progress_callback
+        )
+        os.remove(json_file)
+
+        if res:
+            return True
+        else:
+            return None
+
+@dataclasses.dataclass()
+class Rasterize:
+    out_file: Path
+    model_file: Path
+    geojson: dict
+    attribute: str
+
+    def progress_callback(self, *args, **kwargs):
+        '''Reimplement to display progress messages'''
+        util.log_progress(*args, **kwargs)
+
+    def work(self):
+        json_file = _get_temp_filename('.geojson')
+        with open(json_file, 'w') as f:
+            json.dump(self.geojson, f, separators=(',', ': '))
+
+        gdal.UseExceptions()
+
+        if self.model_file:
+            # Assumes an image with no rotation
+            ds = gdal.Open(self.model_file)
+            gt = ds.GetGeoTransform()
+            x_res = gt[1]
+            y_res = gt[5]
+            output_bounds = _get_bounding_box(ds)
+        else:
+            output_bounds = None
+            x_res = None
+            y_res = None
+
+        res = gdal.Rasterize(
+            self.out_file,
+            json_file,
+            format='GTiff',
+            outputBounds=output_bounds,
+            initValues=NODATA_VALUE,
+            attribute=self.attribute,
+            xRes=x_res,
+            yRes=y_res,
+            outputSRS="epsg:4326",
+            outputType=gdal.GDT_Int16,
+            creationOptions=[
+                'COMPRESS=LZW',
+                'NUM_THREADS=ALL_CPUS',
+                'TILED=YES'
+            ],
             callback=self.progress_callback
         )
         os.remove(json_file)
