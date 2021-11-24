@@ -70,6 +70,8 @@ def compute_progress_summary(
     )
 
     wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
+    bbs = aoi.get_aligned_output_bounds(progress_vrt)
+    assert len(wkt_aois) == len(bbs)
 
     progress_name_pattern = {
         1: f"{job_output_path.stem}" + "_progress.tif",
@@ -84,7 +86,18 @@ def compute_progress_summary(
     progress_paths = []
     error_message = None
 
-    for index, wkt_aoi in enumerate(wkt_aois, start=1):
+    for index, (wkt_aoi,
+                this_bbs) in enumerate(zip(wkt_aois, bbs), start=1):
+
+        cropped_progress_vrt = tempfile.NamedTemporaryFile(
+            suffix='_ld_progress_summary_inputs.vrt', delete=False
+        ).name
+        gdal.BuildVRT(
+            cropped_progress_vrt,
+            progress_vrt,
+            outputBounds=this_bbs
+        )
+
         mask_tif = tempfile.NamedTemporaryFile(
             suffix='_ld_progress_mask.tif', delete=False
         ).name
@@ -99,13 +112,13 @@ def compute_progress_summary(
 
         if mask_worker_function:
             mask_result = mask_worker_function(
-                mask_tif, geojson, str(progress_vrt), **mask_worker_params
+                mask_tif, geojson, str(cropped_progress_vrt), **mask_worker_params
             )
         else:
             mask_worker = workers.Mask(
                 mask_tif,
                 geojson,
-                str(progress_vrt),
+                str(cropped_progress_vrt),
             )
             mask_result = mask_worker.work()
 
@@ -120,7 +133,7 @@ def compute_progress_summary(
             )
             progress_params = models.DegradationProgressSummaryParams(
                 prod_mode=prod_mode,
-                in_file=str(progress_vrt),
+                in_file=str(cropped_progress_vrt),
                 out_file=str(progress_out_path),
                 band_dict=progress_band_dict,
                 model_band_number=1,
