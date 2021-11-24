@@ -1,4 +1,3 @@
-import dataclasses
 import logging
 import tempfile
 from typing import Callable
@@ -6,27 +5,26 @@ from typing import Dict
 from typing import List
 from typing import Tuple
 
-import marshmallow_dataclass
 import numpy as np
 from osgeo import gdal
-from te_schemas import SchemaBase
 from te_schemas.datafile import DataFile
 from te_schemas.jobs import JobBand
 
+from . import config
 from . import models
+from . import worker
 from .. import util
 from .. import workers
 from .. import xl
-from . import worker
-from . import config
+from ..util_numba import zonal_total
 from .land_deg_numba import calc_deg_lc
 from .land_deg_numba import calc_deg_sdg
 from .land_deg_numba import calc_progress_lc_deg
 from .land_deg_numba import calc_soc_pch
 from .land_deg_numba import recode_deg_soc
-from ..util_numba import zonal_total
 
 logger = logging.getLogger(__name__)
+
 
 def _accumulate_ld_progress_summary_tables(
     tables: List[models.SummaryTableLDProgress]

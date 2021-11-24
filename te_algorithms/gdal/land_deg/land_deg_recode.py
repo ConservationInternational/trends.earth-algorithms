@@ -102,7 +102,7 @@ def _process_block_error_recode_sdg(
     return (SummaryTableLDErrorRecode(sdg_summary), write_arrays)
 
 
-def _compute_error_recode_summary(
+def compute_error_recode_summary(
     df,
     job_output_path,
     aoi,
