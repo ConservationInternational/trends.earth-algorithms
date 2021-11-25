@@ -72,6 +72,7 @@ setup(
         'openpyxl==3.0.9',
         'marshmallow>=3.14.0',
         'marshmallow-dataclass>=8.5.3',
+        'defused-xml>=0.7.1',
         'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop'
     ],
     
