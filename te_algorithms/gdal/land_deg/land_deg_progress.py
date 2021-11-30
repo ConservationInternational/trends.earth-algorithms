@@ -232,54 +232,54 @@ def compute_progress_summary(
 
 def _get_progress_summary_input_vrt(df, prod_mode):
     if prod_mode == 'Trends.Earth productivity':
-        prod5_rows = [
-            (row, band) for row, band in zip(
+        prod5_indices = [
+            (index, year) for index, year in zip(
                 df.indices_for_name(config.TE_LPD_BAND_NAME),
                 df.metadata_for_name(config.TE_LPD_BAND_NAME, 'year_initial')
             )
         ]
     else:
-        prod5_rows = [
-            (row, band) for row, band in zip(
+        prod5_indices = [
+            (index, year) for index, year in zip(
                 df.indices_for_name(config.JRC_LPD_BAND_NAME),
                 df.metadata_for_name(config.JRC_LPD_BAND_NAME, 'year_initial')
             )
         ]
-    assert len(prod5_rows) == 2
-    prod5_rows = sorted(prod5_rows, key=lambda row: row[1])
-    prod5_baseline_index = prod5_rows[0][0]
-    prod5_progress_index = prod5_rows[1][0]
+    assert len(prod5_indices) == 2
+    prod5_indices = sorted(prod5_indices, key=lambda row: row[1])
+    prod5_baseline_index = prod5_indices[0][0]
+    prod5_progress_index = prod5_indices[1][0]
 
-    lc_deg_rows = [
-        (row, band) for row, band in zip(
+    lc_deg_indices = [
+        (index, year) for index, year in zip(
             df.indices_for_name(config.LC_DEG_BAND_NAME),
             df.metadata_for_name(config.LC_DEG_BAND_NAME, 'year_initial')
         )
     ]
-    assert len(lc_deg_rows) == 2
-    lc_deg_rows = sorted(lc_deg_rows, key=lambda row: row[1])
-    lc_deg_baseline_index = lc_deg_rows[0][0]
-    lc_deg_progress_index = lc_deg_rows[1][0]
+    assert len(lc_deg_indices) == 2
+    lc_deg_indices = sorted(lc_deg_indices, key=lambda row: row[1])
+    lc_deg_baseline_index = lc_deg_indices[0][0]
+    lc_deg_progress_index = lc_deg_indices[1][0]
 
     lc_bands = [
-        (band, year) for band, year in zip(
+        (index, year) for index, year in zip(
             df.indices_for_name(config.LC_BAND_NAME),
             df.metadata_for_name(config.LC_BAND_NAME, 'year')
         )
     ]
     lc_baseline_index = [
-        row for row, year in lc_bands if year == lc_deg_rows[0][1]
+        index for index, year in lc_bands if year == lc_deg_indices[0][1]
     ][0]
 
-    soc_rows = [
-        (row, band) for row, band in zip(
+    soc_indices = [
+        (index, year) for index, year in zip(
             df.indices_for_name(config.SOC_BAND_NAME),
             df.metadata_for_name(config.SOC_BAND_NAME, 'year')
         )
     ]
-    soc_rows = sorted(soc_rows, key=lambda row: row[1])
-    soc_initial_index = soc_rows[0][0]
-    soc_final_index = soc_rows[-1][0]
+    soc_indices = sorted(soc_indices, key=lambda row: row[1])
+    soc_initial_index = soc_indices[0][0]
+    soc_final_index = soc_indices[-1][0]
 
     df_band_list = [
         ('prod5_baseline_bandnum', prod5_baseline_index),
