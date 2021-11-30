@@ -11,11 +11,7 @@ from te_schemas.error_recode import ErrorRecodeGeoJSON
 from te_schemas.jobs import JobBand
 
 from . import config
-from .. import __release_date__
-from .. import __version__
-from .. import util
 from .. import workers
-from .. import xl
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +84,10 @@ def _process_block_error_recode_sdg(
     cell_areas_raw
 ) -> Tuple[SummaryTableLDErrorRecode, Dict]:
 
-    sdg = in_array[params.in_df.index_for_name(config.SDG_STATUS_BAND_NAME), :, :]
-    error = in_array[params.in_df.index_for_name(config.ERROR_RECODE_BAND_NAME), :, :]
+    sdg = in_array[
+        params.in_df.index_for_name(config.SDG_STATUS_BAND_NAME), :, :]
+    error = in_array[
+        params.in_df.index_for_name(config.ERROR_RECODE_BAND_NAME), :, :]
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
     # below works on data in place
