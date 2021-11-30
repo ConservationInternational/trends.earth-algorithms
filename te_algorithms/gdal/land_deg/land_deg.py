@@ -101,7 +101,7 @@ def _accumulate_ld_summary_tables(
             [out.lc_summary, table.lc_summary]
         )
 
-        return out
+    return out
 
 
 def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
