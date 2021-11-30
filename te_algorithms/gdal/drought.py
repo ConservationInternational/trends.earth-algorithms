@@ -66,7 +66,7 @@ class SummaryTableDrought(SchemaBase):
     dvi_value_sum_and_count: Tuple[float, int]
 
 
-def accumulate_drought_summary_tables(
+def _accumulate_drought_summary_tables(
     tables: List[SummaryTableDrought]
 ) -> SummaryTableDrought:
     if len(tables) == 1:
@@ -370,7 +370,7 @@ class DroughtSummary:
                 for key, value in result[1].items():
                     out_ds.GetRasterBand(key).WriteArray(**value)
 
-        out = accumulate_drought_summary_tables(out)
+        out = _accumulate_drought_summary_tables(out)
 
         return out
 
@@ -715,7 +715,7 @@ def _compute_drought_summary_table(
         else:
             summary_tables.append(result)
 
-    summary_table = accumulate_drought_summary_tables(summary_tables)
+    summary_table = _accumulate_drought_summary_tables(summary_tables)
 
     if len(out_paths) > 1:
         out_path = output_job_path.parent / f"{output_job_path.stem}.vrt"
