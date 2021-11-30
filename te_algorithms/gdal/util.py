@@ -1,15 +1,17 @@
-import pathlib
 import json
-import tempfile
 import logging
+import pathlib
 import shutil
+import tempfile
 from typing import List
-from defusedxml.ElementTree import parse
 
 import marshmallow_dataclass
-from .util_numba import _accumulate_dicts
+from defusedxml.ElementTree import parse
+from osgeo import gdal
+from osgeo import ogr
+from osgeo import osr
 
-from osgeo import gdal, osr, ogr
+from .util_numba import _accumulate_dicts
 
 
 @marshmallow_dataclass.dataclass
@@ -35,22 +37,15 @@ def get_image_info(path: pathlib.Path):
     block_sizes = band.GetBlockSize()
 
     return ImageInfo(
-        band.XSize,
-        band.YSize,
-        block_sizes[0],
-        block_sizes[1],
-        gt[1],
-        gt[5]
+        band.XSize, band.YSize, block_sizes[0], block_sizes[1], gt[1], gt[5]
     )
 
 
 def setup_output_image(
-    in_file: pathlib.Path,
-    out_file: pathlib.Path,
-    n_bands: int,
+    in_file: pathlib.Path, out_file: pathlib.Path, n_bands: int,
     image_info: ImageInfo
 ):
-    # Need two output bands for each four year period, plus one for the JRC 
+    # Need two output bands for each four year period, plus one for the JRC
     # layer
 
     # Setup output file for max drought and population counts
@@ -69,6 +64,7 @@ def setup_output_image(
     dst_srs = osr.SpatialReference()
     dst_srs.ImportFromWkt(src_ds.GetProjectionRef())
     dst_ds.SetProjection(dst_srs.ExportToWkt())
+
     return dst_ds
 
 
@@ -76,16 +72,18 @@ def get_sourcefiles_in_vrt(vrt):
     vrt_tree = parse(vrt)
     vrt_root = vrt_tree.getroot()
     filenames = []
+
     for band in vrt_root.findall('VRTRasterBand'):
         sources = band.findall('SimpleSource')
+
         for source in sources:
             filenames.append(source.find('SourceFilename').text)
+
     return list(set(filenames))
 
 
 def combine_all_bands_into_vrt(
-    in_files: List[pathlib.Path],
-    out_file: pathlib.Path
+    in_files: List[pathlib.Path], out_file: pathlib.Path
 ):
     '''creates a vrt file combining all bands of in_files
 
@@ -98,16 +96,18 @@ def combine_all_bands_into_vrt(
         <SrcRect xOff="0" yOff="0" xSize="{out_Xsize}" ySize="{out_Ysize}"/>
         <DstRect xOff="0" yOff="0" xSize="{out_Xsize}" ySize="{out_Ysize}"/>
     </SimpleSource>'''
-    
+
     for file_num, in_file in enumerate(in_files):
         in_ds = gdal.Open(str(in_file))
         this_gt = in_ds.GetGeoTransform()
         this_proj = in_ds.GetProjectionRef()
+
         if file_num == 0:
             out_gt = this_gt
             out_proj = this_proj
         else:
-            assert [round(x, 8) for x in out_gt] == [round(x, 8) for x in this_gt]
+            assert [round(x, 8)
+                    for x in out_gt] == [round(x, 8) for x in this_gt]
             assert out_proj == this_proj
 
         for band_num in range(1, in_ds.RasterCount + 1):
@@ -115,25 +115,24 @@ def combine_all_bands_into_vrt(
             this_band = in_ds.GetRasterBand(band_num)
             this_Xsize = this_band.XSize
             this_Ysize = this_band.YSize
+
             if band_num == 1:
                 out_dt = this_dt
                 out_Xsize = this_Xsize
                 out_Ysize = this_Ysize
+
                 if file_num == 0:
-                    # If this is the first band of the first file, need to 
+                    # If this is the first band of the first file, need to
                     # create the output VRT file
                     driver = gdal.GetDriverByName("VRT")
                     out_ds = driver.Create(
-                        str(out_file),
-                        out_Xsize,
-                        out_Ysize,
-                        0,
-                        out_dt
+                        str(out_file), out_Xsize, out_Ysize, 0, out_dt
                     )
                     out_ds.SetGeoTransform(out_gt)
                     out_srs = osr.SpatialReference()
                     out_srs.ImportFromWkt(out_proj)
                     out_ds.SetProjection(out_srs.ExportToWkt())
+
             if file_num > 1:
                 assert this_dt == out_dt
                 assert this_Xsize == out_Xsize
@@ -154,16 +153,14 @@ def combine_all_bands_into_vrt(
 
     out_ds = None
 
-    # Use a regex to remove the parent elements from the paths for each band 
+    # Use a regex to remove the parent elements from the paths for each band
     # (have to include them when setting metadata or else GDAL throws an error)
     fh, new_file = tempfile.mkstemp()
     new_file = pathlib.Path(new_file)
     with new_file.open('w') as fh_new:
         with out_file.open() as fh_old:
             for line in fh_old:
-                fh_new.write(
-                    line.replace(str(out_file.parents[0]) + '/', '')
-                )
+                fh_new.write(line.replace(str(out_file.parents[0]) + '/', ''))
     out_file.unlink()
     shutil.copy(str(new_file), str(out_file))
 
@@ -174,10 +171,9 @@ def save_vrt(source_path: pathlib.Path, source_band_index: int) -> str:
     temporary_file = tempfile.NamedTemporaryFile(suffix=".vrt", delete=False)
     temporary_file.close()
     gdal.BuildVRT(
-        temporary_file.name,
-        str(source_path),
-        bandList=[source_band_index]
+        temporary_file.name, str(source_path), bandList=[source_band_index]
     )
+
     return temporary_file.name
 
 
@@ -198,10 +194,11 @@ def wkt_geom_to_geojson_file_string(wkt):
 
 
 def accumulate_dicts(z):
-    # allow to handle items that may be None (comes up with 
-    # lc_trans_prod_bizonal for example, when initial year of cover is not 
+    # allow to handle items that may be None (comes up with
+    # lc_trans_prod_bizonal for example, when initial year of cover is not
     # available to match with productivity data)
     z = [item for item in z if (item is not None and item is not {})]
+
     if len(z) == 0:
         return {}
     elif len(z) == 1:
