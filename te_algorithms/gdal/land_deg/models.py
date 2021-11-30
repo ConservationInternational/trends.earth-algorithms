@@ -34,6 +34,11 @@ class SummaryTableLDProgress(SchemaBase):
     lc_summary: Dict[int, float]
 
 
+@marshmallow_dataclass.dataclass
+class SummaryTableLDErrorRecode(SchemaBase):
+    sdg_summary: Dict[int, float]
+
+
 @dataclasses.dataclass()
 class DegradationSummaryParams(SchemaBase):
     in_df: DataFile
@@ -59,3 +64,14 @@ class DegradationProgressSummaryParams(SchemaBase):
     model_band_number: int
     n_out_bands: int
     mask_file: str
+
+
+@dataclasses.dataclass()
+class DegradationErrorRecodeSummaryParams(SchemaBase):
+    in_file: str
+    out_file: str
+    band_dict: dict
+    model_band_number: int
+    n_out_bands: int
+    mask_file: str
+    trans_code_lists: tuple

@@ -34,7 +34,7 @@ from .land_deg_numba import calc_lc_trans
 from .land_deg_numba import calc_prod5
 from .land_deg_numba import prod5_to_prod3
 from .land_deg_numba import recode_deg_soc
-from .land_deg_numba import recode_errors
+from .land_deg_numba import recode_indicator_errors
 from .land_deg_numba import recode_state
 from .land_deg_numba import recode_traj
 from .land_deg_progress import compute_progress_summary
@@ -480,7 +480,7 @@ def _process_block_summary(
         prod_error_recode = in_array[
             params.in_df.
             index_for_name(config.PROD_DEG_ERROR_RECODE_BAND_NAME), :, :]
-        recode_errors(deg_prod3, prod_error_recode)
+        recode_indicator_errors(deg_prod3, prod_error_recode)
 
     ###########################################################
     # Calculate LC transition arrays
@@ -647,7 +647,7 @@ def _process_block_summary(
         soc_error_recode = in_array[
             params.in_df.index_for_name(config.
                                         SOC_DEG_ERROR_RECODE_BAND_NAME), :, :]
-        recode_errors(deg_soc, soc_error_recode)
+        recode_indicator_errors(deg_soc, soc_error_recode)
 
     deg_lc = in_array[
         params.in_df.index_for_name(config.LC_DEG_BAND_NAME), :, :]
@@ -656,7 +656,7 @@ def _process_block_summary(
         lc_error_recode = in_array[
             params.in_df.index_for_name(config.
                                         LC_DEG_ERROR_RECODE_BAND_NAME), :, :]
-        recode_errors(deg_lc, lc_error_recode)
+        recode_indicator_errors(deg_lc, lc_error_recode)
 
     deg_sdg = calc_deg_sdg(deg_prod3, deg_lc, deg_soc)
 
@@ -664,7 +664,7 @@ def _process_block_summary(
         sdg_error_recode = in_array[
             params.in_df.index_for_name(config.
                                         SDG_DEG_ERROR_RECODE_BAND_NAME), :, :]
-        recode_errors(deg_sdg, sdg_error_recode)
+        recode_indicator_errors(deg_sdg, sdg_error_recode)
 
     write_arrays.append({'array': deg_sdg, 'xoff': xoff, 'yoff': yoff})
 

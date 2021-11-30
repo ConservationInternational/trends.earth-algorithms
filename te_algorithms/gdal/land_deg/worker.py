@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 class DegradationSummary:
     def __init__(
         self, params: Union[models.DegradationSummaryParams,
-                            models.DegradationProgressSummaryParams],
+                            models.DegradationProgressSummaryParams,
+                            models.DegradationErrorRecodeSummaryParams],
         processing_function
     ):
 

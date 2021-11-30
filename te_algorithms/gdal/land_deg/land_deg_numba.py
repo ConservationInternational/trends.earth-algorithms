@@ -32,17 +32,25 @@ NODATA_VALUE = np.array([-32768], dtype=np.int16)
 MASK_VALUE = np.array([-32767], dtype=np.int16)
 
 
-@numba.jit(nopython=True)
-@cc.export('recode_errors', '(i2[:,:], i2[:,:], DictType(i2, i2))')
-def recode_errors(x, recode, recode_dict):
-    x = x.ravel()
-    recode = recode.ravel()
+# @numba.jit(nopython=True)
+# @cc.export(
+#     'recode_indicator_errors', '(i2[:,:], i2[:,:], i2[:], i2[:], i2[:], i2[:])'
+# )
+def recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to):
+    out = x.copy()
+    for code, new_deg_value, new_stable_value, new_imp_value in zip(
+        codes, deg_to, stable_to, imp_to
+    ):
+        if new_deg_value:
+            out[(x == -1) & (recode == code)] = new_deg_value
 
-    for n in recode_dict:
-        deg_to, stable_to, imp_to = recode_dict[n]
-        x[x == -1 & recode == n] = deg_to
-        x[x == 0 & recode == n] = stable_to
-        x[x == 1 & recode == n] = imp_to
+        if new_stable_value:
+            out[(x == 0) & (recode == code)] = new_stable_value
+
+        if new_imp_value:
+            out[(x == 1) & (recode == code)] = new_imp_value
+
+    return out
 
 
 @numba.jit(nopython=True)
