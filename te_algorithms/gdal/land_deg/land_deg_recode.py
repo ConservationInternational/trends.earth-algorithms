@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import logging
 import tempfile
@@ -9,11 +10,13 @@ from typing import Tuple
 
 import numpy as np
 from osgeo import gdal
+from te_schemas import reporting
 from te_schemas.aoi import AOI
 from te_schemas.datafile import DataFile
 from te_schemas.error_recode import ErrorRecodePolygons
 from te_schemas.jobs import Job
 from te_schemas.jobs import JobBand
+from te_schemas.jobs import JobJsonResults
 
 from . import config
 from .. import workers
@@ -140,6 +143,24 @@ def _prepare_df(path, band_str, band_index) -> List[DataFile]:
     return DataFile(path=save_vrt(path, band_index), bands=[band])
 
 
+def get_serialized_results(st):
+    sdg_summary = reporting.AreaList(
+        'SDG Indicator 15.3.1', 'sq km', [
+            reporting.Area('Improved', st.sdg_summary.get(1, 0.)),
+            reporting.Area('Stable', st.sdg_summary.get(0, 0.)),
+            reporting.Area('Degraded', st.sdg_summary.get(-1, 0.)),
+            reporting.Area(
+                'No data', st.sdg_summary.get(config.NODATA_VALUE, 0)
+            )
+        ]
+    )
+    land_condition_report = reporting.LandConditionReport(
+        sdg=reporting.SDG15Report(summary=sdg_summary)
+    )
+    return reporting.LandConditionReport.Schema().dump(land_condition_report)
+
+
+
 def recode_errors(
     recode_job: Job,
     aoi: AOI,
@@ -169,46 +190,48 @@ def recode_errors(
         f"{job_output_path.stem}.json",
     )
 
-    out_bands = [
-        JobBand(
-            name=config.SDG_BAND_NAME,
-            no_data_value=config.NODATA_VALUE,
-            metadata={
-                'year_initial': recode_job.params['year_initial'],
-                'year_final': recode_job.params['year_final']
-            },
-            add_to_map=True,
-            activated=True
-        ),
-        JobBand(
-            name=config.ERROR_RECODE_BAND_NAME,
-            no_data_value=config.NODATA_VALUE,
-            metadata={
-                'year_initial': recode_job.params['year_initial'],
-                'year_final': recode_job.params['year_final']
-            },
-            add_to_map=False,
-            activated=False
+    if params['write_tifs']:
+        out_bands = [
+            JobBand(
+                name=config.SDG_BAND_NAME,
+                no_data_value=config.NODATA_VALUE,
+                metadata={
+                    'year_initial': recode_job.params['year_initial'],
+                    'year_final': recode_job.params['year_final']
+                },
+                add_to_map=True,
+                activated=True
+            ),
+            JobBand(
+                name=config.ERROR_RECODE_BAND_NAME,
+                no_data_value=config.NODATA_VALUE,
+                metadata={
+                    'year_initial': recode_job.params['year_initial'],
+                    'year_final': recode_job.params['year_final']
+                },
+                add_to_map=False,
+                activated=False
+            )
+        ]
+
+        out_df = DataFile(out_path.name, out_bands)
+        recode_job.results.bands.extend(out_df.bands)
+        recode_job.data = get_serialized_results(summary_table)
+
+        # Also save bands to a key file for ease of use in PRAIS
+        key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
+        with open(key_json, 'w') as f:
+            json.dump(DataFile.Schema().dump(out_df), f, indent=4)
+
+        recode_job.results.data_path = out_path
+        recode_job.results.other_paths.extend([key_json])
+
+    else:
+        recode_job.results = JobJsonResults(
+            name="sdg-15-3-1-error-recode",
+            data=get_serialized_results(summary_table)
         )
-    ]
 
-    out_df = DataFile(out_path.name, out_bands)
-
-    recode_job.results.bands.extend(out_df.bands)
-
-    # Also save bands to a key file for ease of use in PRAIS
-    key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
-    with open(key_json, 'w') as f:
-        json.dump(DataFile.Schema().dump(out_df), f, indent=4)
-
-    summary_json_output_path = job_output_path.parent / f"{job_output_path.stem}_summary.json"
-    save_reporting_json(
-        summary_json_output_path, summary_table, recode_job.params,
-        recode_job.task_name, aoi
-    )
-
-    recode_job.results.data_path = out_path
-    recode_job.results.other_paths.extend([summary_json_output_path, key_json])
     recode_job.end_date = dt.datetime.now(dt.timezone.utc)
     recode_job.progress = 100
 
