@@ -9,6 +9,7 @@ import numpy as np
 from osgeo import gdal
 from te_schemas.datafile import DataFile
 from te_schemas.jobs import JobBand
+from te_schemas.productivity import ProductivityMode
 
 from . import config
 from . import models
@@ -86,16 +87,13 @@ def compute_progress_summary(
     progress_paths = []
     error_message = None
 
-    for index, (wkt_aoi,
-                this_bbs) in enumerate(zip(wkt_aois, bbs), start=1):
+    for index, (wkt_aoi, this_bbs) in enumerate(zip(wkt_aois, bbs), start=1):
 
         cropped_progress_vrt = tempfile.NamedTemporaryFile(
             suffix='_ld_progress_summary_inputs.vrt', delete=False
         ).name
         gdal.BuildVRT(
-            cropped_progress_vrt,
-            progress_vrt,
-            outputBounds=this_bbs
+            cropped_progress_vrt, progress_vrt, outputBounds=this_bbs
         )
 
         mask_tif = tempfile.NamedTemporaryFile(
@@ -112,7 +110,8 @@ def compute_progress_summary(
 
         if mask_worker_function:
             mask_result = mask_worker_function(
-                mask_tif, geojson, str(cropped_progress_vrt), **mask_worker_params
+                mask_tif, geojson, str(cropped_progress_vrt),
+                **mask_worker_params
             )
         else:
             mask_worker = workers.Mask(
@@ -231,7 +230,7 @@ def compute_progress_summary(
 
 
 def _get_progress_summary_input_vrt(df, prod_mode):
-    if prod_mode == 'Trends.Earth productivity':
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
         prod5_indices = [
             (index, year) for index, year in zip(
                 df.indices_for_name(config.TE_LPD_BAND_NAME),

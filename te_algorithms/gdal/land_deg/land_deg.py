@@ -17,6 +17,7 @@ from te_schemas.datafile import combine_data_files
 from te_schemas.datafile import DataFile
 from te_schemas.jobs import Job
 from te_schemas.jobs import JobBand
+from te_schemas.productivity import ProductivityMode
 
 from . import config
 from . import models
@@ -231,12 +232,13 @@ def summarise_land_degradation(
             'soc': period_params["layer_soc_deg_years"]
         }
 
-        if prod_mode == config.LdnProductivityMode.TRENDS_EARTH.value:
+        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             period_params['periods']['productivity'] = period_params[
                 "layer_traj_years"]
-        else:
+        elif prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
             period_params['periods']['productivity'] = period_params[
                 "layer_lpd_years"]
+        else:
 
         # Add in period start/end if it isn't already in the parameters
         # (wouldn't be if these layers were all run individually and not
@@ -277,21 +279,21 @@ def summarise_land_degradation(
             period_params['periods'],
         }
 
-        if prod_mode == config.LdnProductivityMode.TRENDS_EARTH.value:
+        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
             in_dfs = lc_dfs + soc_dfs + [traj, perf, state, population_df]
             summary_table, sdg_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
-                prod_mode=config.LdnProductivityMode.TRENDS_EARTH.value,
+                prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
                 compute_bbs_from=traj.path,
                 **summary_table_stable_kwargs[period_name]
             )
-        elif prod_mode == config.LdnProductivityMode.JRC_LPD.value:
+        elif prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
             lpd_df = _prepare_jrc_lpd_mode_df(period_params)
             in_dfs = lc_dfs + soc_dfs + [lpd_df, population_df]
             summary_table, sdg_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
-                prod_mode=config.LdnProductivityMode.JRC_LPD.value,
+                prod_mode=ProductivityMode.JRC_5_CLASS_LPD.value,
                 compute_bbs_from=lpd_df.path,
                 **summary_table_stable_kwargs[period_name],
             )
@@ -326,7 +328,7 @@ def summarise_land_degradation(
         )
         sdg_df.bands.append(so3_band)
 
-        if prod_mode == config.LdnProductivityMode.TRENDS_EARTH.value:
+        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             prod_band = JobBand(
                 name=config.TE_LPD_BAND_NAME,
                 no_data_value=config.NODATA_VALUE,

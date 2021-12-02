@@ -32,7 +32,3 @@ PRODUCTIVITY_CLASS_KEY = {
     'Declining': 1,
     'No data': NODATA_VALUE
 }
-
-class LdnProductivityMode(enum.Enum):
-    TRENDS_EARTH = "Trends.Earth productivity"
-    JRC_LPD = "JRC LPD"

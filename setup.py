@@ -1,8 +1,11 @@
 # Always prefer setuptools over distutils
-from setuptools import setup, find_packages
-# To use a consistent encoding
+
 from codecs import open
 from os import path
+
+from setuptools import setup
+
+# To use a consistent encoding
 
 here = path.abspath(path.dirname(__file__))
 
@@ -17,8 +20,8 @@ setup(
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
     version='1.99.1',
-
-    description='A python package to facilitate analyzing remotely-sensed datasets from GEE in support of monitoring land degradation.',
+    description=
+    'A python package to facilitate analyzing remotely-sensed datasets from GEE in support of monitoring land degradation.',
     long_description=long_description,
 
     # The project's main homepage.
@@ -59,7 +62,10 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    packages=['te_algorithms', 'te_algorithms.gdal', 'te_algorithms.gee'],
+    packages=[
+        'te_algorithms', 'te_algorithms.gdal', 'te_algorithms.gee',
+        'te_algorithms.api'
+    ],
     package_dir={'te_algorithms': 'te_algorithms'},
     package_data={'te_algorithms': ['version.json']},
     include_package_data=True,
@@ -69,28 +75,20 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        'openpyxl>=3.0.9',
-        'marshmallow>=3.14.1',
-        'marshmallow-dataclass[enum, union]>=8.5.3',
-        'defusedxml>=0.7.1',
+        'openpyxl>=3.0.9', 'marshmallow>=3.14.1',
+        'marshmallow-dataclass[enum, union]>=8.5.3', 'defusedxml>=0.7.1',
         'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop'
     ],
-    
+
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
     # for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'gee': [
-            'earthengine-api==0.1.232'
-        ],
-        'gdal': [
-            'GDAL>=3.0.0',
-            'numpy>=1.17.0'
-        ],
-        'numba': [
-            'numba>=0.54.1'
-        ],
+        'api': ['boto3>=1.16', 'GDAL>=3.0.0'],
+        'gee': ['earthengine-api==0.1.232'],
+        'gdal': ['GDAL>=3.0.0', 'numpy>=1.17.0'],
+        'numba': ['numba>=0.54.1'],
         'dev': ['check-manifest'],
         'test': ['coverage'],
     }
