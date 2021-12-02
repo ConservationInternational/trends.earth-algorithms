@@ -433,30 +433,6 @@ def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, extra_args):
         )
 
 
-def write_result_set_to_s3_cog(
-    result_set, aoi, iso, s3_prefix, s3_bucket, s3_region, extra_args={}
-):
-    for job_type, job in result_set.jobs.items():
-        gs_vrt = get_cloud_results_vrt(job)
-
-        if gs_vrt is not None:
-            # temporarily set job data_path to the gs_vrt, then set it back
-            # after writing
-            data_path = job.results.data_path
-            job.results.data_path = gs_vrt
-
-            write_job_to_s3_cog(
-                job,
-                aoi,
-                iso,
-                s3_prefix,
-                s3_bucket,
-                s3_region,
-                extra_args=extra_args,
-            )
-            job.results.data_path = data_path
-
-
 def slugify(value, allow_unicode=False):
     """
     Taken from https://github.com/django/django/blob/master/django/utils/text.py
@@ -552,8 +528,6 @@ def _get_multiple_cloud_results(
     aws_secret_access_key=None
 ) -> Path:
     vrt_tiles = []
-
-    logging.info(f'urls are: {job.results.urls}')
 
     for index, url in enumerate(job.results.urls):
         output_path = (

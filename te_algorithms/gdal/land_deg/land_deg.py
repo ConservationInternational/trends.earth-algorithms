@@ -239,6 +239,7 @@ def summarise_land_degradation(
             period_params['periods']['productivity'] = period_params[
                 "layer_lpd_years"]
         else:
+            raise Exception(f"Unknown productivity mode {prod_mode}")
 
         # Add in period start/end if it isn't already in the parameters
         # (wouldn't be if these layers were all run individually and not
