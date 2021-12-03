@@ -167,8 +167,8 @@ def recode_errors(
     job_output_path: Path,
 ) -> Job:
     sdg_df = _prepare_df(
-        params['layer_input_band_path'], params['layer_input_band_band'],
-        params['layer_input_band_band_index']
+        params['layer_input_band_path'], params['layer_input_band'],
+        params['layer_input_band_index']
     )
 
     error_recode_df = _prepare_df(
