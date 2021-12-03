@@ -63,7 +63,7 @@ setup(
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
     packages=[
-        'te_algorithms', 'te_algorithms.gdal', 'te_algorithms.gee',
+        'te_algorithms', 'te_algorithms.gdal.land_deg', 'te_algorithms.gdal', 'te_algorithms.gee',
         'te_algorithms.api'
     ],
     package_dir={'te_algorithms': 'te_algorithms'},
