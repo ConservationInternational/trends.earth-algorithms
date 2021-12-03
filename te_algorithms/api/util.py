@@ -252,6 +252,7 @@ def get_job_json_from_s3(
         # Need correct LPD choice if this is an SDG job
 
         logging.info(f'substr_re: {substr_re}')
+
         if substr_re:
             objects = [
                 o for o in objects if bool(re.search(substr_re, o['Key']))
