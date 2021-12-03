@@ -184,28 +184,6 @@ def get_s3_etag(
     return resp['ETag'].strip('"')
 
 
-def _get_job_period(job):
-    if job.script.name == "sdg-15-3-1-error-recode":
-        # For recode jobs, get the period from the input job:
-        job = jobs.Job.Schema().load(job.params['input_job'])
-
-    if job.script.name == 'drought-vulnerability':
-        return f'{job.params["year_initial"]}-{job.params["year_final"]}'
-    elif job.script.name == 'drought-summary':
-        return f"{job.params['layer_spi_years'][0]}-{job.params['layer_spi_years'][-1]}"
-    elif job.script.name == "sdg-15-3-1-sub-indicators":
-        return f'{job.params["period"]["year_initial"]}-{job.params["period"]["year_final"]}'
-    elif job.script.name == "sdg-15-3-1-summary":
-        return (
-            str(job.params['baseline']['period']['year_initial']) + '-' +
-            str(job.params['baseline']['period']['year_final']) + '_vs_' +
-            str(job.params['progress']['period']['year_initial']) + '-' +
-            str(job.params['progress']['period']['year_final'])
-        )
-    else:
-        raise Exception
-
-
 def write_to_cog(in_file, out_file):
     gdal.UseExceptions()
     gdal.Translate(
@@ -269,7 +247,6 @@ def get_job_json_from_s3(
         objects = objects['Contents']
         # Want most recent key
         objects.sort(key=lambda o: o['LastModified'], reverse=True)
-        logging.info(f'objects: {[o["Key"] for o in objects]}')
         # Only want JSON files
         objects = [o for o in objects if bool(re.search('.json$', o['Key']))]
         # Need correct LPD choice if this is an SDG job

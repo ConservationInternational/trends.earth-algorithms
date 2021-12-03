@@ -17,6 +17,7 @@ from te_schemas.error_recode import ErrorRecodePolygons
 from te_schemas.jobs import Job
 from te_schemas.jobs import JobBand
 from te_schemas.jobs import JobJsonResults
+from te_schemas.jobs import JobCloudResults
 
 from . import config
 from .. import workers
@@ -160,14 +161,11 @@ def get_serialized_results(st):
     return reporting.LandConditionReport.Schema().dump(land_condition_report)
 
 
-
 def recode_errors(
-    recode_job: Job,
+    params,
     aoi: AOI,
     job_output_path: Path,
 ) -> Job:
-    params = recode_job.params
-
     sdg_df = _prepare_df(
         params['layer_sdg_path'], params['layer_sdg_band'],
         params['layer_sdg_band_index']
@@ -196,8 +194,8 @@ def recode_errors(
                 name=config.SDG_BAND_NAME,
                 no_data_value=config.NODATA_VALUE,
                 metadata={
-                    'year_initial': recode_job.params['year_initial'],
-                    'year_final': recode_job.params['year_final']
+                    'year_initial': params['year_initial'],
+                    'year_final': params['year_final']
                 },
                 add_to_map=True,
                 activated=True
@@ -206,8 +204,8 @@ def recode_errors(
                 name=config.ERROR_RECODE_BAND_NAME,
                 no_data_value=config.NODATA_VALUE,
                 metadata={
-                    'year_initial': recode_job.params['year_initial'],
-                    'year_final': recode_job.params['year_final']
+                    'year_initial': params['year_initial'],
+                    'year_final': params['year_final']
                 },
                 add_to_map=False,
                 activated=False
@@ -215,27 +213,21 @@ def recode_errors(
         ]
 
         out_df = DataFile(out_path.name, out_bands)
-        recode_job.results.bands.extend(out_df.bands)
-        recode_job.data = get_serialized_results(summary_table)
-
-        # Also save bands to a key file for ease of use in PRAIS
-        key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
-        with open(key_json, 'w') as f:
-            json.dump(DataFile.Schema().dump(out_df), f, indent=4)
-
-        recode_job.results.data_path = out_path
-        recode_job.results.other_paths.extend([key_json])
-
+        results = JobCloudResults(
+            name="sdg-15-3-1-error-recode",
+            bands=out_df.bands,
+            urls=out_df.bands,
+            data=get_serialized_results(summary_table),
+            data_path=[],
+            other_paths=[]
+        )
     else:
-        recode_job.results = JobJsonResults(
+        results = JobJsonResults(
             name="sdg-15-3-1-error-recode",
             data=get_serialized_results(summary_table)
         )
 
-    recode_job.end_date = dt.datetime.now(dt.timezone.utc)
-    recode_job.progress = 100
-
-    return recode_job
+    return results
 
 
 def _compute_error_recode(
