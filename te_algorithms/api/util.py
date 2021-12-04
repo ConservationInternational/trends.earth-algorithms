@@ -266,7 +266,7 @@ def get_job_json_from_s3(
 
 
 def _write_subregion_cogs(
-    job, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix, s3_bucket,
+    data_path, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix, s3_bucket,
     extra_args
 ):
     # Label pieces of polygon as east/west when there are two
@@ -281,7 +281,7 @@ def _write_subregion_cogs(
                                    ) / (cog_vsi_base.name + f'{suffix}.vrt')
         gdal.BuildVRT(
             str(temp_vrt_local_path),
-            str(job.results.data_path),
+            str(data_path),
             outputBounds=bounding_box
         )
 
@@ -296,7 +296,7 @@ def _write_subregion_cogs(
     return cog_vsi_paths
 
 
-def get_job_cog_vsi_prefix(job, filename_base, s3_prefix, s3_bucket):
+def get_job_cog_vsi_prefix(filename_base, s3_prefix, s3_bucket):
 
     return Path(f'/vsis3/{s3_bucket}/{s3_prefix}/{filename_base}')
 
@@ -306,6 +306,80 @@ def remove_prefix(text, prefix):
         return text[len(prefix):]
 
     return text  # or whatever
+
+
+def write_output_to_s3_cog(
+    data_path,
+    aoi,
+    filename_base,
+    s3_prefix,
+    s3_bucket,
+    s3_region,
+    aws_access_key_id=None,
+    aws_secret_access_key=None,
+    extra_suffix='',
+    extra_args={}
+):
+    bounding_boxes = aoi.get_aligned_output_bounds(
+        str(data_path)
+    )
+
+    cog_vsi_base = get_job_cog_vsi_prefix(
+        filename_base, s3_prefix, s3_bucket
+    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cog_vsi_paths = _write_subregion_cogs(
+            data_path, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix,
+            s3_bucket, extra_args
+        )
+
+        logging.debug(f'cog_vsi_paths: {cog_vsi_paths}')
+
+        if len(bounding_boxes) > 1:
+            vrt_file = Path(temp_dir) / (cog_vsi_base.name + '.vrt')
+            logging.info(f'vrt_file: {vrt_file}')
+            gdal.SetConfigOption(
+                "AWS_ACCESS_KEY_ID",
+                aws_access_key_id,
+            )
+            gdal.SetConfigOption(
+                "AWS_SECRET_ACCESS_KEY", aws_secret_access_key
+            )
+            gdal.BuildVRT(
+                str(vrt_file),
+                [str(cog_vsi_path) for cog_vsi_path in cog_vsi_paths]
+            )
+            put_to_s3(
+                vrt_file,
+                bucket=s3_bucket,
+                prefix=s3_prefix,
+                extra_args=extra_args
+            )
+            data_path = cog_vsi_base.with_suffix('.vrt')
+        else:
+            data_path = cog_vsi_base.with_suffix('.tif')
+
+        # Need to use path-style addressing to avoid SSL errors due to the dot
+        # in the (trends.earth) bucket name
+        #s3_url_base = f'https://{s3_bucket}.s3.{s3_region}.amazonaws.com'
+
+        if s3_region == 'us-east-1':
+            subdomain = 's3'
+        else:
+            subdomain = f's3-{s3_region}'
+        s3_url_base = f'https://{subdomain}.amazonaws.com/{s3_bucket}'
+        keys = [
+            remove_prefix(str(cog_vsi_path), f'/vsis3/{s3_bucket}/')
+            for cog_vsi_path in cog_vsi_paths
+        ]
+        urls = [
+            jobs.JobUrl(
+                url=s3_url_base + '/' + k,
+                md5_hash=get_s3_etag(k, bucket=s3_bucket)
+            ) for k in keys
+        ]
+    return data_path, urls
+
 
 
 def write_job_to_s3_cog(
@@ -320,80 +394,76 @@ def write_job_to_s3_cog(
     extra_suffix='',
     extra_args={}
 ):
-    if job.results.type == jobs.JobResultType.CLOUD_RESULTS:
-        bounding_boxes = aoi.get_aligned_output_bounds(
-            str(job.results.data_path)
+    bounding_boxes = aoi.get_aligned_output_bounds(
+        str(job.results.data_path)
+    )
+
+    cog_vsi_base = get_job_cog_vsi_prefix(
+        filename_base, s3_prefix, s3_bucket
+    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cog_vsi_paths = _write_subregion_cogs(
+            job.results.data_path, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix,
+            s3_bucket, extra_args
         )
 
-        cog_vsi_base = get_job_cog_vsi_prefix(
-            job, filename_base, s3_prefix, s3_bucket
+        # Need to temporarily set data_path to S3 vsi path so jobfile on s3
+        # will point to correct location, so save the local data_path for later
+        data_path_local = job.results.data_path
+
+        logging.debug(f'cog_vsi_paths: {cog_vsi_paths}')
+
+        if len(bounding_boxes) > 1:
+            vrt_file = Path(temp_dir) / (cog_vsi_base.name + '.vrt')
+            logging.info(f'vrt_file: {vrt_file}')
+            gdal.SetConfigOption(
+                "AWS_ACCESS_KEY_ID",
+                aws_access_key_id,
+            )
+            gdal.SetConfigOption(
+                "AWS_SECRET_ACCESS_KEY", aws_secret_access_key
+            )
+            gdal.BuildVRT(
+                str(vrt_file),
+                [str(cog_vsi_path) for cog_vsi_path in cog_vsi_paths]
+            )
+            put_to_s3(
+                vrt_file,
+                bucket=s3_bucket,
+                prefix=s3_prefix,
+                extra_args=extra_args
+            )
+            job.results.data_path = cog_vsi_base.with_suffix('.vrt')
+        else:
+            job.results.data_path = cog_vsi_base.with_suffix('.tif')
+
+        # Need to use path-style addressing to avoid SSL errors due to the dot
+        # in the (trends.earth) bucket name
+        #s3_url_base = f'https://{s3_bucket}.s3.{s3_region}.amazonaws.com'
+
+        if s3_region == 'us-east-1':
+            subdomain = 's3'
+        else:
+            subdomain = f's3-{s3_region}'
+        s3_url_base = f'https://{subdomain}.amazonaws.com/{s3_bucket}'
+        keys = [
+            remove_prefix(str(cog_vsi_path), f'/vsis3/{s3_bucket}/')
+            for cog_vsi_path in cog_vsi_paths
+        ]
+        job.results.urls = [
+            jobs.JobUrl(
+                url=s3_url_base + '/' + k,
+                md5_hash=get_s3_etag(k, bucket=s3_bucket)
+            ) for k in keys
+        ]
+        job.status = jobs.JobStatus.DOWNLOADED
+        job.results.type = jobs.JobResultType.CLOUD_RESULTS
+
+        write_job_json_to_s3(
+            job, filename_base + '.json', s3_prefix, s3_bucket, extra_args
         )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            cog_vsi_paths = _write_subregion_cogs(
-                job, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix,
-                s3_bucket, extra_args
-            )
 
-            # Need to temporarily set data_path to S3 vsi path so jobfile on s3
-            # will point to correct location, so save the local data_path for later
-            data_path_local = job.results.data_path
-
-            logging.debug(f'cog_vsi_paths: {cog_vsi_paths}')
-
-            if len(bounding_boxes) > 1:
-                vrt_file = Path(temp_dir) / (cog_vsi_base.name + '.vrt')
-                logging.info(f'vrt_file: {vrt_file}')
-                gdal.SetConfigOption(
-                    "AWS_ACCESS_KEY_ID",
-                    aws_access_key_id,
-                )
-                gdal.SetConfigOption(
-                    "AWS_SECRET_ACCESS_KEY", aws_secret_access_key
-                )
-                gdal.BuildVRT(
-                    str(vrt_file),
-                    [str(cog_vsi_path) for cog_vsi_path in cog_vsi_paths]
-                )
-                put_to_s3(
-                    vrt_file,
-                    bucket=s3_bucket,
-                    prefix=s3_prefix,
-                    extra_args=extra_args
-                )
-                job.results.data_path = cog_vsi_base.with_suffix('.vrt')
-            else:
-                job.results.data_path = cog_vsi_base.with_suffix('.tif')
-
-            # Need to use path-style addressing to avoid SSL errors due to the dot
-            # in the (trends.earth) bucket name
-            #s3_url_base = f'https://{s3_bucket}.s3.{s3_region}.amazonaws.com'
-
-            if s3_region == 'us-east-1':
-                subdomain = 's3'
-            else:
-                subdomain = f's3-{s3_region}'
-            s3_url_base = f'https://{subdomain}.amazonaws.com/{s3_bucket}'
-            keys = [
-                remove_prefix(str(cog_vsi_path), f'/vsis3/{s3_bucket}/')
-                for cog_vsi_path in cog_vsi_paths
-            ]
-            job.results.urls = [
-                jobs.JobUrl(
-                    url=s3_url_base + '/' + k,
-                    md5_hash=get_s3_etag(k, bucket=s3_bucket)
-                ) for k in keys
-            ]
-            job.status = jobs.JobStatus.DOWNLOADED
-            job.results.type = jobs.JobResultType.CLOUD_RESULTS
-
-            write_job_json_to_s3(
-                job, filename_base + '.json', s3_prefix, s3_bucket, extra_args
-            )
-
-            job.results.data_path = data_path_local
-
-    else:
-        write_job_json_to_s3(job, filename_base + '.json', extra_args)
+        job.results.data_path = data_path_local
 
 
 def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, extra_args):
