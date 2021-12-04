@@ -296,7 +296,7 @@ def _write_subregion_cogs(
     return cog_vsi_paths
 
 
-def get_job_cog_vsi_prefix(filename_base, s3_prefix, s3_bucket):
+def get_vsi_prefix(filename_base, s3_prefix, s3_bucket):
 
     return Path(f'/vsis3/{s3_bucket}/{s3_prefix}/{filename_base}')
 
@@ -324,7 +324,7 @@ def write_output_to_s3_cog(
         str(data_path)
     )
 
-    cog_vsi_base = get_job_cog_vsi_prefix(
+    cog_vsi_base = get_vsi_prefix(
         filename_base, s3_prefix, s3_bucket
     )
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -398,7 +398,7 @@ def write_job_to_s3_cog(
         str(job.results.data_path)
     )
 
-    cog_vsi_base = get_job_cog_vsi_prefix(
+    cog_vsi_base = get_vsi_prefix(
         filename_base, s3_prefix, s3_bucket
     )
     with tempfile.TemporaryDirectory() as temp_dir:
