@@ -216,9 +216,9 @@ def recode_errors(
         results = JobCloudResults(
             name="sdg-15-3-1-error-recode",
             bands=out_df.bands,
-            urls=out_df.bands,
+            data_path=out_path.name,  # local path, needs to be pushed to COG in calling function
+            urls=[],  # needs to be set in calling function after pushing COG(s)
             data=get_serialized_results(summary_table),
-            data_path=[],
             other_paths=[]
         )
     else:
