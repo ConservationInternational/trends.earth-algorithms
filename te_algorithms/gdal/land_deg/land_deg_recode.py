@@ -162,10 +162,10 @@ def get_serialized_results(st):
 
 
 def recode_errors(
-    params,
-    aoi: AOI,
-    job_output_path: Path,
+    params
 ) -> Job:
+    aoi = AOI.Schema().load(params['aoi'])
+    job_output_path = Path(params['output_path'])
     sdg_df = _prepare_df(
         params['layer_input_band_path'], params['layer_input_band'],
         params['layer_input_band_index']
