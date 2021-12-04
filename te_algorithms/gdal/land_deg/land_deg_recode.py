@@ -343,6 +343,6 @@ def _compute_error_recode(
             str(error_recode_path), [str(p) for p in error_recode_paths]
         )
     else:
-        error_recode_path = error_recode_paths[0]
+        error_recode_path = job_output_path.parent / error_recode_paths[0]
 
     return error_recode_table, error_recode_path
