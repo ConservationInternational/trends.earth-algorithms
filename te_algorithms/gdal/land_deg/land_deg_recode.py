@@ -212,11 +212,10 @@ def recode_errors(
             )
         ]
 
-        out_df = DataFile(out_path.name, out_bands)
         results = JobCloudResults(
             name="sdg-15-3-1-error-recode",
-            bands=out_df.bands,
-            data_path=out_path.name,  # local path, needs to be pushed to COG in calling function
+            bands=out_bands,
+            data_path=out_path,  # local path, needs to be pushed to COG in calling function
             urls=[],  # needs to be set in calling function after pushing COG(s)
             data=get_serialized_results(summary_table),
             other_paths=[]
@@ -343,6 +342,6 @@ def _compute_error_recode(
             str(error_recode_path), [str(p) for p in error_recode_paths]
         )
     else:
-        error_recode_path = job_output_path.parent / error_recode_paths[0]
+        error_recode_path = error_recode_paths[0]
 
     return error_recode_table, error_recode_path
