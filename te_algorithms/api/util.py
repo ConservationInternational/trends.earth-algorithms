@@ -223,7 +223,7 @@ def get_job_json_from_s3(
     s3_bucket,
     aws_access_key_id=None,
     aws_secret_access_key=None,
-    substr_re=None
+    substr_regexs=None
 ):
     # Returns most recent job JSON from s3
     client = get_s3_client(
@@ -249,13 +249,9 @@ def get_job_json_from_s3(
         objects.sort(key=lambda o: o['LastModified'], reverse=True)
         # Only want JSON files
         objects = [o for o in objects if bool(re.search('.json$', o['Key']))]
-        # Need correct LPD choice if this is an SDG job
-
-        logging.info(f'substr_re: {substr_re}')
-
-        if substr_re:
+        for substr_regex in substr_regexs:
             objects = [
-                o for o in objects if bool(re.search(substr_re, o['Key']))
+                o for o in objects if bool(re.search(substr_regex, o['Key']))
             ]
     jobfile = tempfile.NamedTemporaryFile(suffix='.json').name
     client.download_file(s3_bucket, objects[0]['Key'], jobfile)
@@ -734,7 +730,6 @@ def write_cloud_job_metadata_file(job: jobs.Job):
     with output_path.open("w", encoding="utf-8") as fh:
         raw_job = jobs.Job.Schema().dump(job_copy)
         json.dump(raw_job, fh, indent=2)
-
     return output_path
 
 

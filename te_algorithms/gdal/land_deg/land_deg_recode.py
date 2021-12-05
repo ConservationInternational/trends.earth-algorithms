@@ -1,5 +1,3 @@
-import datetime as dt
-import json
 import logging
 import tempfile
 from pathlib import Path
@@ -16,8 +14,8 @@ from te_schemas.datafile import DataFile
 from te_schemas.error_recode import ErrorRecodePolygons
 from te_schemas.jobs import Job
 from te_schemas.jobs import JobBand
-from te_schemas.jobs import JobJsonResults
 from te_schemas.jobs import JobCloudResults
+from te_schemas.jobs import JobJsonResults
 
 from . import config
 from .. import workers
@@ -96,13 +94,13 @@ def _accumulate_summary_tables(
 
     if len(tables) == 1:
         return tables[0]
+    else:
+        out = tables[0]
 
-    out = tables[0]
-
-    for table in tables[1:]:
-        out.sdg_summary = accumulate_dicts(
-            [out.sdg_summary, table.sdg_summary]
-        )
+        for table in tables[1:]:
+            out.sdg_summary = accumulate_dicts(
+                [out.sdg_summary, table.sdg_summary]
+            )
 
         return out
 
@@ -144,7 +142,7 @@ def _prepare_df(path, band_str, band_index) -> List[DataFile]:
     return DataFile(path=save_vrt(path, band_index), bands=[band])
 
 
-def get_serialized_results(st):
+def get_serialized_results(st, layer_name):
     sdg_summary = reporting.AreaList(
         'SDG Indicator 15.3.1', 'sq km', [
             reporting.Area('Improved', st.sdg_summary.get(1, 0.)),
@@ -158,12 +156,11 @@ def get_serialized_results(st):
     land_condition_report = reporting.LandConditionReport(
         sdg=reporting.SDG15Report(summary=sdg_summary)
     )
+
     return reporting.LandConditionReport.Schema().dump(land_condition_report)
 
 
-def recode_errors(
-    params
-) -> Job:
+def recode_errors(params) -> Job:
     aoi = AOI.Schema().load(params['aoi'])
     job_output_path = Path(params['output_path'])
     sdg_df = _prepare_df(
@@ -193,37 +190,37 @@ def recode_errors(
             JobBand(
                 name=config.SDG_BAND_NAME,
                 no_data_value=config.NODATA_VALUE,
-                metadata={
-                    'year_initial': params['year_initial'],
-                    'year_final': params['year_final']
-                },
+                metadata=params['metadata'
+                                ],  # copy over metadata from input job
                 add_to_map=True,
                 activated=True
             ),
             JobBand(
                 name=config.ERROR_RECODE_BAND_NAME,
                 no_data_value=config.NODATA_VALUE,
-                metadata={
-                    'year_initial': params['year_initial'],
-                    'year_final': params['year_final']
-                },
+                metadata=params['metadata'
+                                ],  # copy over metadata from input job
                 add_to_map=False,
                 activated=False
             )
         ]
 
         results = JobCloudResults(
-            name="sdg-15-3-1-error-recode",
+            name=params['layer_input_band']['name'],
             bands=out_bands,
             data_path=out_path,  # local path, needs to be pushed to COG in calling function
             urls=[],  # needs to be set in calling function after pushing COG(s)
-            data=get_serialized_results(summary_table),
+            data=get_serialized_results(
+                summary_table, params['layer_input_band']['name'] + ' recode'
+            ),
             other_paths=[]
         )
     else:
         results = JobJsonResults(
-            name="sdg-15-3-1-error-recode",
-            data=get_serialized_results(summary_table)
+            name=params['layer_input_band']['name'],
+            data=get_serialized_results(
+                summary_table, params['layer_input_band']['name'] + ' recode'
+            ),
         )
 
     return results
