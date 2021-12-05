@@ -456,7 +456,7 @@ def save_reporting_json(
         with open(output_path, 'w') as f:
             json.dump(te_summary_json, f, indent=4)
 
-        return True
+        return te_summary_json
 
     except IOError:
         logger.error(u'Error saving {}'.format(output_path))
@@ -465,7 +465,7 @@ def save_reporting_json(
             f"{output_path} is accessible and not already open."
         )
 
-        return False
+        return None
 
 
 def _render_ld_workbook(

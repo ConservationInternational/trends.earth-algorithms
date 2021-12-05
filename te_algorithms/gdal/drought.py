@@ -505,13 +505,14 @@ def summarise_drought_vulnerability(
         json.dump(DataFile.Schema().dump(out_df), f, indent=4)
 
     summary_json_output_path = job_output_path.parent / f"{job_output_path.stem}_summary.json"
-    save_reporting_json(
+    report_json = save_reporting_json(
         summary_json_output_path,
         summary_table,
         drought_job.params,
         drought_job.task_name,
         aoi
     )
+    drought_job.results.data = {'report': report_json}
 
     summary_table_output_path = job_output_path.parent / f"{job_output_path.stem}_summary.xlsx"
     save_summary_table_excel(
@@ -905,7 +906,7 @@ def save_reporting_json(
         with open(output_path, 'w') as f:
             json.dump(te_summary_json, f, indent=4)
 
-        return True
+        return te_summary_json
 
     except IOError:
         logger.error('Error saving {output_path}')
@@ -914,7 +915,7 @@ def save_reporting_json(
             f"{output_path} is accessible and not already open."
         )
 
-        return False
+        return None
 
 
 def _render_drought_workbook(

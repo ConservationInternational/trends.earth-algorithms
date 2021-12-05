@@ -410,10 +410,11 @@ def summarise_land_degradation(
         json.dump(DataFile.Schema().dump(out_df), f, indent=4)
 
     summary_json_output_path = job_output_path.parent / f"{job_output_path.stem}_summary.json"
-    save_reporting_json(
+    report_json = save_reporting_json(
         summary_json_output_path, summary_tables, progress_summary_table,
         ldn_job.params, ldn_job.task_name, aoi, summary_table_stable_kwargs
     )
+    ldn_job.results.data = {'report': report_json}
 
     ldn_job.results.other_paths.extend([summary_json_output_path, key_json])
 
