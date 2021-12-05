@@ -98,12 +98,7 @@ def put_to_s3(
     else:
         key = f'{prefix}/{filename.name}'
         logging.info(f'Uploading {filename} to s3 at {key}')
-        client.upload_file(
-            str(filename),
-            bucket,
-            key,
-            ExtraArgs=extra_args
-        )
+        client.upload_file(str(filename), bucket, key, ExtraArgs=extra_args)
     #expected_etag = hashlib.md5(filename.read_bytes()).hexdigest()
     # waiter = client.get_waiter('object_exists')
     # waiter.wait(
@@ -185,7 +180,7 @@ def get_s3_etag(
     return resp['ETag'].strip('"')
 
 
-def write_to_cog(in_file, out_file):
+def write_to_cog(in_file, out_file, nodata_value):
     gdal.UseExceptions()
     gdal.Translate(
         out_file,
@@ -195,7 +190,8 @@ def write_to_cog(in_file, out_file):
             'COMPRESS=LZW',
             'BIGTIFF=YES',
             'NUM_THREADS=ALL_CPUS',
-        ]
+        ],
+        noData=nodata_value
     )
 
 
@@ -250,6 +246,7 @@ def get_job_json_from_s3(
         objects.sort(key=lambda o: o['LastModified'], reverse=True)
         # Only want JSON files
         objects = [o for o in objects if bool(re.search('.json$', o['Key']))]
+
         for substr_regex in substr_regexs:
             objects = [
                 o for o in objects if bool(re.search(substr_regex, o['Key']))
@@ -264,7 +261,7 @@ def get_job_json_from_s3(
 
 def _write_subregion_cogs(
     data_path, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix, s3_bucket,
-    extra_args
+    nodata_value, extra_args
 ):
     # Label pieces of polygon as east/west when there are two
     piece_labels = ['E', 'W']
@@ -285,7 +282,9 @@ def _write_subregion_cogs(
         cog_local_path = Path(temp_dir) / (cog_vsi_base.name + f'{suffix}.tif')
         cog_vsi_path = Path(str(cog_vsi_base) + f'{suffix}.tif')
         cog_vsi_paths.append(cog_vsi_path)
-        write_to_cog(str(temp_vrt_local_path), str(cog_local_path))
+        write_to_cog(
+            str(temp_vrt_local_path), str(cog_local_path), nodata_value
+        )
         push_cog_to_s3(
             cog_local_path, cog_vsi_path.name, s3_prefix, s3_bucket, extra_args
         )
@@ -315,19 +314,16 @@ def write_output_to_s3_cog(
     aws_access_key_id=None,
     aws_secret_access_key=None,
     extra_suffix='',
+    nodata_value=-32768,
     extra_args={}
 ):
-    bounding_boxes = aoi.get_aligned_output_bounds(
-        str(data_path)
-    )
+    bounding_boxes = aoi.get_aligned_output_bounds(str(data_path))
 
-    cog_vsi_base = get_vsi_prefix(
-        filename_base, s3_prefix, s3_bucket
-    )
+    cog_vsi_base = get_vsi_prefix(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
         cog_vsi_paths = _write_subregion_cogs(
             data_path, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix,
-            s3_bucket, extra_args
+            s3_bucket, nodata_value, extra_args
         )
 
         logging.debug(f'cog_vsi_paths: {cog_vsi_paths}')
@@ -375,8 +371,8 @@ def write_output_to_s3_cog(
                 md5_hash=get_s3_etag(k, bucket=s3_bucket)
             ) for k in keys
         ]
-    return data_path, urls
 
+    return data_path, urls
 
 
 def write_job_to_s3_cog(
@@ -389,19 +385,16 @@ def write_job_to_s3_cog(
     aws_access_key_id=None,
     aws_secret_access_key=None,
     extra_suffix='',
+    nodata_value=-32768,
     extra_args={}
 ):
-    bounding_boxes = aoi.get_aligned_output_bounds(
-        str(job.results.data_path)
-    )
+    bounding_boxes = aoi.get_aligned_output_bounds(str(job.results.data_path))
 
-    cog_vsi_base = get_vsi_prefix(
-        filename_base, s3_prefix, s3_bucket
-    )
+    cog_vsi_base = get_vsi_prefix(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
         cog_vsi_paths = _write_subregion_cogs(
-            job.results.data_path, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix,
-            s3_bucket, extra_args
+            job.results.data_path, cog_vsi_base, bounding_boxes, temp_dir,
+            s3_prefix, s3_bucket, nodata_value, extra_args
         )
 
         # Need to temporarily set data_path to S3 vsi path so jobfile on s3
@@ -731,6 +724,7 @@ def write_cloud_job_metadata_file(job: jobs.Job):
     with output_path.open("w", encoding="utf-8") as fh:
         raw_job = jobs.Job.Schema().dump(job_copy)
         json.dump(raw_job, fh, indent=2)
+
     return output_path
 
 
