@@ -96,11 +96,12 @@ def put_to_s3(
             f'Skipping upload of {filename} to s3 - already up to date'
         )
     else:
-        logging.info(f'Uploading {filename} to s3')
+        key = f'{prefix}/{filename.name}'
+        logging.info(f'Uploading {filename} to s3 at {key}')
         client.upload_file(
             str(filename),
             bucket,
-            f'{prefix}/{filename.name}',
+            key,
             ExtraArgs=extra_args
         )
     #expected_etag = hashlib.md5(filename.read_bytes()).hexdigest()
@@ -462,7 +463,7 @@ def write_job_to_s3_cog(
         job.results.data_path = data_path_local
 
 
-def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, extra_args):
+def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, extra_args=None):
     with tempfile.TemporaryDirectory() as temp_dir:
         job_file_path = Path(temp_dir) / filename
         with job_file_path.open(mode="w", encoding="utf-8") as fh:
