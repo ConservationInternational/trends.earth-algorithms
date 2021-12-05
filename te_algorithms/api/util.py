@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 import boto3
 import botocore
 import requests
+from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
 from osgeo import gdal
 from osgeo import ogr
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 SDG_RAW_JOB_NAME = 'sdg-15-3-1-sub-indicators',
 SDG_SUMMARY_RAW_JOB_NAME = 'sdg-15-3-1-summary',
+
+# Set the desired multipart threshold value (5GB)
+MB = 1024
+MULTIPART_THRESHOLD = 100 * MB
 
 
 def get_s3_client(access_key_id=None, secret_access_key=None, no_sign=False):
@@ -98,18 +103,10 @@ def put_to_s3(
     else:
         key = f'{prefix}/{filename.name}'
         logging.info(f'Uploading {filename} to s3 at {key}')
-        client.upload_file(str(filename), bucket, key, ExtraArgs=extra_args)
-    #expected_etag = hashlib.md5(filename.read_bytes()).hexdigest()
-    # waiter = client.get_waiter('object_exists')
-    # waiter.wait(
-    #     Bucket=bucket,
-    #     Key=f'{prefix}/{filename.name}',
-    #     IfMatch=expected_etag,
-    #     WaiterConfig={
-    #         'Delay': 1,
-    #         'MaxAttempts': 20
-    #     }
-    # )
+        config = TransferConfig(multipart_threshold=MULTIPART_THRESHOLD)
+        client.upload_file(
+            str(filename), bucket, key, Config=config, ExtraArgs=extra_args
+        )
 
 
 def get_from_s3(
