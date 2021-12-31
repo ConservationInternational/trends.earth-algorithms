@@ -226,7 +226,6 @@ def summarise_land_degradation(
         sub_job_output_path = job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
         prod_mode = period_params["prod_mode"]
 
-        period_params["layer_lc_deg_band"]["metadata"]['nesting']
         period_params['periods'] = {
             'land_cover': period_params["layer_lc_deg_years"],
             'soc': period_params["layer_soc_deg_years"]
@@ -254,13 +253,16 @@ def summarise_land_degradation(
                 "year_final":
                 period_params['periods']['productivity']['year_final']
             }
+        nesting = period_params["layer_lc_deg_band"]["metadata"].get('nesting')
+        if nesting:
+            # Nesting is included only to ensure it goes into output, so if 
+            # missing (as it might be for local data), it will be set to None
+            nesting = land_cover.LCLegendNesting.Schema().loads(nesting)
         summary_table_stable_kwargs[period_name] = {
             "aoi":
             aoi,
             "lc_legend_nesting":
-            land_cover.LCLegendNesting.Schema().loads(
-                period_params["layer_lc_deg_band"]["metadata"]['nesting'],
-            ),
+            nesting,
             "lc_trans_matrix":
             land_cover.LCTransitionDefinitionDeg.Schema().loads(
                 period_params["layer_lc_deg_band"]["metadata"]['trans_matrix'],
@@ -572,13 +574,20 @@ def _process_block_summary(
     ###########################################################
     # Calculate SOC totals by year. Note final units of soc_totals
     # tables are tons C (summed over the total area of each class).
+    
+    # First filter the SOC years to only those years for which land cover is 
+    # available.
+    lc_years = [year for band, year in lc_bands]
+    soc_bands_with_lc_avail = [
+        (band, year) for band, year in soc_bands if year in lc_years
+    ]
     lc_rows_for_soc = [
         params.in_df.index_for_name(config.LC_BAND_NAME, 'year', year)
-        for band, year in soc_bands
+        for band, year in soc_bands_with_lc_avail
     ]
     soc_by_lc_annual_totals = []
 
-    for index, (soc_row, soc_year) in enumerate(soc_bands):
+    for index, (soc_row, soc_year) in enumerate(soc_bands_with_lc_avail):
         a_lc = in_array[lc_rows_for_soc[index], :, :]
         a_soc = in_array[soc_row, :, :]
         soc_by_lc_annual_totals.append(
@@ -590,25 +599,34 @@ def _process_block_summary(
             )
         )
 
-        if soc_year == soc_deg_band_period['year_initial']:
-            # This is the baseline SOC - save it for later
-            a_soc_bl = a_soc.copy()
-        elif soc_year == soc_deg_band_period['year_final']:
-            # This is the target (tg) SOC - save it for later
-            a_soc_final = a_soc.copy()
+    if (
+        (soc_deg_band_period['year_initial'] in lc_years) and
+        (soc_deg_band_period['year_final'] in lc_years)
+    ):
+        a_soc_bl = in_array[
+            params.in_df.metadata_for_name(
+                config.SOC_BAND_NAME, soc_deg_band_period['year_initial']
+            ), :, :]
+        a_soc_final = in_array[
+            params.in_df.metadata_for_name(
+                config.SOC_BAND_NAME, soc_deg_band_period['year_final']
+            ), :, :]
 
-    lc_trans_zonal_soc_initial = zonal_total_weighted(
-        a_lc_trans_soc_deg,
-        a_soc_bl,
-        cell_areas * 100,  # from sq km to hectares
-        mask
-    )
-    lc_trans_zonal_soc_final = zonal_total_weighted(
-        a_lc_trans_soc_deg,
-        a_soc_final,
-        cell_areas * 100,  # from sq km to hectares
-        mask
-    )
+        lc_trans_zonal_soc_initial = zonal_total_weighted(
+            a_lc_trans_soc_deg,
+            a_soc_bl,
+            cell_areas * 100,  # from sq km to hectares
+            mask
+        )
+        lc_trans_zonal_soc_final = zonal_total_weighted(
+            a_lc_trans_soc_deg,
+            a_soc_final,
+            cell_areas * 100,  # from sq km to hectares
+            mask
+        )
+    else:
+        lc_trans_zonal_soc_initial = {}
+        lc_trans_zonal_soc_final = {}
 
     ###########################################################
     # Calculate crosstabs for productivity

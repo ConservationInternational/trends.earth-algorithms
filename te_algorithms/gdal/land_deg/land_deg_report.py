@@ -560,53 +560,57 @@ def _write_soc_sheet(
     xl.write_col_to_sheet(sheet, _get_summary_array(st.soc_summary), 6, 6)
 
     # First write baseline
-    xl.write_col_to_sheet(
-        sheet,
-        _get_totals_by_lc_class_as_array(
-            st.soc_by_lc_annual_totals[0],
+    if st.soc_by_lc_annual_totals != []:
+        xl.write_col_to_sheet(
+            sheet,
+            _get_totals_by_lc_class_as_array(
+                st.soc_by_lc_annual_totals[0],
+                lc_trans_matrix,
+                excluded_codes=[6]  # exclude water
+            ),
+            7,
+            16,
+        )
+        # Now write target
+        xl.write_col_to_sheet(
+            sheet,
+            _get_totals_by_lc_class_as_array(
+                st.soc_by_lc_annual_totals[-1],
+                lc_trans_matrix,
+                excluded_codes=[6]  # exclude water
+            ),
+            8,
+            16
+        )
+    if st.lc_annual_totals != []:
+        # Write table of baseline areas
+        lc_bl_no_water = _get_totals_by_lc_class_as_array(
+            st.lc_annual_totals[0],
             lc_trans_matrix,
             excluded_codes=[6]  # exclude water
-        ),
-        7,
-        16,
-    )
-    # Now write target
-    xl.write_col_to_sheet(
-        sheet,
-        _get_totals_by_lc_class_as_array(
-            st.soc_by_lc_annual_totals[-1],
+        )
+        xl.write_col_to_sheet(sheet, lc_bl_no_water, 5, 16)
+        # Write table of final year areas
+        lc_final_no_water = _get_totals_by_lc_class_as_array(
+            st.lc_annual_totals[-1],
             lc_trans_matrix,
             excluded_codes=[6]  # exclude water
-        ),
-        8,
-        16
-    )
-    # Write table of baseline areas
-    lc_bl_no_water = _get_totals_by_lc_class_as_array(
-        st.lc_annual_totals[0],
-        lc_trans_matrix,
-        excluded_codes=[6]  # exclude water
-    )
-    xl.write_col_to_sheet(sheet, lc_bl_no_water, 5, 16)
-    # Write table of final year areas
-    lc_final_no_water = _get_totals_by_lc_class_as_array(
-        st.lc_annual_totals[-1],
-        lc_trans_matrix,
-        excluded_codes=[6]  # exclude water
-    )
-    xl.write_col_to_sheet(sheet, lc_final_no_water, 6, 16)
+        )
+        xl.write_col_to_sheet(sheet, lc_final_no_water, 6, 16)
 
-    # write_soc_stock_change_table has its own writing function as it needs to write a
-    # mix of numbers and strings
-    _write_soc_stock_change_table(
-        sheet,
-        27,
-        3,
-        st.lc_trans_zonal_soc_initial,
-        st.lc_trans_zonal_soc_final,
-        lc_trans_matrix,
-        excluded_codes=[6]  # exclude water
-    )
+    if st.lc_trans_zonal_soc_initial != {} and st.lc_trans_zonal_soc_final != {}:
+        # write_soc_stock_change_table has its own writing function as it needs 
+        # to write a
+        # mix of numbers and strings
+        _write_soc_stock_change_table(
+            sheet,
+            27,
+            3,
+            st.lc_trans_zonal_soc_initial,
+            st.lc_trans_zonal_soc_final,
+            lc_trans_matrix,
+            excluded_codes=[6]  # exclude water
+        )
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 
