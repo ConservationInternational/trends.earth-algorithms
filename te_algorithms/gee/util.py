@@ -348,14 +348,13 @@ class GEEImage():
             )
 
 
-def teimage_v1_to_teimage_v2(te_image, logger):
+def teimage_v1_to_teimage_v2(te_image):
     """Upgrade a version 1 TEImage to TEImageV2"""
     datatype = results.DataType.INT16
 
     bands = []
 
     for n, band in enumerate(te_image.band_info):
-        logger.debug(f'Band keys are {BandInfoSchema().dump(band).keys()}')
         # Dump and load each band in order to ensure defaults are added
         band = BandInfoSchema().load(BandInfoSchema().dump(band))
         bands.append(results.Band(**BandInfoSchema().dump(band)))
@@ -380,7 +379,7 @@ class TEImageV2():
     ):
         if datatype not in self.images:
             self.images[datatype] = []
-        self.images[datatype].append = GEEImage(image, bands, datatype)
+        self.images[datatype].append(GEEImage(image, bands, datatype))
 
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
