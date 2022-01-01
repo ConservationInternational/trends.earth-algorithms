@@ -1,11 +1,15 @@
 import random
 import threading
+import typing
 from time import sleep
 from time import time
 
+import dataclass
 import ee
 import requests
+from te_schemas import results
 from te_schemas.schemas import CloudResults
+from te_schemas.schemas import BandInfoSchema
 from te_schemas.schemas import CloudResultsSchema
 from te_schemas.schemas import Url
 
@@ -57,11 +61,16 @@ def get_type(geojson):
 
 class gee_task(threading.Thread):
     """Run earth engine task against the trends.earth API"""
-    def __init__(self, task, prefix, logger):
+    def __init__(self, task, prefix, logger, ee_image=None):
         threading.Thread.__init__(self)
         self.task = task
         self.prefix = prefix
         self.logger = logger
+        # self.ee_image is used only as a key when necessary to differentiate
+        # among tasks running against same image (primarily when different
+        # portions of image are run separately - for example due to AOI
+        # crossing 180th)
+        self.ee_image = ee_image
         self.state = self.task.status().get('state')
         self.start()
 
@@ -142,6 +151,35 @@ class gee_task(threading.Thread):
 
             return urls
 
+    def get_uris(self):
+        resp = requests.get(
+            f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
+        )
+
+        if not resp or resp.status_code != 200:
+            raise GEETaskFailure(
+                f'Failed to list uris for results from {self.task}'
+            )
+
+        items = resp.json()['items']
+
+        if len(items) < 1:
+            raise GEETaskFailure('No uris were found for {}'.format(self.task))
+        else:
+            uris = []
+
+            for item in items:
+                uris.append(
+                    results.URI(
+                        type='url',
+                        uri=item['mediaLink'],
+                        etag=results.Etag(
+                            hash=item['md5Hash'],
+                            type=results.EtagType.GCS_CRC32C
+                        )
+                    )
+                )
+
 
 class TEImage(object):
     "A class to store GEE images and band info for export to cloud storage"
@@ -188,7 +226,7 @@ class TEImage(object):
         self._check_validity()
 
     def setAddToMap(self, band_names=[]):
-        "Set the layers that will be added to the user's map in QGIS by default"
+        "Set the layers that will be added to the map by default"
 
         for i in range(len(self.band_info)):
             if self.band_info[i].name in band_names:
@@ -251,3 +289,173 @@ class TEImage(object):
         json_results = results_schema.dump(gee_results)
 
         return json_results
+
+
+@dataclass
+class GEEImage():
+    ee_image: ee.Image
+    bands: typing.List[results.Band]
+    datatype: results.DataType = results.DataType.INT16
+
+    def merge(self, other):
+        "Merge with another GEEImage object"
+        self.ee_image = self.ee_image.addBands(other.ee_image)
+        self.bands.extend(other.bands)
+
+    def addBands(self, ee_image, bands):
+        "Add new bands to the image"
+        self.ee_image = self.ee_image.addBands(ee_image)
+        self.bands.extend(bands)
+
+    def cast(self):
+        if datatype == results.DataType.BYTE:
+            self.ee_image = self.ee_image.byte()
+        elif datatype == results.DataType.UINT16:
+            self.ee_image = self.ee_image.uint16()
+        elif datatype == results.DataType.INT16:
+            self.ee_image = self.ee_image.int16()
+        elif datatype == results.DataType.UINT32:
+            self.ee_image = self.ee_image.uint32()
+        elif datatype == results.DataType.INT32:
+            self.ee_image = self.ee_image.int32()
+        elif datatype == results.DataType.FLOAT32:
+            self.ee_image = self.ee_image.float()
+        elif datatype == results.DataType.FLOAT64:
+            self.ee_image = self.ee_image.double()
+        else:
+            raise GEEImageError(
+                f'Unknown datatype {datatype}. Datatype '
+                'must be supported by GDAL GeoTiff driver.'
+            )
+
+
+def teimage_v1_to_teimage_v2(te_image):
+    """Upgrade a version 1 TEImage to TEImageV2"""
+    image = GEEImage(
+        te_image.image,
+        bands=[Results.Band.Schema().load(b) for b in BandInfoSchema.dump(b)],
+        datatype=results.DataType.INT16
+    )
+
+    return TEImageV2([image])
+
+
+@dataclass
+class TEImageV2():
+    "A class to store GEE images and band info for export to cloud storage"
+    images: typing.List[GEEImage]
+
+    def selectBands(self, band_names):
+        "Select certain bands from the image(s), dropping all others"
+
+        for image in self.images:
+            band_indices = [
+                i for i, bi in enumerate(image.bands) if bi.name in band_names
+            ]
+
+            if len(band_indices) < 1:
+                raise GEEImageError(f'Band(s) "{band_names}" not in image')
+
+            image.bands = [image.bands[i] for i in band_indices]
+            image.ee_image = image.ee_image.select(band_indices)
+
+    def setAddToMap(self, band_names=[]):
+        "Set the layers that will be added to the map by default"
+
+        for image in self.images:
+            for i in range(len(image.bands)):
+                if image.bands[i].name in band_names:
+                    image.bands[i].add_to_map = True
+                else:
+                    image.bands[i].add_to_map = False
+
+    def export(
+        self,
+        geojsons,
+        task_name,
+        crs,
+        logger,
+        execution_id=None,
+        proj=None,
+        filetype=results.RasterFileType.COG
+    ):
+        "Export layers to cloud storage"
+
+        if not execution_id:
+            execution_id = str(random.randint(1000000, 99999999))
+        else:
+            execution_id = execution_id
+
+        tasks = []
+        n = 1
+
+        for image in self.images:
+            if not proj:
+                proj = image.projection()
+
+            image.cast()
+
+            for geojson in geojsons:
+                if task_name:
+                    out_name = '{}_{}_{}'.format(execution_id, task_name, n)
+                else:
+                    out_name = '{}_{}'.format(execution_id, n)
+
+                if filetype == results.RasterFileType.COG:
+                    as_COG = True
+                else:
+                    as_COG = False
+
+                export = {
+                    'image': image,
+                    'description': out_name,
+                    'fileNamePrefix': out_name,
+                    'bucket': BUCKET,
+                    'maxPixels': 1e13,
+                    'crs': crs,
+                    'scale': ee.Number(proj.nominalScale()).getInfo(),
+                    'region': get_coords(geojson),
+                    'formatOptions': {
+                        'cloudOptimized': as_COG
+                    }
+                }
+                t = gee_task(
+                    task=ee.batch.Export.image.toCloudStorage(**export),
+                    prefix=out_name,
+                    logger=logger,
+                    image
+                )
+                tasks.append(t)
+                n += 1
+
+        logger.debug("Exporting to cloud storage.")
+
+        if as_COG:
+            raster_file_type = results.RasterFileType.COG
+        else:
+            raster_file_type = results.RasterFileType.GEOTIFF
+
+        cloud_results = results.CloudResultsV2(task_name, [])
+
+        output = {}
+
+        for task in tasks:
+            task.join()
+
+            if task.ee_image in output:
+                output[task.ee_image] = task.get_uris()
+            else:
+                output[task.ee_image].extend(task.get_uris())
+
+        gee_results = results.CloudResultsV2(
+            task_name, [
+                results.Raster(
+                    datatype=key.datatype,
+                    bands=key.bands,
+                    filetype=filetype,
+                    uri=values
+                ) for key, values in output
+            ]
+        )
+
+        return CloudResultsV2.Schema().dump(gee_results)
