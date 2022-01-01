@@ -482,13 +482,15 @@ class TEImageV2():
         for task in tasks:
             task.join()
 
-            if task.datatype in output:
-                output[datatype] = {
+            if task.metadata['datatype'] in output:
+                output[task.metadata['datatype']] = {
                     'uris': task.get_uris(),
                     'bands': task.metadata['bands']
                 }
             else:
-                output[datatype].extend(task.get_uris())
+                output[task.metadata['datatype']]['uris'].extend(
+                    task.get_uris()
+                )
 
         gee_results = results.CloudResultsV2(
             task_name, [
