@@ -313,23 +313,23 @@ class GEEImage():
         self.bands.extend(bands)
 
     def cast(self):
-        if datatype == results.DataType.BYTE:
+        if self.datatype == results.DataType.BYTE:
             self.ee_image = self.ee_image.byte()
-        elif datatype == results.DataType.UINT16:
+        elif self.datatype == results.DataType.UINT16:
             self.ee_image = self.ee_image.uint16()
-        elif datatype == results.DataType.INT16:
+        elif self.datatype == results.DataType.INT16:
             self.ee_image = self.ee_image.int16()
-        elif datatype == results.DataType.UINT32:
+        elif self.datatype == results.DataType.UINT32:
             self.ee_image = self.ee_image.uint32()
-        elif datatype == results.DataType.INT32:
+        elif self.datatype == results.DataType.INT32:
             self.ee_image = self.ee_image.int32()
-        elif datatype == results.DataType.FLOAT32:
+        elif self.datatype == results.DataType.FLOAT32:
             self.ee_image = self.ee_image.float()
-        elif datatype == results.DataType.FLOAT64:
+        elif self.datatype == results.DataType.FLOAT64:
             self.ee_image = self.ee_image.double()
         else:
             raise GEEImageError(
-                f'Unknown datatype {datatype}. Datatype '
+                f'Unknown datatype {self.datatype}. Datatype '
                 'must be supported by GDAL GeoTiff driver.'
             )
 
@@ -338,7 +338,10 @@ def teimage_v1_to_teimage_v2(te_image):
     """Upgrade a version 1 TEImage to TEImageV2"""
     image = GEEImage(
         te_image.image,
-        bands=[Results.Band.Schema().load(b) for b in BandInfoSchema.dump(b)],
+        bands=[
+            results.Band().Schema().load(BandInfoSchema().dump(b))
+            for b in te_image.band_info
+        ],
         datatype=results.DataType.INT16
     )
 
@@ -437,13 +440,6 @@ class TEImageV2():
 
         logger.debug("Exporting to cloud storage.")
 
-        if as_COG:
-            raster_file_type = results.RasterFileType.COG
-        else:
-            raster_file_type = results.RasterFileType.GEOTIFF
-
-        cloud_results = results.CloudResultsV2(task_name, [])
-
         output = {}
 
         for task in tasks:
@@ -465,4 +461,4 @@ class TEImageV2():
             ]
         )
 
-        return CloudResultsV2.Schema().dump(gee_results)
+        return results.CloudResultsV2().Schema().dump(gee_results)
