@@ -336,23 +336,24 @@ class GEEImage():
 
 def teimage_v1_to_teimage_v2(te_image):
     """Upgrade a version 1 TEImage to TEImageV2"""
+    datatype = results.DataType.INT16
     image = GEEImage(
         te_image.image,
         bands=[
             results.Band().Schema().load(BandInfoSchema().dump(b))
             for b in te_image.band_info
         ],
-        datatype=results.DataType.INT16
+        datatype=datatype
     )
 
-    return TEImageV2([image])
+    return TEImageV2({datatype: [image]})
 
 
 # Not using dataclass as not in python 3.6
 class TEImageV2():
     "A class to store GEE images and band info for export to cloud storage"
 
-    def __init__(self, images: typing.Dict[GEEImage] = {}):
+    def __init__(self, images: typing.Dict[str, typing.List[GEEImage]] = {}):
         self.images = images
 
     def addImage(
@@ -361,7 +362,9 @@ class TEImageV2():
         bands: typing.List[results.Band],
         datatype: results.DataType = results.DataType.INT16
     ):
-        self.images.append(GEEImage(image, bands, datatype))
+        if datatype not in self.images:
+            self.images[datatype] = []
+        self.images[datatype].append = GEEImage(image, bands, datatype)
 
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
