@@ -337,14 +337,15 @@ class GEEImage():
 def teimage_v1_to_teimage_v2(te_image):
     """Upgrade a version 1 TEImage to TEImageV2"""
     datatype = results.DataType.INT16
-    image = GEEImage(
-        te_image.image,
-        bands=[
-            results.Band().Schema().load(BandInfoSchema().dump(b))
-            for b in te_image.band_info
-        ],
-        datatype=datatype
-    )
+
+    bands = []
+
+    for band in te_image.band_info:
+        # Dump and load each band in order to ensure defaults are added
+        band = BandInfoSchema().load(BandInfoSchema().dump(band))
+        bands.append(results.Band().Schema().load(BandInfoSchema().dump(band)))
+
+    image = GEEImage(te_image.image, bands=bands, datatype=datatype)
 
     return TEImageV2({datatype: [image]})
 
