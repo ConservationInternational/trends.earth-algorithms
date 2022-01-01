@@ -4,7 +4,6 @@ import typing
 from time import sleep
 from time import time
 
-import dataclass
 import ee
 import requests
 from te_schemas import results
@@ -181,6 +180,7 @@ class gee_task(threading.Thread):
                 )
 
 
+# Not using dataclass as not in python 3.6
 class TEImage(object):
     "A class to store GEE images and band info for export to cloud storage"
 
@@ -291,11 +291,16 @@ class TEImage(object):
         return json_results
 
 
-@dataclass
 class GEEImage():
-    ee_image: ee.Image
-    bands: typing.List[results.Band]
-    datatype: results.DataType = results.DataType.INT16
+    def __init__(
+        self,
+        ee_image: ee.Image,
+        bands: typing.List[results.Band],
+        datatype: results.DataType = results.DataType.INT16
+    ):
+        self.ee_image = ee.Image
+        self.bands = bands
+        self.datatype = datatype
 
     def merge(self, other):
         "Merge with another GEEImage object"
@@ -340,10 +345,12 @@ def teimage_v1_to_teimage_v2(te_image):
     return TEImageV2([image])
 
 
-@dataclass
+# Not using dataclass as not in python 3.6
 class TEImageV2():
     "A class to store GEE images and band info for export to cloud storage"
-    images: typing.List[GEEImage]
+
+    def __init__(self, images: typing.List[GEEImage]):
+        self.images = images
 
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
