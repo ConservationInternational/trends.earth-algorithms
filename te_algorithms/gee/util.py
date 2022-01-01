@@ -504,4 +504,4 @@ class TEImageV2():
             ]
         )
 
-        return results.CloudResultsV2().Schema().dump(gee_results)
+        return results.CloudResultsV2.Schema().dump(gee_results)
