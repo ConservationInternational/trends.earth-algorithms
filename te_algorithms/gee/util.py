@@ -298,7 +298,7 @@ class GEEImage():
         bands: typing.List[results.Band],
         datatype: results.DataType = results.DataType.INT16
     ):
-        self.ee_image = ee.Image
+        self.ee_image = ee_image
         self.bands = bands
         self.datatype = datatype
 
@@ -352,8 +352,16 @@ def teimage_v1_to_teimage_v2(te_image):
 class TEImageV2():
     "A class to store GEE images and band info for export to cloud storage"
 
-    def __init__(self, images: typing.List[GEEImage]):
+    def __init__(self, images: typing.Dict[GEEImage] = {}):
         self.images = images
+
+    def addImage(
+        self,
+        image: ee.Image,
+        bands: typing.List[results.Band],
+        datatype: results.DataType = results.DataType.INT16
+    ):
+        self.images.append(GEEImage(image, bands, datatype))
 
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
