@@ -358,7 +358,7 @@ def teimage_v1_to_teimage_v2(te_image, logger):
         logger.debug(f'Band keys are {BandInfoSchema().dump(band).keys()}')
         # Dump and load each band in order to ensure defaults are added
         band = BandInfoSchema().load(BandInfoSchema().dump(band))
-        bands.append(results.Band(**band))
+        bands.append(results.Band(**BandInfoSchema().dump(band)))
 
     image = GEEImage(te_image.image, bands=bands, datatype=datatype)
 
