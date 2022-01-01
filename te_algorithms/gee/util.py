@@ -302,15 +302,29 @@ class GEEImage():
         self.bands = bands
         self.datatype = datatype
 
+        self._check_validity()
+
+    def _check_validity(self):
+        if len(self.bands) != len(self.ee_image.getInfo()['bands']):
+            raise GEEImageError(
+                f'Band info length ({len(self.bands)}) '
+                'does not match number of bands in image '
+                f'({self.ee_image.getInfo()["bands"]})'
+            )
+
     def merge(self, other):
         "Merge with another GEEImage object"
         self.ee_image = self.ee_image.addBands(other.ee_image)
         self.bands.extend(other.bands)
 
+        self._check_validity()
+
     def addBands(self, ee_image, bands):
         "Add new bands to the image"
         self.ee_image = self.ee_image.addBands(ee_image)
         self.bands.extend(bands)
+
+        self._check_validity()
 
     def cast(self):
         if self.datatype == results.DataType.BYTE:
@@ -334,13 +348,14 @@ class GEEImage():
             )
 
 
-def teimage_v1_to_teimage_v2(te_image):
+def teimage_v1_to_teimage_v2(te_image, logger):
     """Upgrade a version 1 TEImage to TEImageV2"""
     datatype = results.DataType.INT16
 
     bands = []
 
-    for band in te_image.band_info:
+    for n, band in enumerate(te_image.band_info):
+        logger.debug(f'Band keys are {BandInfoSchema().dump(band).keys()}')
         # Dump and load each band in order to ensure defaults are added
         band = BandInfoSchema().load(BandInfoSchema().dump(band))
         bands.append(results.Band().Schema().load(BandInfoSchema().dump(band)))
