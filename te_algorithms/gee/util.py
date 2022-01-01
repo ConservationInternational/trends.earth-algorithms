@@ -8,8 +8,8 @@ import dataclass
 import ee
 import requests
 from te_schemas import results
-from te_schemas.schemas import CloudResults
 from te_schemas.schemas import BandInfoSchema
+from te_schemas.schemas import CloudResults
 from te_schemas.schemas import CloudResultsSchema
 from te_schemas.schemas import Url
 
@@ -423,7 +423,7 @@ class TEImageV2():
                     task=ee.batch.Export.image.toCloudStorage(**export),
                     prefix=out_name,
                     logger=logger,
-                    image
+                    ee_image=image
                 )
                 tasks.append(t)
                 n += 1
