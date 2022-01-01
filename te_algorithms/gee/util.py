@@ -494,14 +494,15 @@ class TEImageV2():
 
         gee_results = results.CloudResultsV2(
             name=task_name,
-            data=[
-                results.Raster(
+            data={
+                key: results.Raster(
                     datatype=key,
                     filetype=filetype,
                     bands=values['bands'],
                     uri=values['uris']
-                ) for key, values in output.items()
-            ]
+                )
+                for key, values in output.items()
+            }
         )
 
         return results.CloudResultsV2.Schema().dump(gee_results)
