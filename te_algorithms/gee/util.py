@@ -314,6 +314,13 @@ class GEEImage():
 
     def merge(self, other):
         "Merge with another GEEImage object"
+
+        if self.datatype != other.datatype:
+            raise GEEImageError(
+                f'Attempted to merge {self.datatype} image with '
+                f'{other.datatype} image. Both images must have same '
+                'datatype.'
+            )
         self.ee_image = self.ee_image.addBands(other.ee_image)
         self.bands.extend(other.bands)
 
@@ -377,9 +384,12 @@ class TEImageV2():
         bands: typing.List[results.Band],
         datatype: results.DataType = results.DataType.INT16
     ):
+        gee_image = GEEImage(image, bands, datatype)
+
         if datatype not in self.images:
-            self.images[datatype] = []
-        self.images[datatype].append(GEEImage(image, bands, datatype))
+            self.images[datatype] = gee_image
+        else:
+            self.images[datatype].merge(gee_image)
 
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
@@ -425,7 +435,7 @@ class TEImageV2():
         tasks = []
         n = 1
 
-        for image in self.images:
+        for datatype, image in self.images():
             if not proj:
                 proj = image.projection()
 
@@ -483,7 +493,7 @@ class TEImageV2():
                     bands=key.bands,
                     filetype=filetype,
                     uri=values
-                ) for key, values in output
+                ) for key, values in output.items()
             ]
         )
 
