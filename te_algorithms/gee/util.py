@@ -60,16 +60,14 @@ def get_type(geojson):
 
 class gee_task(threading.Thread):
     """Run earth engine task against the trends.earth API"""
-    def __init__(self, task, prefix, logger, ee_image=None):
+    def __init__(self, task, prefix, logger, metadata=None):
         threading.Thread.__init__(self)
         self.task = task
         self.prefix = prefix
         self.logger = logger
-        # self.ee_image is used only as a key when necessary to differentiate
-        # among tasks running against same image (primarily when different
-        # portions of image are run separately - for example due to AOI
-        # crossing 180th)
-        self.ee_image = ee_image
+        # self.metadata is used only to facilitate saving the final JSON output
+        # for Trends.Earth
+        self.metadata = metadata
         self.state = self.task.status().get('state')
         self.start()
 
@@ -453,7 +451,7 @@ class TEImageV2():
                     as_COG = False
 
                 export = {
-                    'image': image,
+                    'image': image.ee_image,
                     'description': out_name,
                     'fileNamePrefix': out_name,
                     'bucket': BUCKET,
@@ -469,7 +467,10 @@ class TEImageV2():
                     task=ee.batch.Export.image.toCloudStorage(**export),
                     prefix=out_name,
                     logger=logger,
-                    ee_image=image
+                    metadata={
+                        'datatype': datatype,
+                        'bands': image.bands
+                    }
                 )
                 tasks.append(t)
                 n += 1
@@ -481,18 +482,21 @@ class TEImageV2():
         for task in tasks:
             task.join()
 
-            if task.ee_image in output:
-                output[task.ee_image] = task.get_uris()
+            if task.datatype in output:
+                output[datatype] = {
+                    'uris': task.get_uris(),
+                    'bands': task.metadata['bands']
+                }
             else:
-                output[task.ee_image].extend(task.get_uris())
+                output[datatype].extend(task.get_uris())
 
         gee_results = results.CloudResultsV2(
             task_name, [
                 results.Raster(
-                    datatype=key.datatype,
-                    bands=key.bands,
+                    datatype=key,
+                    bands=values['bands'],
                     filetype=filetype,
-                    uri=values
+                    uri=values['uris']
                 ) for key, values in output.items()
             ]
         )
