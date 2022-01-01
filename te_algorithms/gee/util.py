@@ -435,7 +435,7 @@ class TEImageV2():
         tasks = []
         n = 1
 
-        for datatype, image in self.images():
+        for datatype, image in self.images.items():
             if not proj:
                 proj = image.projection()
 
