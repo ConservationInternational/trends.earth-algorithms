@@ -7,6 +7,7 @@ from te_schemas.schemas import BandInfo
 
 from .util import TEImage
 
+
 def soc(
     year_initial, year_final, fl, trans_matrix, nesting, dl_annual_lc, logger
 ):
@@ -37,9 +38,11 @@ def soc(
 
     if fl == 'per pixel':
         # Setup a raster of climate regimes to use for coding Fl automatically
-        climate = ee.Image("users/geflanddegradation/toolbox_datasets/ipcc_climate_zones")
+        climate = (
+            ee.Image("users/geflanddegradation/toolbox_datasets/ipcc_climate_zones")
             .remap([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-                   [0, 2, 1, 2, 1, 2, 1, 2, 1, 5, 4, 4, 3])  # yapf: disable
+                   [0, 2, 1, 2, 1, 2, 1, 2, 1, 5, 4, 4, 3])
+        )  # yapf: disable
         clim_fl = climate.remap(
             [0, 1, 2, 3, 4, 5],
             [0, 0.8, 0.69, 0.58, 0.48, 0.64])  # yapf: disable
