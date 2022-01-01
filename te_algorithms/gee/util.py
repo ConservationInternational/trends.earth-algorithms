@@ -368,14 +368,14 @@ def teimage_v1_to_teimage_v2(te_image):
 
     image = GEEImage(te_image.image, bands=bands, datatype=datatype)
 
-    return TEImageV2({datatype: [image]})
+    return TEImageV2({datatype: image})
 
 
 # Not using dataclass as not in python 3.6
 class TEImageV2():
     "A class to store GEE images and band info for export to cloud storage"
 
-    def __init__(self, images: typing.Dict[str, typing.List[GEEImage]] = {}):
+    def __init__(self, images: typing.Dict[str, GEEImage] = {}):
         self.images = images
 
     def addImage(
