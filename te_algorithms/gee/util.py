@@ -145,6 +145,7 @@ class gee_task(threading.Thread):
             backoff.expo,
             requests.exceptions.RequestException,
             on_backoff=self.on_backoff_hdlr,
+            max_time=60,
             factor=3, base=1.4, max_value=600)
         )
         def make_request(self):
@@ -176,6 +177,7 @@ class gee_task(threading.Thread):
             backoff.expo,
             requests.exceptions.RequestException,
             on_backoff=self.on_backoff_hdlr,
+            max_time=60,
             factor=3, base=1.4, max_value=600)
         )
         def make_request(self):
