@@ -90,7 +90,7 @@ class gee_task(threading.Thread):
         self.logger.send_progress(task_progress)
         self.logger.debug(
             f"GEE task {self.task.status().get('id')} "
-            "progress {task_progress}."
+            f"progress {task_progress}."
         )
 
         return self.task.status().get('state')
