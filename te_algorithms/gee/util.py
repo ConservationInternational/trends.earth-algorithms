@@ -68,7 +68,7 @@ class gee_task(threading.Thread):
         # self.metadata is used only to facilitate saving the final JSON output
         # for Trends.Earth
         self.metadata = metadata
-        self.state = self.status()
+        self.state = self.task.status().get('state')
         self.start()
 
     def cancel_hdlr(self, details):
@@ -100,8 +100,9 @@ class gee_task(threading.Thread):
         )
         def get_status(self):
             self.logger.send_progress(self.task.status().get('progress', 0.0))
+            self.state = self.task.status().get('state')
 
-            return self.status()
+            return self.state
 
         return get_status(self)
 
@@ -137,11 +138,6 @@ class gee_task(threading.Thread):
             )
             raise GEETaskFailure(self.task)
 
-    def status(self):
-        self.state = self.task.status().get('state')
-
-        return self.state
-
     def get_urls(self):
         @backoff.on_exception(
             backoff.expo,
@@ -160,14 +156,16 @@ class gee_task(threading.Thread):
         resp = make_request(self)
 
         if not resp or resp.status_code != 200:
-            raise GEETaskFailure(
+            self.logger.debug(
                 f'Failed to list urls for results from {self.task}'
             )
+            raise GEETaskFailure(self.task)
 
         items = resp.json()['items']
 
         if len(items) < 1:
-            raise GEETaskFailure('No urls were found for {}'.format(self.task))
+            self.logger.debug('No urls were found for {}'.format(self.task))
+            raise GEETaskFailure(self.task)
         else:
             urls = []
 
@@ -194,14 +192,16 @@ class gee_task(threading.Thread):
         resp = make_request(self)
 
         if not resp or resp.status_code != 200:
-            raise GEETaskFailure(
+            self.logger.debug(
                 f'Failed to list uris for results from {self.task}'
             )
+            raise GEETaskFailure(self.task)
 
         items = resp.json()['items']
 
         if len(items) < 1:
-            raise GEETaskFailure('No uris were found for {}'.format(self.task))
+            self.logger.debug('No uris were found for {}'.format(self.task))
+            raise GEETaskFailure(self.task)
         else:
             uris = []
 
