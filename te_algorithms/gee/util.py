@@ -94,7 +94,9 @@ class gee_task(threading.Thread):
             on_backoff=self.on_backoff_hdlr,
             on_giveup=self.cancel_hdlr,
             max_time=TASK_TIMEOUT_MINUTES * 60,
-            factor=3, base=1.4, max_value=600)
+            factor=3,
+            base=1.4,
+            max_value=600
         )
         def get_status(self):
             self.logger.send_progress(self.task.status().get('progress', 0.0))
@@ -146,7 +148,9 @@ class gee_task(threading.Thread):
             requests.exceptions.RequestException,
             on_backoff=self.on_backoff_hdlr,
             max_time=60,
-            factor=3, base=1.4, max_value=600)
+            factor=3,
+            base=1.4,
+            max_value=600
         )
         def make_request(self):
             requests.get(
@@ -178,7 +182,9 @@ class gee_task(threading.Thread):
             requests.exceptions.RequestException,
             on_backoff=self.on_backoff_hdlr,
             max_time=60,
-            factor=3, base=1.4, max_value=600)
+            factor=3,
+            base=1.4,
+            max_value=600
         )
         def make_request(self):
             requests.get(
@@ -546,7 +552,6 @@ class TEImageV2():
                     bands=value['bands'],
                     uri=value['uris']
                 )
-
                 for key, value in output.items()
             }
         )
