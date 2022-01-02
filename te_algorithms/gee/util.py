@@ -68,7 +68,7 @@ class gee_task(threading.Thread):
         # self.metadata is used only to facilitate saving the final JSON output
         # for Trends.Earth
         self.metadata = metadata
-        self.state = self.task.status().get('state')
+        self.state = self.status()
         self.start()
 
     def cancel_hdlr(self, details):
@@ -95,12 +95,9 @@ class gee_task(threading.Thread):
         max_value=300
     )
     def poll_for_completion(self):
-        # Pass a tuple with the logger as element 1 for use in logging during
-        # backoff
-
         self.logger.send_progress(self.task.status().get('progress', 0.0))
 
-        return self.task.status().get('state')
+        return self.status()
 
     def run(self):
         self.task.start()
@@ -108,7 +105,7 @@ class gee_task(threading.Thread):
         self.logger.debug(
             "Starting GEE task {}.".format(self.task.status().get('id'))
         )
-        self.state = self.poll_for_completion()
+        self.poll_for_completion()
 
         if not self.state:
             raise GEETaskFailure(self.task)
@@ -139,6 +136,12 @@ class gee_task(threading.Thread):
 
         return self.state
 
+    @backoff.on_exception(
+        backoff.expo,
+        requests.exceptions.RequestException,
+        on_backoff=on_backoff_hdlr,
+        max_time=60
+    )
     def get_urls(self):
         resp = requests.get(
             f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
@@ -161,6 +164,12 @@ class gee_task(threading.Thread):
 
             return urls
 
+    @backoff.on_exception(
+        backoff.expo,
+        requests.exceptions.RequestException,
+        on_backoff=on_backoff_hdlr,
+        max_time=60
+    )
     def get_uris(self):
         resp = requests.get(
             f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
