@@ -80,7 +80,7 @@ class gee_task(threading.Thread):
 
     @backoff.on_predicate(
         backoff.expo,
-        lambda x: x in ['READY', 'RUNNING'],
+        lambda x: x not in ['READY', 'RUNNING'],
         max_time=TASK_TIMEOUT_MINUTES * 60,
         jitter=backoff.full_jitter,
         on_backoff=backoff_hdlr
