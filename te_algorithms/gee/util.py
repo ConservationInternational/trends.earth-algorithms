@@ -86,18 +86,21 @@ class gee_task(threading.Thread):
             "calling function {target}".format(**details)
         )
 
-    @backoff.on_predicate(
-        backoff.expo,
-        lambda x: x in ['READY', 'RUNNING'],
-        on_backoff=on_backoff_hdlr,
-        on_giveup=cancel_hdlr,
-        max_time=TASK_TIMEOUT_MINUTES * 60,
-        max_value=300
-    )
     def poll_for_completion(self):
-        self.logger.send_progress(self.task.status().get('progress', 0.0))
+        @backoff.on_predicate(
+            backoff.expo,
+            lambda x: x in ['READY', 'RUNNING'],
+            on_backoff=self.on_backoff_hdlr,
+            on_giveup=self.cancel_hdlr,
+            max_time=TASK_TIMEOUT_MINUTES * 60,
+            max_value=300
+        )
+        def get_status(self):
+            self.logger.send_progress(self.task.status().get('progress', 0.0))
 
-        return self.status()
+            return self.status()
+
+        return get_status(self)
 
     def run(self):
         self.task.start()
