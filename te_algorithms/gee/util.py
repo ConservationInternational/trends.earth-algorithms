@@ -81,9 +81,10 @@ class gee_task(threading.Thread):
         ee.data.cancelTask(self.task.status().get('id'))
 
     def on_backoff_hdlr(self, details):
+        details.update({'task_id': self.task.status().get('id')})
         self.logger.debug(
             "Backing off {wait:0.1f} seconds after {tries} tries "
-            "calling function {target}".format(**details)
+            "calling function {target} for task {task_id}".format(**details)
         )
 
     def poll_for_completion(self):
@@ -93,7 +94,7 @@ class gee_task(threading.Thread):
             on_backoff=self.on_backoff_hdlr,
             on_giveup=self.cancel_hdlr,
             max_time=TASK_TIMEOUT_MINUTES * 60,
-            max_value=300
+            factor=3, base=1.4, max_value=600)
         )
         def get_status(self):
             self.logger.send_progress(self.task.status().get('progress', 0.0))
@@ -139,16 +140,19 @@ class gee_task(threading.Thread):
 
         return self.state
 
-    @backoff.on_exception(
-        backoff.expo,
-        requests.exceptions.RequestException,
-        on_backoff=on_backoff_hdlr,
-        max_time=60
-    )
     def get_urls(self):
-        resp = requests.get(
-            f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
+        @backoff.on_exception(
+            backoff.expo,
+            requests.exceptions.RequestException,
+            on_backoff=self.on_backoff_hdlr,
+            factor=3, base=1.4, max_value=600)
         )
+        def make_request(self):
+            requests.get(
+                f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
+            )
+
+        resp = make_request(self)
 
         if not resp or resp.status_code != 200:
             raise GEETaskFailure(
@@ -167,23 +171,25 @@ class gee_task(threading.Thread):
 
             return urls
 
-    @backoff.on_exception(
-        backoff.expo,
-        requests.exceptions.RequestException,
-        on_backoff=on_backoff_hdlr,
-        max_time=60
-    )
     def get_uris(self):
-        resp = requests.get(
-            f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
+        @backoff.on_exception(
+            backoff.expo,
+            requests.exceptions.RequestException,
+            on_backoff=self.on_backoff_hdlr,
+            factor=3, base=1.4, max_value=600)
         )
+        def make_request(self):
+            requests.get(
+                f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
+            )
+
+        resp = make_request(self)
 
         if not resp or resp.status_code != 200:
             raise GEETaskFailure(
                 f'Failed to list uris for results from {self.task}'
             )
 
-        self.logger.debug(f'Response is {resp.json()}')
         items = resp.json()['items']
 
         if len(items) < 1:
@@ -538,6 +544,7 @@ class TEImageV2():
                     bands=value['bands'],
                     uri=value['uris']
                 )
+
                 for key, value in output.items()
             }
         )
