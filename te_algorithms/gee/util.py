@@ -177,6 +177,8 @@ class gee_task(threading.Thread):
                     )
                 )
 
+        return uris
+
 
 # Not using dataclass as not in python 3.6
 class TEImage(object):
