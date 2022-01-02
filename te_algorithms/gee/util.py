@@ -410,11 +410,11 @@ class TEImageV2():
     def merge(self, other):
         "Merge with another TEImageV2 object"
 
-        for key, other_image in other.items():
-            if key in self.images:
-                self.images[key].merge(other_image)
+        for datatype, other_image in other.images.items():
+            if datatype in self.images:
+                self.images[datatype].merge(other_image)
             else:
-                self.images[key] = other_image
+                self.images[datatype] = other_image
 
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
