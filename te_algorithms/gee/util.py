@@ -148,12 +148,12 @@ class gee_task(threading.Thread):
             base=1.4,
             max_value=600
         )
-        def make_request(self):
-            requests.get(
+        def request_urls(self):
+            return requests.get(
                 f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
             )
 
-        resp = make_request(self)
+        resp = request_urls(self)
 
         if not resp or resp.status_code != 200:
             self.logger.debug(
@@ -184,12 +184,12 @@ class gee_task(threading.Thread):
             base=1.4,
             max_value=600
         )
-        def make_request(self):
-            requests.get(
+        def request_uris(self):
+            return requests.get(
                 f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
             )
 
-        resp = make_request(self)
+        resp = request_uris(self)
         self.logger.debug(f'resp: {resp.json()}')
 
         if not resp or not resp.json().get('items'):
