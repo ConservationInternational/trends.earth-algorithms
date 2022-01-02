@@ -164,7 +164,7 @@ class gee_task(threading.Thread):
                 f'Failed to list uris for results from {self.task}'
             )
 
-        self.logger(f'Response is {resp.json()}')
+        self.logger.debug(f'Response is {resp.json()}')
         items = resp.json()['items']
 
         if len(items) < 1:
