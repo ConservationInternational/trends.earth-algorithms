@@ -58,13 +58,6 @@ def get_type(geojson):
         return geojson.get('type')
 
 
-def backoff_hdlr(details, logger):
-    logger.debug(
-        "Backing off {wait:0.1f} seconds after {tries} tries "
-        "calling function {target}".format(**details)
-    )
-
-
 class gee_task(threading.Thread):
     """Run earth engine task against the trends.earth API"""
     def __init__(self, task, prefix, logger, metadata=None):
@@ -78,10 +71,26 @@ class gee_task(threading.Thread):
         self.state = self.task.status().get('state')
         self.start()
 
+    def cancel_hdlr(self, details):
+        self.logger.debug(
+            "GEE task {} timed out after {} hours".format(
+                self.task.status().get('id'),
+                (time() - self.start_time) / (60 * 60)
+            )
+        )
+        ee.data.cancelTask(self.task.status().get('id'))
+
+    def on_backoff_hdlr(self, details):
+        self.logger.debug(
+            "Backing off {wait:0.1f} seconds after {tries} tries "
+            "calling function {target}".format(**details)
+        )
+
     @backoff.on_predicate(
         backoff.expo,
-        lambda x: x[0] in ['READY', 'RUNNING'],
-        on_backoff=backoff_hdlr,
+        lambda x: x in ['READY', 'RUNNING'],
+        on_backoff=on_backoff_hdlr,
+        on_giveup=cancel_hdlr,
         max_time=TASK_TIMEOUT_MINUTES * 60,
         max_value=300
     )
@@ -91,17 +100,15 @@ class gee_task(threading.Thread):
 
         self.logger.send_progress(self.task.status().get('progress', 0.0))
 
-        return (self.task.status().get('state'), self.logger)
+        return self.task.status().get('state')
 
     def run(self):
         self.task.start()
+        self.start_time = time()
         self.logger.debug(
             "Starting GEE task {}.".format(self.task.status().get('id'))
         )
-        self.state = self.task.status().get('state')
-        self.start_time = time()
-
-        self.state = self.poll_for_completion()[0]
+        self.state = self.poll_for_completion()
 
         if not self.state:
             raise GEETaskFailure(self.task)
