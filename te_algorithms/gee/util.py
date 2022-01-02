@@ -85,11 +85,11 @@ class gee_task(threading.Thread):
         max_time=TASK_TIMEOUT_MINUTES * 60,
         max_value=300
     )
-    def poll_for_completion(self, logger):
+    def poll_for_completion(self):
         # Pass a tuple with the logger as element 1 for use in logging during
         # backoff
 
-        logger.send_progress(self.task.status().get('progress', 0.0))
+        self.logger.send_progress(self.task.status().get('progress', 0.0))
 
         return (self.task.status().get('state'), self.logger)
 
@@ -101,7 +101,7 @@ class gee_task(threading.Thread):
         self.state = self.task.status().get('state')
         self.start_time = time()
 
-        self.state = self.poll_for_completion(logger)[0]
+        self.state = self.poll_for_completion()[0]
 
         if not self.state:
             raise GEETaskFailure(self.task)
