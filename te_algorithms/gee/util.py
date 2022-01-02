@@ -190,7 +190,7 @@ class gee_task(threading.Thread):
             )
 
         resp = make_request(self)
-        self.logger.debug('resp: {resp.json()}')
+        self.logger.debug(f'resp: {resp.json()}')
 
         if not resp or not resp.json().get('items'):
             self.logger.debug(
