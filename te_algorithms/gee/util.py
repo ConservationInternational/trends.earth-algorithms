@@ -80,19 +80,16 @@ class gee_task(threading.Thread):
 
     @backoff.on_predicate(
         backoff.expo,
-        lambda x: x in ['READY', 'RUNNING'],
+        lambda x: x[0] in ['READY', 'RUNNING'],
+        on_backoff=backoff_hdlr,
         max_time=TASK_TIMEOUT_MINUTES * 60,
-        on_backoff=backoff_hdlr
+        max_value=300
     )
     def poll_for_completion(self):
-        task_progress = self.task.status().get('progress', 0.0)
-        self.logger.send_progress(task_progress)
-        self.logger.debug(
-            f"GEE task {self.task.status().get('id')} "
-            f"progress {task_progress}."
-        )
+        # Pass a tuple with the logger as element 1 for use in logging during
+        # backoff
 
-        return self.task.status().get('state')
+        return (self.task.status().get('progress', 0.0), self.logger)
 
     def run(self):
         self.task.start()
