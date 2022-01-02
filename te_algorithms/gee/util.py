@@ -378,7 +378,7 @@ class TEImageV2():
     def __init__(self, images: typing.Dict[str, GEEImage] = {}):
         self.images = images
 
-    def addImage(
+    def add_image(
         self,
         image: ee.Image,
         bands: typing.List[results.Band],
