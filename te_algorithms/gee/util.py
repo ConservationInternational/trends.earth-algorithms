@@ -89,22 +89,11 @@ class gee_task(threading.Thread):
         task_progress = self.task.status().get('progress', 0.0)
         self.logger.send_progress(task_progress)
         self.logger.debug(
-            "GEE task {self.task.status().get('id')} "
+            f"GEE task {self.task.status().get('id')} "
             "progress {task_progress}."
         )
-        self.state = self.task.status().get('state')
 
-        if (time() - self.start_time) / 60 > TASK_TIMEOUT_MINUTES:
-            self.logger.debug(
-                "GEE task {} timed out after {} hours".format(
-                    self.task.status().get('id'),
-                    (time() - self.start_time) / (60 * 60)
-                )
-            )
-            ee.data.cancelTask(self.task.status().get('id'))
-            raise GEETaskFailure(self.task)
-
-        return self.state
+        return self.task.status().get('state')
 
     def run(self):
         self.task.start()
@@ -114,7 +103,10 @@ class gee_task(threading.Thread):
         self.state = self.task.status().get('state')
         self.start_time = time()
 
-        self.poll_for_completion()
+        self.state = self.poll_for_completion()
+
+        if not self.state:
+            raise GEETaskFailure(self.task)
 
         if self.state == 'COMPLETED':
             self.logger.debug(
@@ -193,7 +185,7 @@ class gee_task(threading.Thread):
                     )
                 )
 
-        return uris
+            return uris
 
 
 # Not using dataclass as not in python 3.6
