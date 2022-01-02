@@ -410,7 +410,7 @@ class TEImageV2():
     def merge(self, other):
         "Merge with another TEImageV2 object"
 
-        for key, other_image in other:
+        for key, other_image in other.items():
             if key in self.images:
                 self.images[key].merge(other_image)
             else:
