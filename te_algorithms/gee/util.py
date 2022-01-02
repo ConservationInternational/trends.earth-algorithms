@@ -495,10 +495,12 @@ class TEImageV2():
             for geojson in geojsons:
                 if task_name:
                     out_name = '{}_{}_{}_{}'.format(
-                        execution_id, task_name, datatype, n
+                        execution_id, task_name, datatype.value, n
                     )
                 else:
-                    out_name = '{}_{}_{}'.format(execution_id, datatype, n)
+                    out_name = '{}_{}_{}'.format(
+                        execution_id, datatype.value, n
+                    )
 
                 if filetype == results.RasterFileType.COG:
                     as_COG = True
