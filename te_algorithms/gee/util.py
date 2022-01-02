@@ -483,7 +483,6 @@ class TEImageV2():
             execution_id = execution_id
 
         tasks = []
-        n = 1
 
         for datatype, image in self.images.items():
             if not proj:
@@ -491,11 +490,15 @@ class TEImageV2():
 
             image.cast()
 
+            n = 1
+
             for geojson in geojsons:
                 if task_name:
-                    out_name = '{}_{}_{}'.format(execution_id, task_name, n)
+                    out_name = '{}_{}_{}_{}'.format(
+                        execution_id, task_name, datatype, n
+                    )
                 else:
-                    out_name = '{}_{}'.format(execution_id, n)
+                    out_name = '{}_{}_{}'.format(execution_id, datatype, n)
 
                 if filetype == results.RasterFileType.COG:
                     as_COG = True
