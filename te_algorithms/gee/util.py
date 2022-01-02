@@ -498,10 +498,10 @@ class TEImageV2():
                 key: results.Raster(
                     datatype=key,
                     filetype=filetype,
-                    bands=values['bands'],
-                    uri=values['uris']
+                    bands=value['bands'],
+                    uri=value['uris']
                 )
-                for key, values in output.items()
+                for key, value in output.items()
             }
         )
 
