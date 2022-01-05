@@ -190,7 +190,6 @@ class gee_task(threading.Thread):
             )
 
         resp = request_uris(self)
-        self.logger.debug(f'resp: {resp.json()}')
 
         if not resp or not resp.json().get('items'):
             self.logger.debug(
@@ -551,7 +550,7 @@ class TEImageV2():
 
         gee_results = results.CloudResultsV2(
             name=task_name,
-            data={
+            rasters={
                 key: results.Raster(
                     datatype=key,
                     filetype=filetype,
