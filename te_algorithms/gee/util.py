@@ -485,7 +485,7 @@ class TEImageV2():
 
         for datatype, image in self.images.items():
             if not proj:
-                proj = image.projection()
+                proj = image.ee_image.projection()
 
             image.cast()
 
