@@ -555,7 +555,7 @@ class TEImageV2():
                     datatype=key,
                     filetype=filetype,
                     bands=value['bands'],
-                    uri=value['uris']
+                    uris=value['uris']
                 )
                 for key, value in output.items()
             }
