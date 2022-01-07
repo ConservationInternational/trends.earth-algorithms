@@ -25,6 +25,7 @@ from botocore.config import Config
 from osgeo import gdal
 from osgeo import ogr
 from te_schemas import jobs
+from te_schemas import results
 
 logger = logging.getLogger(__name__)
 
@@ -360,6 +361,7 @@ def write_output_to_s3_cog(
         s3_url_base = f'https://{subdomain}.amazonaws.com/{s3_bucket}'
         keys = [
             remove_prefix(str(cog_vsi_path), f'/vsis3/{s3_bucket}/')
+
             for cog_vsi_path in cog_vsi_paths
         ]
         urls = [
@@ -435,6 +437,7 @@ def write_job_to_s3_cog(
         s3_url_base = f'https://{subdomain}.amazonaws.com/{s3_bucket}'
         keys = [
             remove_prefix(str(cog_vsi_path), f'/vsis3/{s3_bucket}/')
+
             for cog_vsi_path in cog_vsi_paths
         ]
         job.results.urls = [
@@ -513,38 +516,40 @@ def _download_file(url, out_path):
     return out_path
 
 
-def _get_single_cloud_result(
-    url: jobs.JobUrl,
+def _get_raster(
+    raster: results.Raster,
     output_path: Path,
     aws_access_key_id=None,
     aws_secret_access_key=None
 ) -> typing.Optional[Path]:
-    path_exists = output_path.is_file()
-    hash_matches = etag_compare(output_path, url.md5_hash)
 
-    if path_exists and hash_matches:
-        logger.info(
-            f"No download necessary, result already present in {output_path}"
-        )
-        result = output_path
-    else:
-        if 'amazonaws.com' not in url.url:
-            _download_result(url.url, output_path)
-        else:
-            url_path = PurePosixPath(unquote(urlparse(url.url).path))
-            # Use get_from_s3 in case file is not public and need to use a key
-            # to access
-            get_from_s3(
-                obj=url_path.parts[-1],
-                out_path=str(output_path),
-                bucket=url_path.parts[1],
-                prefix=PurePosixPath(*url_path.parts[2:-1]),
-                aws_access_key_id=aws_access_key_id,
-                aws_secret_access_key=aws_secret_access_key
+    for uri in raster.uris:
+        path_exists = output_path.is_file()
+        hash_matches = etag_compare(output_path, url.md5_hash)
+
+        if path_exists and hash_matches:
+            logger.info(
+                f"No download necessary, result already present in {output_path}"
             )
+            result = output_path
+        else:
+            if 'amazonaws.com' not in url.url:
+                _download_result(url.url, output_path)
+            else:
+                url_path = PurePosixPath(unquote(urlparse(url.url).path))
+                # Use get_from_s3 in case file is not public and need to use a key
+                # to access
+                get_from_s3(
+                    obj=url_path.parts[-1],
+                    out_path=str(output_path),
+                    bucket=url_path.parts[1],
+                    prefix=PurePosixPath(*url_path.parts[2:-1]),
+                    aws_access_key_id=aws_access_key_id,
+                    aws_secret_access_key=aws_secret_access_key
+                )
 
-        downloaded_hash_matches = etag_compare(output_path, url.md5_hash)
-        result = output_path if downloaded_hash_matches else None
+            downloaded_hash_matches = etag_compare(output_path, url.md5_hash)
+            result = output_path if downloaded_hash_matches else None
 
     return result
 
@@ -610,19 +615,50 @@ def download_cloud_results(
     base_output_path = download_path / f"{_get_job_basename(job)}"
     output_path = None
 
-    if len(job.results.urls) > 0:
-        if len(job.results.urls) == 1:
-            final_output_path = (
-                base_output_path.parent / f"{base_output_path.name}.tif"
+
+    raster_paths = []
+    multiple_rasters = bool(job.results.rasters > 1)
+
+    for datatype, raster in job.results.rasters:
+        file_out_base = f"{base_output_path.name}"
+
+        if multiple_rasters:
+            file_out_base = f"{file_out_base}_{datatype.value}"
+
+        uri_paths = []
+
+        multiple_uris = bool(raster.uris > 1)
+
+        for uri_number, uri in enumerate(raster.uris):
+            if multiple_uris:
+                uri_out_path = (
+                    base_output_path.parent / f"{file_out_base}_{uri_number}.tif"
+                )
+            else:
+                uri_out_path = (
+                    base_output_path.parent / f"{file_out_base}.tif"
+                )
+
+            uri_paths.append(
+                _get_single_cloud_result(
+                    uri.uri, uri_out_path, aws_access_key_id,
+                    aws_secret_access_key
+                )
             )
-            output_path = _get_single_cloud_result(
-                job.results.urls[0], final_output_path, aws_access_key_id,
-                aws_secret_access_key
+
+        if len(output_paths) > 1:  # multiple files for this raster, save a VRT with them
+            raster_out_path = (
+                base_output_path.parent / f"{file_out_base}.vrt"
             )
-        else:  # multiple files, download them then save VRT
-            output_path = _get_multiple_cloud_results(
-                job, base_output_path, aws_access_key_id, aws_secret_access_key
-            )
+            raster_paths.append(save_vrt(uri_paths, raster_out_path))
+        else:
+            raster_paths.append(uri_paths)
+
+    if len(raster_paths) > 1:  # multiple files for this results set, save a VRT with them
+        job_out_path = (
+            base_output_path.parent / f"{file_out_base}.vrt"
+        )
+       output_path = save_vrt(raster_paths, raster_out_path)
     else:
         logger.info(f"job {job} does not have downloadable results")
 
@@ -662,6 +698,7 @@ def get_bands_by_name(
 
     bands_and_indices = [
         (band, index) for index, band in enumerate(bands, start=1)
+
         if band.name == band_name
     ]
 
