@@ -83,15 +83,25 @@ def get_sourcefiles_in_vrt(vrt):
 
 
 def combine_all_bands_into_vrt(
-    in_files: List[pathlib.Path], out_file: pathlib.Path
+    in_files: List[pathlib.Path],
+    out_file: pathlib.Path,
+    is_relative=True,
+    aws_access_key_id=None,
+    aws_secret_access_key=None
 ):
     '''creates a vrt file combining all bands of in_files
 
     All bands must have the same extent, resolution, and crs
     '''
 
+    if aws_access_key_id is not None:
+        gdal.SetConfigOption("AWS_ACCESS_KEY_ID", aws_access_key_id)
+
+    if aws_secret_access_key is not None:
+        gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
+
     simple_source_raw = '''    <SimpleSource>
-        <SourceFilename relativeToVRT="1">{relative_path}</SourceFilename>
+        <SourceFilename relativeToVRT="{is_relative}">{source_path}</SourceFilename>
         <SourceBand>{source_band_num}</SourceBand>
         <SrcRect xOff="0" yOff="0" xSize="{out_Xsize}" ySize="{out_Ysize}"/>
         <DstRect xOff="0" yOff="0" xSize="{out_Xsize}" ySize="{out_Ysize}"/>
@@ -117,7 +127,6 @@ def combine_all_bands_into_vrt(
             this_Ysize = this_band.YSize
 
             if band_num == 1:
-                out_dt = this_dt
                 out_Xsize = this_Xsize
                 out_Ysize = this_Ysize
 
@@ -126,7 +135,10 @@ def combine_all_bands_into_vrt(
                     # create the output VRT file
                     driver = gdal.GetDriverByName("VRT")
                     out_ds = driver.Create(
-                        str(out_file), out_Xsize, out_Ysize, 0, out_dt
+                        str(out_file),
+                        out_Xsize,
+                        out_Ysize,
+                        0,
                     )
                     out_ds.SetGeoTransform(out_gt)
                     out_srs = osr.SpatialReference()
@@ -134,17 +146,17 @@ def combine_all_bands_into_vrt(
                     out_ds.SetProjection(out_srs.ExportToWkt())
 
             if file_num > 1:
-                assert this_dt == out_dt
                 assert this_Xsize == out_Xsize
                 assert this_Ysize == out_Ysize
 
-            out_ds.AddBand(out_dt)
+            out_ds.AddBand(this_dt)
             # The new band will always be last band in out_ds
             band = out_ds.GetRasterBand(out_ds.RasterCount)
 
             md = {}
             md['source_0'] = simple_source_raw.format(
-                relative_path=in_file,
+                is_relative=1 if is_relative else 0,
+                source_path=in_file,
                 source_band_num=band_num,
                 out_Xsize=out_Xsize,
                 out_Ysize=out_Ysize
