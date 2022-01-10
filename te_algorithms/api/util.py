@@ -14,6 +14,7 @@ import uuid
 from copy import deepcopy
 from pathlib import Path
 from pathlib import PurePosixPath
+from typing import List
 from urllib.parse import unquote
 from urllib.parse import urlparse
 
@@ -24,6 +25,7 @@ from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
 from osgeo import gdal
 from osgeo import ogr
+from te_algorithms.gdal.util import combine_all_bands_into_vrt
 from te_schemas import jobs
 from te_schemas import results
 
@@ -79,7 +81,7 @@ def put_to_s3(
     filename: Path,
     bucket: str,
     prefix: str,
-    extra_args={},
+    s3_extra_args={},
     aws_access_key_id=None,
     aws_secret_access_key=None
 ):
@@ -98,15 +100,15 @@ def put_to_s3(
         up_to_date = False
 
     if up_to_date:
-        logging.info(
+        logger.info(
             f'Skipping upload of {filename} to s3 - already up to date'
         )
     else:
         key = f'{prefix}/{filename.name}'
-        logging.info(f'Uploading {filename} to s3 at {key}')
+        logger.info(f'Uploading {filename} to s3 at {key}')
         config = TransferConfig(multipart_threshold=MULTIPART_THRESHOLD)
         client.upload_file(
-            str(filename), bucket, key, Config=config, ExtraArgs=extra_args
+            str(filename), bucket, key, Config=config, ExtraArgs=s3_extra_args
         )
 
 
@@ -122,7 +124,7 @@ def get_from_s3(
         access_key_id=aws_access_key_id,
         secret_access_key=aws_secret_access_key
     )
-    logging.info(f'Downloading {obj} from s3 to {out_path}')
+    logger.info(f'Downloading {obj} from s3 to {out_path}')
     client.download_file(bucket, f'{prefix}/{obj}', out_path)
 
 
@@ -178,6 +180,20 @@ def get_s3_etag(
     return resp['ETag'].strip('"')
 
 
+def get_etag(key, bucket, aws_access_key_id=None, aws_secret_access_key=None):
+    '''Gets etag for a file as a te_schemas.results.Etag instance'''
+    # TODO: need to support GCS as well as S3
+
+    et = get_s3_etag(key, bucket, aws_access_key_id, aws_secret_access_key)
+
+    if '-' in et:
+        et_type = results.EtagType.AWS_MULTIPART
+    else:
+        et_type = results.EtagType.AWS_MD5
+
+    return results.Etag(hash=et, type=et_type)
+
+
 def write_to_cog(in_file, out_file, nodata_value):
     gdal.UseExceptions()
     gdal.Translate(
@@ -193,7 +209,7 @@ def write_to_cog(in_file, out_file, nodata_value):
     )
 
 
-def push_cog_to_s3(local_path, obj, s3_prefix, s3_bucket, extra_args={}):
+def push_cog_to_s3(local_path, obj, s3_prefix, s3_bucket, s3_extra_args={}):
     try:
         cog_up_to_date = etag_compare(
             local_path,
@@ -203,13 +219,13 @@ def push_cog_to_s3(local_path, obj, s3_prefix, s3_bucket, extra_args={}):
         cog_up_to_date = False
 
     if cog_up_to_date:
-        logging.info(f'COG at {local_path} already up to date on S3')
+        logger.info(f'COG at {local_path} already up to date on S3')
     else:
         put_to_s3(
             local_path,
             bucket=s3_bucket,
             prefix=s3_prefix,
-            extra_args=extra_args
+            s3_extra_args=s3_extra_args
         )
 
 
@@ -229,7 +245,7 @@ def get_job_json_from_s3(
         Bucket=s3_bucket,
         Prefix=s3_prefix,
     )
-    logging.info(
+    logger.info(
         f"Looking in bucket {s3_bucket} "
         f"for key prefix: {s3_prefix}"
     )
@@ -258,8 +274,15 @@ def get_job_json_from_s3(
 
 
 def _write_subregion_cogs(
-    data_path, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix, s3_bucket,
-    nodata_value, extra_args
+    data_path,
+    cog_vsi_base,
+    bounding_boxes,
+    temp_dir,
+    s3_prefix,
+    s3_bucket,
+    nodata_value,
+    s3_extra_args,
+    suffix=''
 ):
     # Label pieces of polygon as east/west when there are two
     piece_labels = ['E', 'W']
@@ -267,32 +290,48 @@ def _write_subregion_cogs(
     cog_vsi_paths = []
 
     for index, bounding_box in enumerate(bounding_boxes):
-        suffix = f'{("_" + piece_labels[index]) if len(bounding_boxes) > 1 else ""}'
+        this_suffix = (
+            suffix +
+            f'{("_" + piece_labels[index]) if len(bounding_boxes) > 1 else ""}'
+        )
 
-        temp_vrt_local_path = Path(temp_dir
-                                   ) / (cog_vsi_base.name + f'{suffix}.vrt')
+        temp_vrt_local_path = Path(temp_dir) / (
+            cog_vsi_base.name + f'{this_suffix}.vrt'
+        )
         gdal.BuildVRT(
             str(temp_vrt_local_path),
             str(data_path),
             outputBounds=bounding_box
         )
 
-        cog_local_path = Path(temp_dir) / (cog_vsi_base.name + f'{suffix}.tif')
-        cog_vsi_path = Path(str(cog_vsi_base) + f'{suffix}.tif')
+        cog_local_path = Path(temp_dir
+                              ) / (cog_vsi_base.name + f'{this_suffix}.tif')
+        cog_vsi_path = Path(str(cog_vsi_base) + f'{this_suffix}.tif')
         cog_vsi_paths.append(cog_vsi_path)
         write_to_cog(
             str(temp_vrt_local_path), str(cog_local_path), nodata_value
         )
         push_cog_to_s3(
-            cog_local_path, cog_vsi_path.name, s3_prefix, s3_bucket, extra_args
+            cog_local_path, cog_vsi_path.name, s3_prefix, s3_bucket,
+            s3_extra_args
         )
 
     return cog_vsi_paths
 
 
-def get_vsi_prefix(filename_base, s3_prefix, s3_bucket):
+def get_vsis3_path(filename, s3_prefix, s3_bucket):
 
-    return Path(f'/vsis3/{s3_bucket}/{s3_prefix}/{filename_base}')
+    return Path(f'/vsis3/{s3_bucket}/{s3_prefix}/{filename}')
+
+
+def get_s3_url(filename, s3_prefix, s3_bucket, s3_region='us-east-1'):
+    if s3_region == 'us-east-1':
+        subdomain = 's3'
+    else:
+        subdomain = f's3-{s3_region}'
+    s3_url_base = f'https://{subdomain}.amazonaws.com/{s3_bucket}'
+
+    return f'{s3_url_base}/{s3_prefix}/{filename}'
 
 
 def remove_prefix(text, prefix):
@@ -313,29 +352,25 @@ def write_output_to_s3_cog(
     aws_secret_access_key=None,
     extra_suffix='',
     nodata_value=-32768,
-    extra_args={}
+    s3_extra_args={}
 ):
     bounding_boxes = aoi.get_aligned_output_bounds(str(data_path))
+    gdal.SetConfigOption(
+        "AWS_ACCESS_KEY_ID",
+        aws_access_key_id,
+    )
+    gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
 
-    cog_vsi_base = get_vsi_prefix(filename_base, s3_prefix, s3_bucket)
+    cog_vsi_base = get_vsis3_path(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
         cog_vsi_paths = _write_subregion_cogs(
             data_path, cog_vsi_base, bounding_boxes, temp_dir, s3_prefix,
-            s3_bucket, nodata_value, extra_args
+            s3_bucket, nodata_value, s3_extra_args
         )
-
-        logging.debug(f'cog_vsi_paths: {cog_vsi_paths}')
 
         if len(bounding_boxes) > 1:
             vrt_file = Path(temp_dir) / (cog_vsi_base.name + '.vrt')
-            logging.info(f'vrt_file: {vrt_file}')
-            gdal.SetConfigOption(
-                "AWS_ACCESS_KEY_ID",
-                aws_access_key_id,
-            )
-            gdal.SetConfigOption(
-                "AWS_SECRET_ACCESS_KEY", aws_secret_access_key
-            )
+            logger.info(f'vrt_file: {vrt_file}')
             gdal.BuildVRT(
                 str(vrt_file),
                 [str(cog_vsi_path) for cog_vsi_path in cog_vsi_paths]
@@ -344,7 +379,7 @@ def write_output_to_s3_cog(
                 vrt_file,
                 bucket=s3_bucket,
                 prefix=s3_prefix,
-                extra_args=extra_args
+                s3_extra_args=s3_extra_args
             )
             data_path = cog_vsi_base.with_suffix('.vrt')
         else:
@@ -361,7 +396,6 @@ def write_output_to_s3_cog(
         s3_url_base = f'https://{subdomain}.amazonaws.com/{s3_bucket}'
         keys = [
             remove_prefix(str(cog_vsi_path), f'/vsis3/{s3_bucket}/')
-
             for cog_vsi_path in cog_vsi_paths
         ]
         urls = [
@@ -372,6 +406,26 @@ def write_output_to_s3_cog(
         ]
 
     return data_path, urls
+
+
+def _get_main_raster_uri(
+    raster, aws_access_key_id=None, aws_secret_access_key=None
+):
+    if raster.type == results.RasterType.TILED_RASTER:
+        vrt_file = tempfile.NamedTemporaryFile(suffix='.vrt').name
+        _get_raster_vrt(
+            tiles=[str(uri.uri) for uri in raster.tile_uris],
+            out_file=vrt_file,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key
+        )
+        raster.uri = results.URI(uri=vrt_file, type='local')
+    elif raster.type == results.RasterType.ONE_FILE_RASTER:
+        pass
+    else:
+        raise Exception(f'Unknown raster type {raster.type}')
+
+    return raster.uri
 
 
 def write_job_to_s3_cog(
@@ -385,78 +439,138 @@ def write_job_to_s3_cog(
     aws_secret_access_key=None,
     extra_suffix='',
     nodata_value=-32768,
-    extra_args={}
+    s3_extra_args={}
 ):
-    bounding_boxes = aoi.get_aligned_output_bounds(str(job.results.data_path))
+    bounding_boxes = aoi.get_aligned_output_bounds(str(job.results.uri.uri))
 
-    cog_vsi_base = get_vsi_prefix(filename_base, s3_prefix, s3_bucket)
+    gdal.SetConfigOption(
+        "AWS_ACCESS_KEY_ID",
+        aws_access_key_id,
+    )
+    gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
+    cog_vsi_base = get_vsis3_path(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
-        cog_vsi_paths = _write_subregion_cogs(
-            job.results.data_path, cog_vsi_base, bounding_boxes, temp_dir,
-            s3_prefix, s3_bucket, nodata_value, extra_args
-        )
+        for datatype, raster in job.results.rasters.items():
+            # Fill in  main uri field (linking to all rasters making up this
+            # raster
 
-        # Need to temporarily set data_path to S3 vsi path so jobfile on s3
-        # will point to correct location, so save the local data_path for later
-        data_path_local = job.results.data_path
-
-        logging.debug(f'cog_vsi_paths: {cog_vsi_paths}')
-
-        if len(bounding_boxes) > 1:
-            vrt_file = Path(temp_dir) / (cog_vsi_base.name + '.vrt')
-            logging.info(f'vrt_file: {vrt_file}')
-            gdal.SetConfigOption(
-                "AWS_ACCESS_KEY_ID",
-                aws_access_key_id,
+            main_uri = _get_main_raster_uri(
+                raster,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key
             )
-            gdal.SetConfigOption(
-                "AWS_SECRET_ACCESS_KEY", aws_secret_access_key
+
+            suffix = f'_{datatype.value}'
+            cog_vsi_paths = _write_subregion_cogs(
+                main_uri.uri, cog_vsi_base, bounding_boxes, temp_dir,
+                s3_prefix, s3_bucket, nodata_value, s3_extra_args, suffix
             )
-            gdal.BuildVRT(
-                str(vrt_file),
-                [str(cog_vsi_path) for cog_vsi_path in cog_vsi_paths]
+
+            if len(bounding_boxes) > 1:
+                vrt_file = Path(temp_dir
+                                ) / (cog_vsi_base.name + suffix + '.vrt')
+                vrt_file_vsi_path = f'/vsis3/{s3_bucket}/{s3_prefix}/{vrt_file.name}'
+                gdal.BuildVRT(
+                    str(vrt_file),
+                    [str(cog_vsi_path) for cog_vsi_path in cog_vsi_paths]
+                )
+                put_to_s3(
+                    vrt_file,
+                    bucket=s3_bucket,
+                    prefix=s3_prefix,
+                    s3_extra_args=s3_extra_args
+                )
+                raster.uri = results.URI(
+                    uri=get_vsis3_path(vrt_file, s3_prefix, s3_bucket),
+                    type='cloud'
+                )
+            else:
+                raster.uri = results.URI(
+                    uri=get_vsis3_path(
+                        cog_vsi_base.with_suffix('.tif').name, s3_prefix,
+                        s3_bucket
+                    ),
+                    type='cloud'
+                )
+
+            # All COG outputs are single tile rasters UNLESS there are multiple
+            # (East and West) subregions. So write everything as Raster
+            # regardless of what came in, unless there are E/W in which case
+            # need a TiledRaster
+
+            out_uris = [
+                results.URI(
+                    uri=cog_vsi_path,
+                    type='cloud',
+                    etag=get_etag(
+                        f'{s3_prefix}/{cog_vsi_path.name}', s3_bucket,
+                        aws_access_key_id, aws_secret_access_key
+                    )
+                ) for cog_vsi_path in cog_vsi_paths
+            ]
+
+            if len(out_uris) > 1:
+                # Write a TiledRaster
+                job.results.rasters[datatype] = results.TiledRaster(
+                    tile_uris=out_uris,
+                    bands=raster.bands,
+                    datatype=raster.datatype,
+                    filetype=raster.filetype,
+                    uri=results.URI(uri=vrt_file_vsi_path, type='cloud')
+                )
+
+            else:
+                # Write a Raster
+                job.results.rasters[datatype] = results.Raster(
+                    uri=out_uris[0],
+                    bands=raster.bands,
+                    datatype=raster.datatype,
+                    filetype=raster.filetype
+                )
+
+        if (
+            len(job.results.rasters) > 1
+            or job.results.rasters.has_tiled_raster()
+        ):
+            main_vrt_file = Path(temp_dir) / f"{filename_base}.vrt"
+            logger.info('Saving main vrt file to %s', main_vrt_file)
+            main_uris = [uri.uri for uri in job.results.get_main_uris()]
+            logger.info('Main uris %s', main_uris)
+            combine_all_bands_into_vrt(
+                main_uris,
+                main_vrt_file,
+                is_relative=False,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key
             )
             put_to_s3(
-                vrt_file,
+                main_vrt_file,
                 bucket=s3_bucket,
                 prefix=s3_prefix,
-                extra_args=extra_args
+                s3_extra_args=s3_extra_args
             )
-            job.results.data_path = cog_vsi_base.with_suffix('.vrt')
+            job.results.uri = results.URI(
+                uri=get_vsis3_path(main_vrt_file.name, s3_prefix, s3_bucket),
+                type='cloud',
+                etag=get_etag(
+                    f'{s3_prefix}/{main_vrt_file.name}', s3_bucket,
+                    aws_access_key_id, aws_secret_access_key
+                )
+            )
         else:
-            job.results.data_path = cog_vsi_base.with_suffix('.tif')
+            job.results.uri = job.results.rasters.values()[0]
+            job.results.uri.type = 'cloud'
 
-        # Need to use path-style addressing to avoid SSL errors due to the dot
-        # in the (trends.earth) bucket name
-        #s3_url_base = f'https://{s3_bucket}.s3.{s3_region}.amazonaws.com'
-
-        if s3_region == 'us-east-1':
-            subdomain = 's3'
-        else:
-            subdomain = f's3-{s3_region}'
-        s3_url_base = f'https://{subdomain}.amazonaws.com/{s3_bucket}'
-        keys = [
-            remove_prefix(str(cog_vsi_path), f'/vsis3/{s3_bucket}/')
-
-            for cog_vsi_path in cog_vsi_paths
-        ]
-        job.results.urls = [
-            jobs.JobUrl(
-                url=s3_url_base + '/' + k,
-                md5_hash=get_s3_etag(k, bucket=s3_bucket)
-            ) for k in keys
-        ]
         job.status = jobs.JobStatus.DOWNLOADED
-        job.results.type = jobs.JobResultType.CLOUD_RESULTS
 
         write_job_json_to_s3(
-            job, filename_base + '.json', s3_prefix, s3_bucket, extra_args
+            job, filename_base + '.json', s3_prefix, s3_bucket, s3_extra_args
         )
 
-        job.results.data_path = data_path_local
 
-
-def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, extra_args=None):
+def write_job_json_to_s3(
+    job, filename, s3_prefix, s3_bucket, s3_extra_args=None
+):
     with tempfile.TemporaryDirectory() as temp_dir:
         job_file_path = Path(temp_dir) / filename
         with job_file_path.open(mode="w", encoding="utf-8") as fh:
@@ -467,7 +581,7 @@ def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, extra_args=None):
             job_file_path,
             bucket=s3_bucket,
             prefix=s3_prefix,
-            extra_args=extra_args
+            s3_extra_args=s3_extra_args
         )
 
 
@@ -504,91 +618,63 @@ def _get_download_size(url):
     return total_size_pretty
 
 
-def _download_file(url, out_path):
+def _download_file(url, out_file):
     download_size = _get_download_size(url)
-    logger.info(f"Downloading {url} ({download_size}) to {out_path}")
+    logger.info(f"Downloading {url} ({download_size}) to {out_file}")
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
-        with open(out_path, 'wb') as f:
+        with open(out_file, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
 
-    return out_path
+    return out_file
 
 
-def _get_raster(
-    raster: results.Raster,
-    output_path: Path,
+def _get_raster_tile(
+    url: results.URI,
+    out_file: Path,
     aws_access_key_id=None,
     aws_secret_access_key=None
 ) -> typing.Optional[Path]:
 
-    for uri in raster.uris:
-        path_exists = output_path.is_file()
-        hash_matches = etag_compare(output_path, url.md5_hash)
+    path_exists = out_file.is_file()
+    hash_matches = etag_compare(out_file, url.etag.hash)
 
-        if path_exists and hash_matches:
-            logger.info(
-                f"No download necessary, result already present in {output_path}"
-            )
-            result = output_path
+    if path_exists and hash_matches:
+        logger.info(
+            f"No download necessary, result already present in {out_file}"
+        )
+        result = out_file
+    else:
+        if 'amazonaws.com' not in url.uri:
+            _download_file(url.uri, out_file)
         else:
-            if 'amazonaws.com' not in url.url:
-                _download_result(url.url, output_path)
-            else:
-                url_path = PurePosixPath(unquote(urlparse(url.url).path))
-                # Use get_from_s3 in case file is not public and need to use a key
-                # to access
-                get_from_s3(
-                    obj=url_path.parts[-1],
-                    out_path=str(output_path),
-                    bucket=url_path.parts[1],
-                    prefix=PurePosixPath(*url_path.parts[2:-1]),
-                    aws_access_key_id=aws_access_key_id,
-                    aws_secret_access_key=aws_secret_access_key
-                )
+            url_path = PurePosixPath(unquote(urlparse(url.uri).path))
+            # Use get_from_s3 in case file is not public and need to use a key
+            # to access
+            get_from_s3(
+                obj=url_path.parts[-1],
+                out_path=str(out_file),
+                bucket=url_path.parts[1],
+                prefix=PurePosixPath(*url_path.parts[2:-1]),
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key
+            )
 
-            downloaded_hash_matches = etag_compare(output_path, url.md5_hash)
-            result = output_path if downloaded_hash_matches else None
+        downloaded_hash_matches = etag_compare(out_file, url.etag.hash)
+        result = out_file if downloaded_hash_matches else None
 
     return result
 
 
-def _download_result(url: str, output_path: Path) -> bool:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    _download_file(url, str(output_path))
-
-    return output_path
-
-
-def _get_multiple_cloud_results(
-    job: jobs.Job,
-    base_output_path: Path,
-    aws_access_key_id=None,
-    aws_secret_access_key=None
-) -> Path:
-    vrt_tiles = []
-
-    for index, url in enumerate(job.results.urls):
-        output_path = (
-            base_output_path.parent / f"{base_output_path.name}_{index}.tif"
-        )
-        tile_path = _get_single_cloud_result(
-            url, output_path, aws_access_key_id, aws_secret_access_key
-        )
-        logging.info(f'tile_path {tile_path}')
-
-        if tile_path is not None:
-            vrt_tiles.append(tile_path)
-    vrt_file_path = base_output_path.parent / f"{base_output_path.name}.vrt"
-    logging.info(f'vrt_tiles: {vrt_tiles}')
+def _get_raster_vrt(
+    tiles: List[Path], out_file: Path, aws_access_key_id: str,
+    aws_secret_access_key: str
+):
+    gdal.UseExceptions()
     gdal.SetConfigOption("AWS_ACCESS_KEY_ID", aws_access_key_id)
     gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
-    gdal.BuildVRT(
-        str(vrt_file_path), [str(vrt_tile) for vrt_tile in vrt_tiles]
-    )
-
-    return vrt_file_path
+    gdal.BuildVRT(str(out_file), [str(tile) for tile in tiles])
 
 
 def _get_job_basename(job: jobs.Job):
@@ -613,66 +699,93 @@ def download_cloud_results(
     aws_secret_access_key=None
 ) -> typing.Optional[Path]:
     base_output_path = download_path / f"{_get_job_basename(job)}"
-    output_path = None
 
+    out_rasters = []
 
-    raster_paths = []
-    multiple_rasters = bool(job.results.rasters > 1)
+    for datatype, raster in job.results.rasters.items():
+        file_out_base = f"{base_output_path.name}_{datatype.value}"
 
-    for datatype, raster in job.results.rasters:
-        file_out_base = f"{base_output_path.name}"
+        if raster.type == results.RasterType.TILED_RASTER:
+            tile_uris = []
 
-        if multiple_rasters:
-            file_out_base = f"{file_out_base}_{datatype.value}"
-
-        uri_paths = []
-
-        multiple_uris = bool(raster.uris > 1)
-
-        for uri_number, uri in enumerate(raster.uris):
-            if multiple_uris:
-                uri_out_path = (
-                    base_output_path.parent / f"{file_out_base}_{uri_number}.tif"
+            for uri_number, uri in enumerate(raster.tile_uris):
+                out_file = base_output_path.parent / f"{file_out_base}_{uri_number}.tif"
+                _get_raster_tile(
+                    url=uri,
+                    out_file=base_output_path.parent /
+                    f"{file_out_base}_{uri_number}.tif",
+                    aws_access_key_id=aws_access_key_id,
+                    aws_secret_access_key=aws_secret_access_key
                 )
-            else:
-                uri_out_path = (
-                    base_output_path.parent / f"{file_out_base}.tif"
-                )
+                tile_uris.append(results.URI(uri=out_file, type='cloud'))
 
-            uri_paths.append(
-                _get_single_cloud_result(
-                    uri.uri, uri_out_path, aws_access_key_id,
-                    aws_secret_access_key
+            raster.tile_uris = tile_uris
+
+            vrt_file = base_output_path.parent / f"{file_out_base}.vrt"
+            logger.info('Saving vrt file to %s', vrt_file)
+            _get_raster_vrt(
+                tiles=[str(uri.uri) for uri in tile_uris],
+                out_file=vrt_file,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key
+            )
+            out_rasters.append(
+                results.TiledRaster(
+                    tile_uris=tile_uris,
+                    bands=raster.bands,
+                    datatype=raster.datatype,
+                    filetype=raster.filetype,
+                    uri=results.URI(uri=vrt_file, type='local'),
+                    type=results.RasterType.TILED_RASTER
                 )
             )
-
-        if len(output_paths) > 1:  # multiple files for this raster, save a VRT with them
-            raster_out_path = (
-                base_output_path.parent / f"{file_out_base}.vrt"
-            )
-            raster_paths.append(save_vrt(uri_paths, raster_out_path))
         else:
-            raster_paths.append(uri_paths)
+            out_file = base_output_path.parent / f"{file_out_base}.tif"
+            _get_raster_tile(
+                url=raster.uri,
+                out_file=out_file,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key
+            )
+            raster_uri = results.URI(uri=out_file, type='local')
+            raster.uri = raster_uri
+            out_rasters.append(
+                results.Raster(
+                    uri=raster_uri,
+                    bands=raster.bands,
+                    datatype=raster.datatype,
+                    filetype=raster.filetype,
+                    type=results.RasterType.ONE_FILE_RASTER
+                )
+            )
 
-    if len(raster_paths) > 1:  # multiple files for this results set, save a VRT with them
-        job_out_path = (
-            base_output_path.parent / f"{file_out_base}.vrt"
+    # Setup the main data_path. This could be a vrt (if job.results.rasters has
+    # more than one Raster or if it has one or more TiledRasters
+
+    if (
+        len(job.results.rasters) > 1 or (
+            len(job.results.rasters == 1)
+            and job.results.rasters[0].type == results.RasterType.TILED_RASTER
         )
-       output_path = save_vrt(raster_paths, raster_out_path)
+    ):
+        vrt_file = base_output_path.parent / f"{base_output_path.name}.vrt"
+        logger.info('Saving vrt file to %s', vrt_file)
+        main_raster_file_paths = [raster.uri.uri for raster in out_rasters]
+        combine_all_bands_into_vrt(main_raster_file_paths, vrt_file)
+        job.results.uri = results.URI(uri=vrt_file, type='local')
     else:
-        logger.info(f"job {job} does not have downloadable results")
-
-    return output_path
+        job.results.uri = job.results.rasters[0].uri
 
 
 def get_cloud_results_vrt(job: jobs.Job) -> typing.Optional[Path]:
+    """Returns a vrt pointing to COGs in the cloud"""
     vrt_file_path = None
     vsicurl_paths = []
 
     if len(job.results.urls) > 0:
         vsicurl_paths = [f'/vsicurl/{url.url}' for url in job.results.urls]
         vrt_file_path = tempfile.NamedTemporaryFile(suffix='.vrt').name
-        res = gdal.BuildVRT(
+        gdal.BuildVRT(
             str(vrt_file_path),
             [str(vsicurl_path) for vsicurl_path in vsicurl_paths]
         )
@@ -684,7 +797,7 @@ def get_cloud_results_vrt(job: jobs.Job) -> typing.Optional[Path]:
 
 @dataclasses.dataclass
 class BandData:
-    band: jobs.JobBand
+    band: results.Band
     band_number: int
 
 
@@ -692,13 +805,12 @@ def get_bands_by_name(
     job,
     band_name: str,
     sort_property: str = "year"
-) -> typing.List[jobs.JobBand]:
+) -> typing.List[results.Band]:
 
     bands = job.results.bands
 
     bands_and_indices = [
         (band, index) for index, band in enumerate(bands, start=1)
-
         if band.name == band_name
     ]
 
@@ -724,7 +836,7 @@ def make_job(params, script):
         local_context=local_context,
         task_name=task_name,
         task_notes=task_notes,
-        results=jobs.JobCloudResults(
+        results=results.JobCloudResults(
             name=script.name,
             bands=[],
             urls=[],
@@ -780,4 +892,4 @@ def download_job(job, download_path):
     if dl_output_path is not None:
         job.results.data_path = dl_output_path
         job.status = jobs.JobStatus.DOWNLOADED
-        logging.info(f'Downloaded job to {dl_output_path}')
+        logger.info(f'Downloaded job to {dl_output_path}')
