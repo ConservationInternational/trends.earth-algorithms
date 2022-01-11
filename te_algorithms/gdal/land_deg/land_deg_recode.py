@@ -13,9 +13,9 @@ from te_schemas.aoi import AOI
 from te_schemas.datafile import DataFile
 from te_schemas.error_recode import ErrorRecodePolygons
 from te_schemas.jobs import Job
-from te_schemas.jobs import JobBand
 from te_schemas.jobs import JobCloudResults
 from te_schemas.jobs import JobJsonResults
+from te_schemas.results import Band
 
 from . import config
 from .. import workers
@@ -137,7 +137,7 @@ def _get_error_recode_input_vrt(sdg_df, error_df):
 
 
 def _prepare_df(path, band_str, band_index) -> List[DataFile]:
-    band = JobBand(**band_str)
+    band = Band(**band_str)
 
     return DataFile(path=save_vrt(path, band_index), bands=[band])
 
@@ -187,7 +187,7 @@ def recode_errors(params) -> Job:
 
     if params['write_tifs']:
         out_bands = [
-            JobBand(
+            Band(
                 name=config.SDG_BAND_NAME,
                 no_data_value=config.NODATA_VALUE,
                 metadata=params['metadata'
@@ -195,7 +195,7 @@ def recode_errors(params) -> Job:
                 add_to_map=True,
                 activated=True
             ),
-            JobBand(
+            Band(
                 name=config.ERROR_RECODE_BAND_NAME,
                 no_data_value=config.NODATA_VALUE,
                 metadata=params['metadata'
@@ -208,7 +208,8 @@ def recode_errors(params) -> Job:
         results = JobCloudResults(
             name=params['layer_input_band']['name'],
             bands=out_bands,
-            data_path=out_path,  # local path, needs to be pushed to COG in calling function
+            data_path=
+            out_path,  # local path, needs to be pushed to COG in calling function
             urls=[],  # needs to be set in calling function after pushing COG(s)
             data=get_serialized_results(
                 summary_table, params['layer_input_band']['name'] + ' recode'

@@ -72,7 +72,9 @@ def save_reporting_json(
                 reporting.Area('Improved', st.sdg_summary.get(1, 0.)),
                 reporting.Area('Stable', st.sdg_summary.get(0, 0.)),
                 reporting.Area('Degraded', st.sdg_summary.get(-1, 0.)),
-                reporting.Area('No data', st.sdg_summary.get(config.NODATA_VALUE, 0))
+                reporting.Area(
+                    'No data', st.sdg_summary.get(config.NODATA_VALUE, 0)
+                )
             ]
         )
 
@@ -103,7 +105,9 @@ def save_reporting_json(
                 reporting.Area('Improved', st.lc_summary.get(1, 0.)),
                 reporting.Area('Stable', st.lc_summary.get(0, 0.)),
                 reporting.Area('Degraded', st.lc_summary.get(-1, 0.)),
-                reporting.Area('No data', st.lc_summary.get(config.NODATA_VALUE, 0.))
+                reporting.Area(
+                    'No data', st.lc_summary.get(config.NODATA_VALUE, 0.)
+                )
             ]
         )
 
@@ -307,15 +311,15 @@ def save_reporting_json(
         affected_by_deg_summary = reporting.PopulationList(
             'Population by degradation class', [
                 reporting.Population(
-                    'Improved', st.sdg_zonal_population_total.get(1, 0.),
+                    'Improved', st.sdg_zonal_population_total.get(1, 0),
                     'Total population'
                 ),
                 reporting.Population(
-                    'Stable', st.sdg_zonal_population_total.get(0, 0.),
+                    'Stable', st.sdg_zonal_population_total.get(0, 0),
                     'Total population'
                 ),
                 reporting.Population(
-                    'Degraded', st.sdg_zonal_population_total.get(-1, 0.),
+                    'Degraded', st.sdg_zonal_population_total.get(-1, 0),
                     'Total population'
                 ),
                 reporting.Population(
@@ -495,12 +499,7 @@ def _render_ld_workbook(
 def _get_summary_array(d):
     '''pulls summary values for excel sheet from a summary dictionary'''
 
-    return np.array(
-        [d.get(1, 0.),
-         d.get(0, 0.),
-         d.get(-1, 0.),
-         d.get(-32768, 0.)]
-    )
+    return np.array([d.get(1, 0), d.get(0, 0), d.get(-1, 0), d.get(-32768, 0)])
 
 
 def _write_overview_sheet(sheet, summary_table: models.SummaryTableLD):
@@ -560,6 +559,7 @@ def _write_soc_sheet(
     xl.write_col_to_sheet(sheet, _get_summary_array(st.soc_summary), 6, 6)
 
     # First write baseline
+
     if st.soc_by_lc_annual_totals != []:
         xl.write_col_to_sheet(
             sheet,
@@ -582,6 +582,7 @@ def _write_soc_sheet(
             8,
             16
         )
+
     if st.lc_annual_totals != []:
         # Write table of baseline areas
         lc_bl_no_water = _get_totals_by_lc_class_as_array(
@@ -599,7 +600,7 @@ def _write_soc_sheet(
         xl.write_col_to_sheet(sheet, lc_final_no_water, 6, 16)
 
     if st.lc_trans_zonal_soc_initial != {} and st.lc_trans_zonal_soc_final != {}:
-        # write_soc_stock_change_table has its own writing function as it needs 
+        # write_soc_stock_change_table has its own writing function as it needs
         # to write a
         # mix of numbers and strings
         _write_soc_stock_change_table(

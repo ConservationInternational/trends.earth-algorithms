@@ -8,8 +8,8 @@ from typing import Tuple
 import numpy as np
 from osgeo import gdal
 from te_schemas.datafile import DataFile
-from te_schemas.jobs import JobBand
 from te_schemas.productivity import ProductivityMode
+from te_schemas.results import Band
 
 from . import config
 from . import models
@@ -180,9 +180,9 @@ def compute_progress_summary(
         progress_path = progress_paths[0]
 
     out_bands = [
-        JobBand(
+        Band(
             name=config.SDG_STATUS_BAND_NAME,
-            no_data_value=config.NODATA_VALUE,
+            no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
                 'baseline_year_initial': baseline_period['year_initial'],
                 'baseline_year_final': baseline_period['year_final'],
@@ -192,9 +192,9 @@ def compute_progress_summary(
             add_to_map=True,
             activated=True
         ),
-        JobBand(
+        Band(
             name=config.PROD_DEG_COMPARISON_BAND_NAME,
-            no_data_value=config.NODATA_VALUE,
+            no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
                 'baseline_year_initial': baseline_period['year_initial'],
                 'baseline_year_final': baseline_period['year_final'],
@@ -204,9 +204,9 @@ def compute_progress_summary(
             add_to_map=True,
             activated=True
         ),
-        JobBand(
+        Band(
             name=config.SOC_DEG_BAND_NAME,
-            no_data_value=config.NODATA_VALUE,
+            no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
                 'year_initial': baseline_period['year_initial'],
                 'year_final': progress_period['year_final']
@@ -214,9 +214,9 @@ def compute_progress_summary(
             add_to_map=True,
             activated=True
         ),
-        JobBand(
+        Band(
             name=config.LC_DEG_COMPARISON_BAND_NAME,
-            no_data_value=config.NODATA_VALUE,
+            no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
                 'year_initial': baseline_period['year_initial'],
                 'year_final': progress_period['year_final']

@@ -370,7 +370,6 @@ def write_output_to_s3_cog(
 
         if len(bounding_boxes) > 1:
             vrt_file = Path(temp_dir) / (cog_vsi_base.name + '.vrt')
-            logger.info(f'vrt_file: {vrt_file}')
             gdal.BuildVRT(
                 str(vrt_file),
                 [str(cog_vsi_path) for cog_vsi_path in cog_vsi_paths]
@@ -450,7 +449,7 @@ def write_job_to_s3_cog(
     gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
     cog_vsi_base = get_vsis3_path(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
-        for datatype, raster in job.results.rasters.items():
+        for key, raster in job.results.rasters.items():
             # Fill in  main uri field (linking to all rasters making up this
             # raster
 
@@ -460,7 +459,7 @@ def write_job_to_s3_cog(
                 aws_secret_access_key=aws_secret_access_key
             )
 
-            suffix = f'_{datatype.value}'
+            suffix = f'_{key}'
             cog_vsi_paths = _write_subregion_cogs(
                 main_uri.uri, cog_vsi_base, bounding_boxes, temp_dir,
                 s3_prefix, s3_bucket, nodata_value, s3_extra_args, suffix
@@ -511,7 +510,7 @@ def write_job_to_s3_cog(
 
             if len(out_uris) > 1:
                 # Write a TiledRaster
-                job.results.rasters[datatype] = results.TiledRaster(
+                job.results.rasters[key] = results.TiledRaster(
                     tile_uris=out_uris,
                     bands=raster.bands,
                     datatype=raster.datatype,
@@ -521,21 +520,17 @@ def write_job_to_s3_cog(
 
             else:
                 # Write a Raster
-                job.results.rasters[datatype] = results.Raster(
+                job.results.rasters[key] = results.Raster(
                     uri=out_uris[0],
                     bands=raster.bands,
                     datatype=raster.datatype,
                     filetype=raster.filetype
                 )
 
-        if (
-            len(job.results.rasters) > 1
-            or job.results.rasters.has_tiled_raster()
-        ):
+        if (len(job.results.rasters) > 1 or job.results.has_tiled_raster()):
             main_vrt_file = Path(temp_dir) / f"{filename_base}.vrt"
             logger.info('Saving main vrt file to %s', main_vrt_file)
             main_uris = [uri.uri for uri in job.results.get_main_uris()]
-            logger.info('Main uris %s', main_uris)
             combine_all_bands_into_vrt(
                 main_uris,
                 main_vrt_file,
@@ -558,7 +553,7 @@ def write_job_to_s3_cog(
                 )
             )
         else:
-            job.results.uri = job.results.rasters.values()[0]
+            job.results.uri = [*job.results.rasters.values()][0].uri
             job.results.uri.type = 'cloud'
 
         job.status = jobs.JobStatus.DOWNLOADED
@@ -631,14 +626,14 @@ def _download_file(url, out_file):
 
 
 def _get_raster_tile(
-    url: results.URI,
+    uri: results.URI,
     out_file: Path,
     aws_access_key_id=None,
     aws_secret_access_key=None
 ) -> typing.Optional[Path]:
 
     path_exists = out_file.is_file()
-    hash_matches = etag_compare(out_file, url.etag.hash)
+    hash_matches = etag_compare(out_file, uri.etag.hash)
 
     if path_exists and hash_matches:
         logger.info(
@@ -646,22 +641,39 @@ def _get_raster_tile(
         )
         result = out_file
     else:
-        if 'amazonaws.com' not in url.uri:
-            _download_file(url.uri, out_file)
+        if (
+            'vsis3' not in str(uri.uri)
+            and 'amazonaws.com' not in str(uri.uri)
+        ):
+            _download_file(uri.uri, out_file)
         else:
-            url_path = PurePosixPath(unquote(urlparse(url.uri).path))
+            try:
+                # Below will fail if uri is not a URL but a path
+                uri_path = PurePosixPath(unquote(urlparse(uri.uri).path))
+                obj = uri_path.parts[-1]
+                bucket = uri_path.parts[1]
+                prefix = PurePosixPath(*uri_path.parts[2:-1])
+            except AttributeError:
+                obj = uri.uri.parts[-1]
+                # Below will ignore the "vsis3" portion of the path (the first
+                # component)
+                bucket = uri.uri.parts[2]
+                prefix = PurePosixPath(*uri.uri.parts[3:-1])
+            logger.debug('bucket is %s', bucket)
+            logger.debug('prefix is %s', prefix)
+            logger.debug('obj is %s', obj)
             # Use get_from_s3 in case file is not public and need to use a key
             # to access
             get_from_s3(
-                obj=url_path.parts[-1],
+                obj=obj,
                 out_path=str(out_file),
-                bucket=url_path.parts[1],
-                prefix=PurePosixPath(*url_path.parts[2:-1]),
+                bucket=bucket,
+                prefix=prefix,
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key
             )
 
-        downloaded_hash_matches = etag_compare(out_file, url.etag.hash)
+        downloaded_hash_matches = etag_compare(out_file, uri.etag.hash)
         result = out_file if downloaded_hash_matches else None
 
     return result
@@ -702,8 +714,8 @@ def download_cloud_results(
 
     out_rasters = []
 
-    for datatype, raster in job.results.rasters.items():
-        file_out_base = f"{base_output_path.name}_{datatype.value}"
+    for key, raster in job.results.rasters.items():
+        file_out_base = f"{base_output_path.name}_{key}"
 
         if raster.type == results.RasterType.TILED_RASTER:
             tile_uris = []
@@ -711,7 +723,7 @@ def download_cloud_results(
             for uri_number, uri in enumerate(raster.tile_uris):
                 out_file = base_output_path.parent / f"{file_out_base}_{uri_number}.tif"
                 _get_raster_tile(
-                    url=uri,
+                    uri=uri,
                     out_file=base_output_path.parent /
                     f"{file_out_base}_{uri_number}.tif",
                     aws_access_key_id=aws_access_key_id,
@@ -742,7 +754,7 @@ def download_cloud_results(
         else:
             out_file = base_output_path.parent / f"{file_out_base}.tif"
             _get_raster_tile(
-                url=raster.uri,
+                uri=raster.uri,
                 out_file=out_file,
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key
@@ -890,6 +902,5 @@ def download_job(job, download_path):
     dl_output_path = download_cloud_results(job, download_path)
 
     if dl_output_path is not None:
-        job.results.data_path = dl_output_path
         job.status = jobs.JobStatus.DOWNLOADED
         logger.info(f'Downloaded job to {dl_output_path}')

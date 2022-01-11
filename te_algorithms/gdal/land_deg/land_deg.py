@@ -16,8 +16,13 @@ from te_schemas.aoi import AOI
 from te_schemas.datafile import combine_data_files
 from te_schemas.datafile import DataFile
 from te_schemas.jobs import Job
-from te_schemas.jobs import JobBand
 from te_schemas.productivity import ProductivityMode
+from te_schemas.results import Band
+from te_schemas.results import DataType
+from te_schemas.results import Raster
+from te_schemas.results import RasterFileType
+from te_schemas.results import RasterResults
+from te_schemas.results import URI
 
 from . import config
 from . import models
@@ -89,6 +94,15 @@ def _accumulate_ld_summary_tables(
         out.sdg_zonal_population_total = util.accumulate_dicts(
             [out.sdg_zonal_population_total, table.sdg_zonal_population_total]
         )
+        out.sdg_zonal_population_male = util.accumulate_dicts(
+            [out.sdg_zonal_population_male, table.sdg_zonal_population_male]
+        )
+        out.sdg_zonal_population_female = util.accumulate_dicts(
+            [
+                out.sdg_zonal_population_female,
+                table.sdg_zonal_population_female
+            ]
+        )
         out.sdg_summary = util.accumulate_dicts(
             [out.sdg_summary, table.sdg_summary]
         )
@@ -110,7 +124,7 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
     lc_dfs = [
         DataFile(
             path=util.save_vrt(lc_path, params["layer_lc_deg_band_index"]),
-            bands=[JobBand(**params["layer_lc_deg_band"])]
+            bands=[Band(**params["layer_lc_deg_band"])]
         )
     ]
 
@@ -120,7 +134,7 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
         lc_dfs.append(
             DataFile(
                 path=util.save_vrt(lc_path, lc_aux_band_index),
-                bands=[JobBand(**lc_aux_band)]
+                bands=[Band(**lc_aux_band)]
             )
         )
     lc_dfs.append(
@@ -129,23 +143,30 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
                 params["layer_lc_trans_path"],
                 params["layer_lc_trans_band_index"],
             ),
-            bands=[JobBand(**params["layer_lc_trans_band"])]
+            bands=[Band(**params["layer_lc_trans_band"])]
         )
     )
 
     return lc_dfs
 
 
-def _prepare_population_df(params: Dict) -> DataFile:
-    population_path = params["layer_population_path"]
-    population_df = DataFile(
-        path=util.save_vrt(
-            population_path, params["layer_population_band_index"]
-        ),
-        bands=[JobBand(**params["layer_population_band"])]
-    )
+def _prepare_population_dfs(params: Dict) -> DataFile:
+    population_dfs = []
 
-    return population_df
+    for population_band, population_band_index, in zip(
+        params["layer_population_bands"],
+        params["layer_population_band_indexes"]
+    ):
+        population_dfs.append(
+            DataFile(
+                path=util.save_vrt(
+                    params["layer_population_path"], population_band_index
+                ),
+                bands=[Band(**population_band)]
+            )
+        )
+
+    return population_dfs
 
 
 def _prepare_soil_organic_carbon_dfs(params: Dict) -> List[DataFile]:
@@ -153,7 +174,7 @@ def _prepare_soil_organic_carbon_dfs(params: Dict) -> List[DataFile]:
     soc_dfs = [
         DataFile(
             path=util.save_vrt(soc_path, params["layer_soc_deg_band_index"]),
-            bands=[JobBand(**params["layer_soc_deg_band"])]
+            bands=[Band(**params["layer_soc_deg_band"])]
         )
     ]
 
@@ -163,7 +184,7 @@ def _prepare_soil_organic_carbon_dfs(params: Dict) -> List[DataFile]:
         soc_dfs.append(
             DataFile(
                 path=util.save_vrt(soc_path, soc_aux_band_index),
-                bands=[JobBand(**soc_aux_band)]
+                bands=[Band(**soc_aux_band)]
             )
         )
 
@@ -178,21 +199,21 @@ def _prepare_trends_earth_mode_dfs(
             params["layer_traj_path"],
             params["layer_traj_band_index"],
         ),
-        bands=[JobBand(**params["layer_traj_band"])]
+        bands=[Band(**params["layer_traj_band"])]
     )
     perf_vrt_df = DataFile(
         path=util.save_vrt(
             params["layer_perf_path"],
             params["layer_perf_band_index"],
         ),
-        bands=[JobBand(**params["layer_perf_band"])]
+        bands=[Band(**params["layer_perf_band"])]
     )
     state_vrt_df = DataFile(
         path=util.save_vrt(
             params["layer_state_path"],
             params["layer_state_band_index"],
         ),
-        bands=[JobBand(**params["layer_state_band"])]
+        bands=[Band(**params["layer_state_band"])]
     )
 
     return traj_vrt_df, perf_vrt_df, state_vrt_df
@@ -203,7 +224,7 @@ def _prepare_jrc_lpd_mode_df(params: Dict) -> DataFile:
         path=util.save_vrt(
             params["layer_lpd_path"], params["layer_lpd_band_index"]
         ),
-        bands=[JobBand(**params["layer_lpd_band"])]
+        bands=[Band(**params["layer_lpd_band"])]
     )
 
 
@@ -222,7 +243,7 @@ def summarise_land_degradation(
     for period_name, period_params in ldn_job.params.items():
         lc_dfs = _prepare_land_cover_dfs(period_params)
         soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
-        population_df = _prepare_population_df(period_params)
+        population_dfs = _prepare_population_dfs(period_params)
         sub_job_output_path = job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
         prod_mode = period_params["prod_mode"]
 
@@ -254,8 +275,9 @@ def summarise_land_degradation(
                 period_params['periods']['productivity']['year_final']
             }
         nesting = period_params["layer_lc_deg_band"]["metadata"].get('nesting')
+
         if nesting:
-            # Nesting is included only to ensure it goes into output, so if 
+            # Nesting is included only to ensure it goes into output, so if
             # missing (as it might be for local data), it will be set to None
             nesting = land_cover.LCLegendNesting.Schema().loads(nesting)
         summary_table_stable_kwargs[period_name] = {
@@ -284,7 +306,7 @@ def summarise_land_degradation(
 
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
-            in_dfs = lc_dfs + soc_dfs + [traj, perf, state, population_df]
+            in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
             summary_table, sdg_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
                 prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
@@ -293,7 +315,7 @@ def summarise_land_degradation(
             )
         elif prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
             lpd_df = _prepare_jrc_lpd_mode_df(period_params)
-            in_dfs = lc_dfs + soc_dfs + [lpd_df, population_df]
+            in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
             summary_table, sdg_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
                 prod_mode=ProductivityMode.JRC_5_CLASS_LPD.value,
@@ -305,9 +327,9 @@ def summarise_land_degradation(
 
         summary_tables[period_name] = summary_table
 
-        sdg_band = JobBand(
+        sdg_band = Band(
             name=config.SDG_BAND_NAME,
-            no_data_value=config.NODATA_VALUE,
+            no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
                 'year_initial': period_params['period']['year_initial'],
                 'year_final': period_params['period']['year_final'],
@@ -316,9 +338,9 @@ def summarise_land_degradation(
         )
         sdg_df = DataFile(sdg_path, [sdg_band])
 
-        so3_band = JobBand(
+        so3_band = Band(
             name=config.POP_AFFECTED_BAND_NAME,
-            no_data_value=config.NODATA_VALUE,
+            no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
                 'population_year':
                 period_params['periods']['productivity']['year_final'],
@@ -332,9 +354,10 @@ def summarise_land_degradation(
         sdg_df.bands.append(so3_band)
 
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-            prod_band = JobBand(
+            prod_band = Band(
                 name=config.TE_LPD_BAND_NAME,
-                no_data_value=config.NODATA_VALUE,
+                no_data_value=config.NODATA_VALUE.item(
+                ),  # write as python type
                 metadata={
                     'year_initial':
                     period_params['periods']['productivity']['year_initial'],
@@ -375,8 +398,6 @@ def summarise_land_degradation(
             period_name
         )
 
-        ldn_job.results.other_paths.append(summary_table_output_path)
-
     if len(ldn_job.params.items()) == 2:
         # Make temporary combined VRT and DataFile just for the progress
         # calculations. Don't save these in the output folder as at end of this
@@ -403,9 +424,6 @@ def summarise_land_degradation(
     out_df = combine_data_files(overall_vrt_path, period_dfs)
     out_df.path = overall_vrt_path.name
 
-    ldn_job.results.data_path = overall_vrt_path
-    ldn_job.results.bands.extend(out_df.bands)
-
     # Also save bands to a key file for ease of use in PRAIS
     key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
     with open(key_json, 'w') as f:
@@ -416,9 +434,21 @@ def summarise_land_degradation(
         summary_json_output_path, summary_tables, progress_summary_table,
         ldn_job.params, ldn_job.task_name, aoi, summary_table_stable_kwargs
     )
-    ldn_job.results.data = {'report': report_json}
 
-    ldn_job.results.other_paths.extend([summary_json_output_path, key_json])
+    ldn_job.results = RasterResults(
+        name='land_condition_summary',
+        uri=URI(uri=overall_vrt_path, type='local'),
+        rasters={
+            DataType.INT16.value:
+            Raster(
+                uri=URI(uri=overall_vrt_path, type='local'),
+                bands=out_df.bands,
+                datatype=DataType.INT16,
+                filetype=RasterFileType.COG,
+            ),
+        },
+        data={'report': report_json}
+    )
 
     ldn_job.end_date = dt.datetime.now(dt.timezone.utc)
     ldn_job.progress = 100
@@ -574,8 +604,8 @@ def _process_block_summary(
     ###########################################################
     # Calculate SOC totals by year. Note final units of soc_totals
     # tables are tons C (summed over the total area of each class).
-    
-    # First filter the SOC years to only those years for which land cover is 
+
+    # First filter the SOC years to only those years for which land cover is
     # available.
     lc_years = [year for band, year in lc_bands]
     soc_bands_with_lc_avail = [
@@ -600,17 +630,24 @@ def _process_block_summary(
         )
 
     if (
-        (soc_deg_band_period['year_initial'] in lc_years) and
-        (soc_deg_band_period['year_final'] in lc_years)
+        (soc_deg_band_period['year_initial'] in lc_years)
+        and (soc_deg_band_period['year_final'] in lc_years)
     ):
-        a_soc_bl = in_array[
-            params.in_df.metadata_for_name(
-                config.SOC_BAND_NAME, soc_deg_band_period['year_initial']
-            ), :, :]
-        a_soc_final = in_array[
-            params.in_df.metadata_for_name(
-                config.SOC_BAND_NAME, soc_deg_band_period['year_final']
-            ), :, :]
+        logger.debug(
+            'year_initial %s, year_final %s, lc_years %s',
+            soc_deg_band_period['year_initial'],
+            soc_deg_band_period['year_final'], lc_years
+        )
+        a_soc_bl = in_array[params.in_df.indices_for_name(
+            config.SOC_BAND_NAME,
+            field='year',
+            field_filter=soc_deg_band_period['year_initial']
+        ), :, :]
+        a_soc_final = in_array[params.in_df.indices_for_name(
+            config.SOC_BAND_NAME,
+            field='year',
+            field_filter=soc_deg_band_period['year_final']
+        ), :, :]
 
         lc_trans_zonal_soc_initial = zonal_total_weighted(
             a_lc_trans_soc_deg,
@@ -700,17 +737,56 @@ def _process_block_summary(
 
     ###########################################################
     # Population affected by degradation
-    pop_array = in_array[
-        params.in_df.index_for_name(config.POPULATION_BAND_NAME), :, :]
-    pop_array_masked = pop_array.copy()
-    pop_array_masked = pop_array * 10. * cell_areas  # Account for scaling and convert from density
-    pop_array_masked[pop_array == config.NODATA_VALUE] = 0
-    pop_array_masked[water] = 0
-    sdg_zonal_population_total = zonal_total(deg_sdg, pop_array_masked, mask)
-    pop_array[deg_sdg == -1] = -pop_array[deg_sdg == -1]
-    pop_array[water] = 0
+
+    pop_rows_total = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field='type', field_filter='total'
+    )
+    pop_rows_male = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field='type', field_filter='male'
+    )
+    pop_rows_female = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field='type', field_filter='female'
+    )
+
+    if len(pop_rows_total) == 1:
+        assert len(pop_rows_male) == 0 and len(pop_rows_female) == 0
+
+        pop_array_total = in_array[pop_rows_total[0], :, :]
+        pop_array_total_masked = pop_array_total.copy()
+        pop_array_total_masked[pop_array_total == config.NODATA_VALUE] = 0
+        pop_array_total_masked[water] = 0
+        sdg_zonal_population_male = {}
+        sdg_zonal_population_female = {}
+    else:
+        assert len(pop_rows_total) == 0
+        assert len(pop_rows_male) == 1 and len(pop_rows_female) == 1
+
+        pop_array_male = in_array[pop_rows_male[0], :, :]
+        pop_array_male_masked = pop_array_male.copy()
+        pop_array_male_masked[pop_array_male == config.NODATA_VALUE] = 0
+        pop_array_male_masked[water] = 0
+        sdg_zonal_population_male = zonal_total(
+            deg_sdg, pop_array_male_masked, mask
+        )
+
+        pop_array_female = in_array[pop_rows_female[0], :, :]
+        pop_array_female_masked = pop_array_female.copy()
+        pop_array_female_masked[pop_array_female == config.NODATA_VALUE] = 0
+        pop_array_female_masked[water] = 0
+        sdg_zonal_population_female = zonal_total(
+            deg_sdg, pop_array_female_masked, mask
+        )
+
+        pop_array_total = pop_array_male + pop_array_female
+        pop_array_total_masked = pop_array_male_masked + pop_array_female_masked
+
+    sdg_zonal_population_total = zonal_total(
+        deg_sdg, pop_array_total_masked, mask
+    )
+
     # Save SO3 array
-    write_arrays.append({'array': pop_array, 'xoff': xoff, 'yoff': yoff})
+    pop_array_total[deg_sdg == -1] = -pop_array_total[deg_sdg == -1]
+    write_arrays.append({'array': pop_array_total, 'xoff': xoff, 'yoff': yoff})
 
     if params.prod_mode == 'Trends.Earth productivity':
         write_arrays.append({'array': deg_prod5, 'xoff': xoff, 'yoff': yoff})
@@ -720,8 +796,9 @@ def _process_block_summary(
             soc_by_lc_annual_totals, lc_annual_totals, lc_trans_zonal_areas,
             lc_trans_zonal_areas_periods, lc_trans_prod_bizonal,
             lc_trans_zonal_soc_initial, lc_trans_zonal_soc_final,
-            sdg_zonal_population_total, sdg_summary, prod_summary, soc_summary,
-            lc_summary
+            sdg_zonal_population_total, sdg_zonal_population_male,
+            sdg_zonal_population_female, sdg_summary, prod_summary,
+            soc_summary, lc_summary
         ), write_arrays
     )
 

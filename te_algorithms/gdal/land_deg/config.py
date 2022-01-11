@@ -1,5 +1,4 @@
 import numpy as np
-import enum
 
 # Ensure mask and nodata values are saved as 16 bit integers to keep numba
 # happy
@@ -21,8 +20,8 @@ LC_BAND_NAME = "Land cover (7 class)"
 LC_TRANS_BAND_NAME = "Land cover transitions"
 SOC_DEG_BAND_NAME = "Soil organic carbon (degradation)"
 SOC_BAND_NAME = "Soil organic carbon"
-POPULATION_BAND_NAME = "Population (density, persons per sq km / 10)"
-POP_AFFECTED_BAND_NAME = "Population affected by degradation (density, persons per sq km / 10)"
+POPULATION_BAND_NAME = "Population (number of people)"
+POP_AFFECTED_BAND_NAME = "Population affected by degradation (number of people)"
 
 PRODUCTIVITY_CLASS_KEY = {
     'Increasing': 5,
