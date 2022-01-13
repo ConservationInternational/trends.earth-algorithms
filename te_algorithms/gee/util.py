@@ -7,12 +7,12 @@ import backoff
 import ee
 import requests
 from te_schemas import results
+from te_schemas.results import Raster
+from te_schemas.results import TiledRaster
+from te_schemas.results import Url
 from te_schemas.schemas import BandInfoSchema
 from te_schemas.schemas import CloudResults
 from te_schemas.schemas import CloudResultsSchema
-from te_schemas.schemas import Raster
-from te_schemas.schemas import TiledRaster
-from te_schemas.schemas import Url
 
 from . import GEEImageError
 from . import GEETaskFailure
