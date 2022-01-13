@@ -10,6 +10,8 @@ from te_schemas import results
 from te_schemas.schemas import BandInfoSchema
 from te_schemas.schemas import CloudResults
 from te_schemas.schemas import CloudResultsSchema
+from te_schemas.schemas import Raster
+from te_schemas.schemas import TiledRaster
 from te_schemas.schemas import Url
 
 from . import GEEImageError
@@ -548,17 +550,26 @@ class TEImageV2():
                     'bands': task.metadata['bands']
                 }
 
-        gee_results = results.CloudResultsV2(
-            name=task_name,
-            rasters={
-                key: results.Raster(
-                    datatype=key,
-                    filetype=filetype,
-                    bands=value['bands'],
-                    uris=value['uris']
+        rasters = {}
+
+        for datatype, value in output.items():
+            if len(value.uris) > 0:
+                rasters[datatype] = TiledRaster(
+                    tile_uris=value.uris,
+                    bands=value.bands,
+                    datatype=datatype,
+                    filetype=filetype
                 )
-                for key, value in output.items()
-            }
+            else:
+                rasters[datatype] = Raster(
+                    uri=value.uris[0],
+                    bands=value.bands,
+                    datatype=datatype,
+                    filetype=filetype
+                )
+
+        gee_results = results.RasterResults(
+            name=task_name, rasters=rasters, data={}
         )
 
         return results.CloudResultsV2.Schema().dump(gee_results)
