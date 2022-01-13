@@ -555,15 +555,15 @@ class TEImageV2():
         for datatype, value in output.items():
             if len(value.uris) > 0:
                 rasters[datatype] = TiledRaster(
-                    tile_uris=value.uris,
-                    bands=value.bands,
+                    tile_uris=value['uris'],
+                    bands=value['bands'],
                     datatype=datatype,
                     filetype=filetype
                 )
             else:
                 rasters[datatype] = Raster(
-                    uri=value.uris[0],
-                    bands=value.bands,
+                    uri=value['uris'][0],
+                    bands=value['bands'],
                     datatype=datatype,
                     filetype=filetype
                 )
