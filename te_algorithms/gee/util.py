@@ -553,7 +553,7 @@ class TEImageV2():
         rasters = {}
 
         for datatype, value in output.items():
-            if len(value.uris) > 0:
+            if len(value['uris'] > 0:
                 rasters[datatype] = TiledRaster(
                     tile_uris=value['uris'],
                     bands=value['bands'],
