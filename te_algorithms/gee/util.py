@@ -210,7 +210,7 @@ class gee_task(threading.Thread):
             for item in items:
                 uris.append(
                     results.URI(
-                        type='url',
+                        type='cloud',
                         uri=item['mediaLink'],
                         etag=results.Etag(
                             hash=item['md5Hash'],
@@ -554,12 +554,13 @@ class TEImageV2():
 
         for datatype, value in output.items():
             uris = [results.URI.Schema().dump(uri) for uri in value['uris']]
+            bands = [results.Band.Schema().dump(band) for bandin value['bands']]
 
             if len(uris) > 1:
                 rasters[datatype.value] = TiledRaster.Schema().load(
                     {
                         'tile_uris': uris,
-                        'bands': value['bands'],
+                        'bands': bands,
                         'datatype': datatype,
                         'filetype': filetype
                     }
@@ -568,7 +569,7 @@ class TEImageV2():
                 rasters[datatype.value] = Raster.Schema().load(
                     {
                         'uri': uris[0],
-                        'bands': value['bands'],
+                        'bands': bands,
                         'datatype': datatype,
                         'filetype': filetype
                     }
