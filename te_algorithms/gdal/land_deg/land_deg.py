@@ -751,7 +751,7 @@ def _process_block_summary(
     if len(pop_rows_total) == 1:
         assert len(pop_rows_male) == 0 and len(pop_rows_female) == 0
 
-        pop_array_total = in_array[pop_rows_total[0], :, :]
+        pop_array_total = in_array[pop_rows_total[0], :, :].astype(np.float64)
         pop_array_total_masked = pop_array_total.copy()
         pop_array_total_masked[pop_array_total == config.NODATA_VALUE] = 0
         pop_array_total_masked[water] = 0
@@ -761,7 +761,7 @@ def _process_block_summary(
         assert len(pop_rows_total) == 0
         assert len(pop_rows_male) == 1 and len(pop_rows_female) == 1
 
-        pop_array_male = in_array[pop_rows_male[0], :, :]
+        pop_array_male = in_array[pop_rows_male[0], :, :].astype(np.float64)
         pop_array_male_masked = pop_array_male.copy()
         pop_array_male_masked[pop_array_male == config.NODATA_VALUE] = 0
         pop_array_male_masked[water] = 0
@@ -769,7 +769,9 @@ def _process_block_summary(
             deg_sdg, pop_array_male_masked, mask
         )
 
-        pop_array_female = in_array[pop_rows_female[0], :, :]
+        pop_array_female = in_array[pop_rows_female[0], :, :].astype(
+            np.float64
+        )
         pop_array_female_masked = pop_array_female.copy()
         pop_array_female_masked[pop_array_female == config.NODATA_VALUE] = 0
         pop_array_female_masked[water] = 0

@@ -167,38 +167,34 @@ def _process_block(
             pop_row_male = pop_rows_male[row_num]
             pop_row_female = pop_rows_male[row_num]
 
-            a_pop_male = in_array[pop_row_male, :, :]
-            a_pop_male_masked = a_pop_male.copy()
-            a_pop_male_masked[a_pop_male == NODATA_VALUE] = 0
-            a_pop_male_masked[a_water_mask == 1] = 0
+            a_pop_male = in_array[pop_row_male, :, :].astype(np.float64)
+            a_pop_male_recoded = a_pop_male.copy()
+            a_pop_male_recoded[a_pop_male == NODATA_VALUE] = 0
+            a_pop_male_recoded[a_water_mask == 1] = 0
             annual_population_by_drought_class_male.append(
-                zonal_total(a_drought_class, a_pop_male_masked, mask)
+                zonal_total(a_drought_class, a_pop_male_recoded, mask)
             )
 
-            a_pop_female = in_array[pop_row_female, :, :]
-            a_pop_female_masked = a_pop_female.copy()
-            a_pop_female_masked[a_pop_female == NODATA_VALUE] = 0
-            a_pop_female_masked[a_water_mask == 1] = 0
+            a_pop_female = in_array[pop_row_female, :, :].astype(np.float64)
+            a_pop_female_recoded = a_pop_female.copy()
+            a_pop_female_recoded[a_pop_female == NODATA_VALUE] = 0
+            a_pop_female_recoded[a_water_mask == 1] = 0
             annual_population_by_drought_class_female.append(
-                zonal_total(a_drought_class, a_pop_female_masked, mask)
+                zonal_total(a_drought_class, a_pop_female_recoded, mask)
             )
 
-            annual_population_by_drought_class_total.append(
-                zonal_total(
-                    a_drought_class, a_pop_male_masked + a_pop_female_masked,
-                    mask
-                )
-            )
+            a_pop_total_recoded = a_pop_male_recoded + a_pop_female_recoded
 
         else:
-            pop_row_total = pop_rows_total[row_num]
+            pop_row_total = pop_rows_total[row_num].astype(np.float64)
             a_pop_total = in_array[pop_row_total, :, :]
-            a_pop_total_masked = a_pop_total.copy()
-            a_pop_total_masked[a_pop_total == NODATA_VALUE] = 0
-            a_pop_total_masked[a_water_mask == 1] = 0
-            annual_population_by_drought_class_total.append(
-                zonal_total(a_drought_class, a_pop_total_masked, mask)
-            )
+            a_pop_total_recoded = a_pop_total.copy()
+            a_pop_total_recoded[a_pop_total == NODATA_VALUE] = 0
+            a_pop_total_recoded[a_water_mask == 1] = 0
+
+        annual_population_by_drought_class_total.append(
+            zonal_total(a_drought_class, a_pop_total_recoded, mask)
+        )
 
     # Calculate minimum SPI in blocks of length (in years) defined by
     # params.drought_period, and save the spi at that point as well as
@@ -994,44 +990,61 @@ def _write_drought_area_sheet(sheet, st: SummaryTableDrought, years):
     )
 
 
+def _write_drought_pop_columns(
+    sheet, drought_class_annual_totals: list, years, initial_row: int
+):
+    xl.write_col_to_sheet(sheet, np.array(years), 2, initial_row)
+    xl.write_col_to_sheet(
+        sheet, _get_col_for_drought_class(drought_class_annual_totals, 1), 4,
+        initial_row
+    )
+    xl.write_col_to_sheet(
+        sheet, _get_col_for_drought_class(drought_class_annual_totals, 2), 6,
+        initial_row
+    )
+    xl.write_col_to_sheet(
+        sheet, _get_col_for_drought_class(drought_class_annual_totals, 3), 8,
+        initial_row
+    )
+    xl.write_col_to_sheet(
+        sheet, _get_col_for_drought_class(drought_class_annual_totals, 4), 10,
+        initial_row
+    )
+    xl.write_col_to_sheet(
+        sheet, _get_col_for_drought_class(drought_class_annual_totals, 0), 12,
+        initial_row
+    )
+    xl.write_col_to_sheet(
+        sheet, _get_col_for_drought_class(drought_class_annual_totals, -32768),
+        14, initial_row
+    )
+
+
 def _write_drought_pop_total_sheet(sheet, st: SummaryTableDrought, years):
-    xl.write_col_to_sheet(sheet, np.array(years), 2, 7)
-    xl.write_col_to_sheet(
-        sheet,
-        _get_col_for_drought_class(
-            st.annual_population_by_drought_class_total, 1
-        ), 4, 7
-    )
-    xl.write_col_to_sheet(
-        sheet,
-        _get_col_for_drought_class(
-            st.annual_population_by_drought_class_total, 2
-        ), 6, 7
-    )
-    xl.write_col_to_sheet(
-        sheet,
-        _get_col_for_drought_class(
-            st.annual_population_by_drought_class_total, 3
-        ), 8, 7
-    )
-    xl.write_col_to_sheet(
-        sheet,
-        _get_col_for_drought_class(
-            st.annual_population_by_drought_class_total, 4
-        ), 10, 7
-    )
-    xl.write_col_to_sheet(
-        sheet,
-        _get_col_for_drought_class(
-            st.annual_population_by_drought_class_total, 0
-        ), 12, 7
-    )
-    xl.write_col_to_sheet(
-        sheet,
-        _get_col_for_drought_class(
-            st.annual_population_by_drought_class_total, -32768
-        ), 14, 7
-    )
+    if len(st.annual_population_by_drought_class_total) > 0:
+        _write_drought_pop_columns(
+            sheet,
+            st.annual_population_by_drought_class_total,
+            years,
+            initial_row=7
+        )
+
+    if len(st.annual_population_by_drought_class_female) > 0:
+        _write_drought_pop_columns(
+            sheet,
+            st.annual_population_by_drought_class_female,
+            years,
+            initial_row=35
+        )
+
+    if len(st.annual_population_by_drought_class_male) > 0:
+        _write_drought_pop_columns(
+            sheet,
+            st.annual_population_by_drought_class_male,
+            years,
+            initial_row=63
+        )
+
     xl.maybe_add_image_to_sheet(
         "trends_earth_logo_bl_300width.png", sheet, "L1"
     )

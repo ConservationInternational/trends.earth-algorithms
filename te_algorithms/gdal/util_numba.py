@@ -78,7 +78,7 @@ def calc_cell_area(ymin, ymax, x_width):
 @cc.export('zonal_total', 'DictType(i2, f8)(i2[:,:], f8[:,:], b1[:,:])')
 def zonal_total(z, d, mask):
     z = z.copy().ravel()
-    d = d.ravel()
+    d = d.copy().ravel()
     mask = mask.ravel()
     z[mask] = MASK_VALUE
     d[d == NODATA_VALUE] = 0  # ignore nodata values
@@ -101,7 +101,7 @@ def zonal_total(z, d, mask):
 )
 def zonal_total_weighted(z, d, weights, mask):
     z = z.copy().ravel()
-    d = d.ravel()
+    d = d.copy().ravel()
     weights = weights.ravel()
     mask = mask.ravel()
     z[mask] = MASK_VALUE
