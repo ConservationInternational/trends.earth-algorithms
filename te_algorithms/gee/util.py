@@ -554,7 +554,9 @@ class TEImageV2():
 
         for datatype, value in output.items():
             uris = [results.URI.Schema().dump(uri) for uri in value['uris']]
-            bands = [results.Band.Schema().dump(band) for bandin value['bands']]
+            bands = [
+                results.Band.Schema().dump(band) for band in value['bands']
+            ]
 
             if len(uris) > 1:
                 rasters[datatype.value] = TiledRaster.Schema().load(
