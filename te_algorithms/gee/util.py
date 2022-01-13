@@ -572,4 +572,4 @@ class TEImageV2():
             name=task_name, rasters=rasters, data={}
         )
 
-        return RasterResults.Schema().dump(gee_results)
+        return results.RasterResults.Schema().dump(gee_results)
