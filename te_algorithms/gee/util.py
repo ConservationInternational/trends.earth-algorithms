@@ -553,19 +553,25 @@ class TEImageV2():
         rasters = {}
 
         for datatype, value in output.items():
-            if len(value['uris']) > 0:
-                rasters[datatype] = TiledRaster(
-                    tile_uris=value['uris'],
-                    bands=value['bands'],
-                    datatype=datatype,
-                    filetype=filetype
+            uris = [results.URI.Schema().dump(uri) for uri in value['uris']]
+
+            if len(uris) > 1:
+                rasters[datatype.value] = TiledRaster.Schema().load(
+                    {
+                        'tile_uris': uris,
+                        'bands': value['bands'],
+                        'datatype': datatype,
+                        'filetype': filetype
+                    }
                 )
             else:
-                rasters[datatype] = Raster(
-                    uri=value['uris'][0],
-                    bands=value['bands'],
-                    datatype=datatype,
-                    filetype=filetype
+                rasters[datatype.value] = Raster.Schema().load(
+                    {
+                        'uri': uris[0],
+                        'bands': value['bands'],
+                        'datatype': datatype,
+                        'filetype': filetype
+                    }
                 )
 
         gee_results = results.RasterResults(
