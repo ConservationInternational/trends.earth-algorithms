@@ -848,13 +848,7 @@ def make_job(params, script):
         local_context=local_context,
         task_name=task_name,
         task_notes=task_notes,
-        results=results.JobCloudResults(
-            name=script.name,
-            bands=[],
-            urls=[],
-            data_path=None,
-            other_paths=[]
-        ),
+        results=results.RasterResults(name=script.name, rasters=[], uri=None),
         script=script
     )
 
