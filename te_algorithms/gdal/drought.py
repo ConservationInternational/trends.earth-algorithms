@@ -165,7 +165,7 @@ def _process_block(
 
         if pop_by_sex:
             pop_row_male = pop_rows_male[row_num]
-            pop_row_female = pop_rows_male[row_num]
+            pop_row_female = pop_rows_female[row_num]
 
             a_pop_male = in_array[pop_row_male, :, :].astype(np.float64)
             a_pop_male_recoded = a_pop_male.copy()
