@@ -288,6 +288,8 @@ def productivity_performance(
     # version, for the clipping
     poly = ee.Geometry(geojson, opt_geodesic=False)
 
+    logger.debug(f"ndvi_1yr band names: {ndvi_1yr.getInfo()['bands']}")
+
     # compute mean ndvi for the period
     ndvi_avg = ndvi_1yr.select(
         ee.List([f'y{i}' for i in range(year_initial, year_final + 1)])
