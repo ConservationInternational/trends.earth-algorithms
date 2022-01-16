@@ -56,8 +56,8 @@ def p_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
         img_coll = ee.List([])
 
         for k in range(year_initial, year_final + 1):
-            ndvi_img = ndvi_stack.select('y{}'.format(k)).addBands(
-                climate_1yr.select('y{}'.format(k))
+            ndvi_img = ndvi_stack.select(f'y{k}').addBands(
+                climate_1yr.select(f'y{k}')
             ).rename(['ndvi', 'clim']).set({'year': k})
             img_coll = img_coll.add(ndvi_img)
 
@@ -101,7 +101,6 @@ def p_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     # Function create image collection of residuals
     def f_ndvi_clim_r_coll(year_initial, year_final):
         res_list = ee.List([])
-        #for(i = year_initial i <= year_final i += 1):
 
         for i in range(year_initial, year_final + 1):
             res_image = f_ndvi_clim_r_img(i)
@@ -150,8 +149,8 @@ def ue_trend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
         img_coll = ee.List([])
 
         for k in range(year_initial, year_final + 1):
-            ndvi_img = ndvi_stack.select('y{}'.format(k)).divide(
-                climate_1yr.select('y{}'.format(k))
+            ndvi_img = ndvi_stack.select(f'y{k}').divide(
+                climate_1yr.select(f'y{k}')
             ).addBands(ee.Image(k).float()).rename(['ue',
                                                     'year']).set({'year': k})
             img_coll = img_coll.add(ndvi_img)
@@ -187,12 +186,6 @@ def productivity_trajectory(
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
 
-    ndvi_mean = ndvi_dataset.select(
-        ee.List(
-            ['y{}'.format(i) for i in range(year_initial, year_final + 1)]
-        )
-    ).reduce(ee.Reducer.mean()).rename(['ndvi'])
-
     # Run the selected algorithm
 
     if method == 'ndvi_trend':
@@ -214,7 +207,7 @@ def productivity_trajectory(
             year_initial, year_final, ndvi_dataset, climate_1yr, logger
         )
     else:
-        raise GEEIOError("Unrecognized method '{}'".format(method))
+        raise GEEIOError(f"Unrecognized method '{method}'")
 
     # Define Kendall parameter values for a significance of 0.05
     period = year_final - year_initial + 1
@@ -297,9 +290,7 @@ def productivity_performance(
 
     # compute mean ndvi for the period
     ndvi_avg = ndvi_1yr.select(
-        ee.List(
-            ['y{}'.format(i) for i in range(year_initial, year_final + 1)]
-        )
+        ee.List([f'y{i}' for i in range(year_initial, year_final + 1)])
     ).reduce(ee.Reducer.mean()).rename(['ndvi']).clip(poly)
 
     # Handle case of year_initial that isn't included in the CCI data
@@ -311,7 +302,7 @@ def productivity_performance(
     else:
         lc_year_initial = year_initial
     # reclassify lc to ipcc classes
-    lc_t0 = lc.select('y{}'.format(lc_year_initial)).remap(
+    lc_t0 = lc.select(f'y{lc_year_initial}').remap(
         [
             10, 11, 12, 20, 30, 40, 50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90,
             100, 160, 170, 110, 130, 180, 190, 120, 121, 122, 140, 150, 151,
@@ -412,16 +403,13 @@ def productivity_state(
 
     # compute min and max of annual ndvi for the baseline period
     bl_ndvi_range = ndvi_1yr.select(
-        ee.List(
-            ['y{}'.format(i) for i in range(year_bl_start, year_bl_end + 1)]
-        )
+        ee.List([f'y{i}' for i in range(year_bl_start, year_bl_end + 1)])
     ).reduce(ee.Reducer.percentile([0, 100]))
 
-    # add two bands to the time series: one 5% lower than min and one 5% higher than max
+    # add two bands to the time series: one 5% lower than min and one 5% higher
+    # than max
     bl_ndvi_ext = ndvi_1yr.select(
-        ee.List(
-            ['y{}'.format(i) for i in range(year_bl_start, year_bl_end + 1)]
-        )
+        ee.List([f'y{i}' for i in range(year_bl_start, year_bl_end + 1)])
     ).addBands(
         bl_ndvi_range.select('p0').subtract(
             (
@@ -446,14 +434,10 @@ def productivity_state(
 
     # compute mean ndvi for the baseline and target period period
     bl_ndvi_mean = ndvi_1yr.select(
-        ee.List(
-            ['y{}'.format(i) for i in range(year_bl_start, year_bl_end + 1)]
-        )
+        ee.List([f'y{i}' for i in range(year_bl_start, year_bl_end + 1)])
     ).reduce(ee.Reducer.mean()).rename(['ndvi'])
     tg_ndvi_mean = ndvi_1yr.select(
-        ee.List(
-            ['y{}'.format(i) for i in range(year_tg_start, year_tg_end + 1)]
-        )
+        ee.List([f'y{i}' for i in range(year_tg_start, year_tg_end + 1)])
     ).reduce(ee.Reducer.mean()).rename(['ndvi'])
 
     # reclassify mean ndvi for baseline period based on the percentiles
