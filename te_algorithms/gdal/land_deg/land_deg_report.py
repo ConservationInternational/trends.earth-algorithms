@@ -49,6 +49,27 @@ def save_summary_table_excel(
         logger.error(error_message)
 
 
+def _get_population_list_by_degradation_class(pop_by_deg_class, pop_type):
+    return reporting.PopulationList(
+        'Population by degradation class', [
+            reporting.Population(
+                'Improved', pop_by_deg_class.get(1, 0), type=pop_type
+            ),
+            reporting.Population(
+                'Stable', pop_by_deg_class.get(0, 0), type=pop_type
+            ),
+            reporting.Population(
+                'Degraded', pop_by_deg_class.get(-1, 0), type=pop_type
+            ),
+            reporting.Population(
+                'No data',
+                pop_by_deg_class.get(config.NODATA_VALUE, 0),
+                type=pop_type
+            )
+        ]
+    )
+
+
 def save_reporting_json(
     output_path: Path, summary_tables: List[models.SummaryTableLD],
     summary_table_progress: models.SummaryTableLDProgress, params: dict,
@@ -308,27 +329,25 @@ def save_reporting_json(
         ###
         # Setup this period's affected population report
 
-        affected_by_deg_summary = reporting.PopulationList(
-            'Population by degradation class', [
-                reporting.Population(
-                    'Improved', st.sdg_zonal_population_total.get(1, 0),
-                    'Total population'
-                ),
-                reporting.Population(
-                    'Stable', st.sdg_zonal_population_total.get(0, 0),
-                    'Total population'
-                ),
-                reporting.Population(
-                    'Degraded', st.sdg_zonal_population_total.get(-1, 0),
-                    'Total population'
-                ),
-                reporting.Population(
-                    'No data',
-                    st.sdg_zonal_population_total.get(config.NODATA_VALUE, 0),
-                    'Total population'
+        affected_by_deg_summary = {
+            'Total population':
+            _get_population_list_by_degradation_class(
+                st.sdg_zonal_population_total, "Total population"
+            )
+        }
+
+        if len(st.sdg_zonal_population_female) > 0:
+            affected_by_deg_summary[
+                'Female population'
+            ] = _get_population_list_by_degradation_class(
+                st.sdg_zonal_population_female, "Female population"
+            )
+
+        if len(st.sdg_zonal_population_male) > 0:
+            affected_by_deg_summary[
+                'Male population'] = _get_population_list_by_degradation_class(
+                    st.sdg_zonal_population_male, "Male population"
                 )
-            ]
-        )
 
         affected_pop_reports[period_name] = reporting.AffectedPopulationReport(
             affected_by_deg_summary
@@ -449,7 +468,7 @@ def save_reporting_json(
             )
         ),
         land_condition=land_condition_reports,
-        affected_population=affected_pop_reports,
+        affected_population=affected_pop_reports
     )
 
     try:
@@ -463,8 +482,7 @@ def save_reporting_json(
         return te_summary_json
 
     except IOError:
-        logger.error(u'Error saving {}'.format(output_path))
-        error_message = (
+        logger.error(
             "Error saving indicator table JSON - check that "
             f"{output_path} is accessible and not already open."
         )

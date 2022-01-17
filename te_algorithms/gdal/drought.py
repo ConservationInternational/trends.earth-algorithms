@@ -761,7 +761,7 @@ def save_summary_table_excel(
 
 def _get_population_list_by_drought_class(pop_by_drought, pop_type):
     return reporting.PopulationList(
-        'Total population by drought class', [
+        'Population by drought class', [
             reporting.Population(
                 'Mild drought', pop_by_drought.get(1, 0), type=pop_type
             ),
@@ -847,14 +847,14 @@ def save_reporting_json(
             )
         }
 
-        if st.annual_population_by_drought_class_male:
+        if len(st.annual_population_by_drought_class_male) > 0:
             drought_tier_two[year][
                 'Male population'] = _get_population_list_by_drought_class(
                     st.annual_population_by_drought_class_male[n],
                     "Male population"
                 )
 
-        if st.annual_population_by_drought_class_female:
+        if len(st.annual_population_by_drought_class_female) > 0:
             drought_tier_two[year][
                 'Female population'] = _get_population_list_by_drought_class(
                     st.annual_population_by_drought_class_female[n],
