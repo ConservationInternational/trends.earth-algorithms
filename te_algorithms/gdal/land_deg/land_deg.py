@@ -793,21 +793,21 @@ def _process_block_summary(
     pop_array_total[deg_sdg == -1] = -pop_array_total[deg_sdg == -1]
     write_arrays.append({'array': pop_array_total, 'xoff': xoff, 'yoff': yoff})
 
-    if pop_by_sex:
-        write_arrays.append(
-            {
-                'array': pop_array_male,
-                'xoff': xoff,
-                'yoff': yoff
-            }
-        )
-        write_arrays.append(
-            {
-                'array': pop_array_female,
-                'xoff': xoff,
-                'yoff': yoff
-            }
-        )
+    # if pop_by_sex:
+    #     write_arrays.append(
+    #         {
+    #             'array': pop_array_male,
+    #             'xoff': xoff,
+    #             'yoff': yoff
+    #         }
+    #     )
+    #     write_arrays.append(
+    #         {
+    #             'array': pop_array_female,
+    #             'xoff': xoff,
+    #             'yoff': yoff
+    #         }
+    #     )
 
     if params.prod_mode == 'Trends.Earth productivity':
         write_arrays.append({'array': deg_prod5, 'xoff': xoff, 'yoff': yoff})
@@ -898,17 +898,17 @@ def _process_region(
         if mask_result:
             in_df = combine_data_files(output_layers_path, in_dfs)
 
-            n_out_bands = 2
-
-            pop_rows_total = in_df.indices_for_name(
-                config.POPULATION_BAND_NAME, field='type', field_filter='total'
-            )
-            pop_rows_male = in_df.indices_for_name(
-                config.POPULATION_BAND_NAME, field='type', field_filter='male'
-            )
-            pop_rows_female = in_df.indices_for_name(
-                config.POPULATION_BAND_NAME, field='type', field_filter='female'
-            )
+            # n_out_bands = 2
+            #
+            # pop_rows_total = in_df.indices_for_name(
+            #     config.POPULATION_BAND_NAME, field='type', field_filter='total'
+            # )
+            # pop_rows_male = in_df.indices_for_name(
+            #     config.POPULATION_BAND_NAME, field='type', field_filter='male'
+            # )
+            # pop_rows_female = in_df.indices_for_name(
+            #     config.POPULATION_BAND_NAME, field='type', field_filter='female'
+            # )
 
             if prod_mode == 'Trends.Earth productivity':
                 model_band_number = in_df.index_for_name(
