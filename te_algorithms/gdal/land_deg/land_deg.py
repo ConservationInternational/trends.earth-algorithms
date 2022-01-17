@@ -750,6 +750,7 @@ def _process_block_summary(
 
     if len(pop_rows_total) == 1:
         assert len(pop_rows_male) == 0 and len(pop_rows_female) == 0
+        pop_by_sex = False
 
         pop_array_total = in_array[pop_rows_total[0], :, :].astype(np.float64)
         pop_array_total_masked = pop_array_total.copy()
@@ -760,6 +761,8 @@ def _process_block_summary(
     else:
         assert len(pop_rows_total) == 0
         assert len(pop_rows_male) == 1 and len(pop_rows_female) == 1
+
+        pop_by_sex = True
 
         pop_array_male = in_array[pop_rows_male[0], :, :].astype(np.float64)
         pop_array_male_masked = pop_array_male.copy()
@@ -789,6 +792,22 @@ def _process_block_summary(
     # Save SO3 array
     pop_array_total[deg_sdg == -1] = -pop_array_total[deg_sdg == -1]
     write_arrays.append({'array': pop_array_total, 'xoff': xoff, 'yoff': yoff})
+
+    if pop_by_sex:
+        write_arrays.append(
+            {
+                'array': pop_array_male,
+                'xoff': xoff,
+                'yoff': yoff
+            }
+        )
+        write_arrays.append(
+            {
+                'array': pop_array_female,
+                'xoff': xoff,
+                'yoff': yoff
+            }
+        )
 
     if params.prod_mode == 'Trends.Earth productivity':
         write_arrays.append({'array': deg_prod5, 'xoff': xoff, 'yoff': yoff})
@@ -880,6 +899,16 @@ def _process_region(
             in_df = combine_data_files(output_layers_path, in_dfs)
 
             n_out_bands = 2
+
+            pop_rows_total = in_df.indices_for_name(
+                config.POPULATION_BAND_NAME, field='type', field_filter='total'
+            )
+            pop_rows_male = in_df.indices_for_name(
+                config.POPULATION_BAND_NAME, field='type', field_filter='male'
+            )
+            pop_rows_female = in_df.indices_for_name(
+                config.POPULATION_BAND_NAME, field='type', field_filter='female'
+            )
 
             if prod_mode == 'Trends.Earth productivity':
                 model_band_number = in_df.index_for_name(
