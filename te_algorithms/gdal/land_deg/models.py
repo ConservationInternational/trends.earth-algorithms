@@ -23,16 +23,16 @@ class SummaryTableLD(SchemaBase):
     sdg_zonal_population_male: Dict[int, float]
     sdg_zonal_population_female: Dict[int, float]
     sdg_summary: Dict[int, float]
-    prod_summary: Dict[int, float]
-    soc_summary: Dict[int, float]
+    prod_summary: Dict[str, Dict[int, float]]
+    soc_summary: Dict[str, Dict[int, float]]
     lc_summary: Dict[int, float]
 
 
 @marshmallow_dataclass.dataclass
 class SummaryTableLDProgress(SchemaBase):
     sdg_summary: Dict[int, float]
-    prod_summary: Dict[int, float]
-    soc_summary: Dict[int, float]
+    prod_summary: Dict[str, Dict[int, float]]
+    soc_summary: Dict[str, Dict[int, float]]
     lc_summary: Dict[int, float]
 
 

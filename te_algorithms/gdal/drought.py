@@ -44,8 +44,8 @@ POPULATION_BAND_NAME = "Population (number of people)"
 SPI_BAND_NAME = "Standardized Precipitation Index (SPI)"
 JRC_BAND_NAME = "Drought Vulnerability (JRC)"
 WATER_MASK_BAND_NAME = "Water mask"
-SPI_MIN_OVER_PERIOD_BAND_NAME = "Minimum SPI over period",
-POP_AT_SPI_MIN_OVER_PERIOD_BAND_NAME = "Population density at minimum SPI over period",
+SPI_MIN_OVER_PERIOD_BAND_NAME = "Minimum SPI over period"
+POP_AT_SPI_MIN_OVER_PERIOD_BAND_NAME = "Population at minimum SPI over period"
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +200,9 @@ def _process_block(
     # params.drought_period, and save the spi at that point as well as
     # population that was exposed to it at that point
 
-    for period_number, first_row in enumerate(
-        range(0, len(spi_rows), params.drought_period)
-    ):
+    first_rows = [*range(0, len(spi_rows), params.drought_period)]
+
+    for period_number, first_row in enumerate(first_rows):
 
         if (first_row + params.drought_period - 1) > len(spi_rows):
             last_row = len(spi_rows)
@@ -220,31 +220,50 @@ def _process_block(
             pop_male = in_array[pop_rows_male[first_row:last_row], :, :].copy()
             pop_female = in_array[
                 pop_rows_female[first_row:last_row], :, :].copy()
-            pops_total = pop_male + pop_female
+            pop_total = pop_male + pop_female
         else:
-            pops_total = in_array[
+            pop_total = in_array[
                 pop_rows_total[first_row:last_row], :, :].copy()
-        pop_at_max_drought = np.take_along_axis(
-            pops_total, min_indices, axis=0
+        pop_total_max_drought = np.take_along_axis(
+            pop_total, min_indices, axis=0
         ).squeeze()
 
-        # Need to add a dimension to max_drought and pop_at_max_drought if the
-        # second dimension of in_array is (meaning there only 1 row in this
-        # block) as otherwise after the squeeze we will be missing the second
-        # dimension of pop_at_max_drought, throwing off the masking and
-        # multiplication by cell_areas as all those arrays will have a second
-        # dimension of 1
+        if pop_by_sex:
+            pop_female_max_drought = np.take_along_axis(
+                pop_female, min_indices, axis=0
+            ).squeeze()
+            pop_male_max_drought = np.take_along_axis(
+                pop_male, min_indices, axis=0
+            ).squeeze()
+
+        # Need to add a dimension to max_drought and pop_total_max_drought if
+        # the second dimension of in_array is 1 (meaning there only 1 row in
+        # this block) as otherwise after the squeeze we will be missing the
+        # second dimension of pop_total_max_drought, throwing off the masking
+        # and multiplication by cell_areas as all those arrays will have a
+        # second dimension of 1
 
         if in_array.shape[2] == 1:
-            pop_at_max_drought = np.expand_dims(pop_at_max_drought, axis=1)
+            pop_total_max_drought = np.expand_dims(
+                pop_total_max_drought, axis=1
+            )
             max_drought = np.expand_dims(max_drought, axis=1)
-        # Account for scaling and convert from density
-        pop_at_max_drought_masked = pop_at_max_drought * 10. * cell_areas
-        pop_at_max_drought_masked[pop_at_max_drought == NODATA_VALUE] = 0
-        pop_at_max_drought_masked[
+
+            if pop_by_sex:
+                pop_female_max_drought = np.expand_dims(
+                    pop_female_max_drought, axis=1
+                )
+                pop_male_max_drought = np.expand_dims(
+                    pop_male_max_drought, axis=1
+                )
+
+        pop_total_max_drought_masked = pop_total_max_drought
+        pop_total_max_drought_masked[pop_total_max_drought == NODATA_VALUE] = 0
+        pop_total_max_drought_masked[
             max_drought < -1000
-        ] = -pop_at_max_drought_masked[max_drought < -1000]
-        pop_at_max_drought_masked[a_water_mask == 1] = 0
+        ] = -pop_total_max_drought_masked[max_drought < -1000]
+        # Set water to NODATA_VALUE as requested by UNCCD for Prais
+        pop_total_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
 
         # Add one as output band numbers start at 1, not zero
         write_arrays[2 * period_number + 1] = {
@@ -256,10 +275,47 @@ def _process_block(
         # Add two as output band numbers start at 1, not zero, and this is the
         # second band for this period
         write_arrays[2 * period_number + 2] = {
-            'array': pop_at_max_drought_masked,
+            'array': pop_total_max_drought_masked,
             'xoff': xoff,
             'yoff': yoff
         }
+
+        if pop_by_sex and period_number == (len(first_rows) - 1):
+            # Only write out population disaggregated by sex for the last
+            # period
+            pop_female_max_drought_masked = pop_female_max_drought
+            pop_female_max_drought_masked[pop_female_max_drought ==
+                                          NODATA_VALUE] = 0
+            pop_female_max_drought_masked[
+                max_drought < -1000
+            ] = -pop_female_max_drought_masked[max_drought < -1000]
+            # Set water to NODATA_VALUE as requested by UNCCD for Prais
+            pop_female_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
+
+            # Add two as output band numbers start at 1, not zero, and this is
+            # the third band for this period
+            write_arrays[2 * period_number + 3] = {
+                'array': pop_female_max_drought_masked,
+                'xoff': xoff,
+                'yoff': yoff
+            }
+
+            pop_male_max_drought_masked = pop_male_max_drought
+            pop_male_max_drought_masked[pop_male_max_drought == NODATA_VALUE
+                                        ] = 0
+            pop_male_max_drought_masked[
+                max_drought < -1000
+            ] = -pop_male_max_drought_masked[max_drought < -1000]
+            # Set water to NODATA_VALUE as requested by UNCCD for Prais
+            pop_male_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
+
+            # Add two as output band numbers start at 1, not zero, and this is
+            # the fourth band for this period
+            write_arrays[2 * period_number + 4] = {
+                'array': pop_male_max_drought_masked,
+                'xoff': xoff,
+                'yoff': yoff
+            }
 
     jrc_row = params.in_df.index_for_name(JRC_BAND_NAME)
     dvi_value_sum_and_count = jrc_sum_and_count(in_array[jrc_row, :, :], mask)
@@ -344,6 +400,45 @@ def _process_line(line_params: LineParams):
         results.append(result)
 
     return results
+
+
+def _get_n_pop_band_for_type(dfs, pop_type):
+    n_bands = 0
+
+    for df in dfs:
+        n_bands += len(
+            df.indices_for_name(
+                POPULATION_BAND_NAME, field='type', field_filter=pop_type
+            )
+        )
+
+    return n_bands
+
+
+def _get_n_spi_bands(dfs):
+    n_bands = 0
+
+    for df in dfs:
+        n_bands += len(df.indices_for_name(SPI_BAND_NAME))
+
+    return n_bands
+
+
+def _have_pop_by_sex(in_dfs):
+    n_spi_bands = _get_n_spi_bands(in_dfs)
+    n_total_pop_bands = _get_n_pop_band_for_type(in_dfs, 'total')
+    n_female_pop_bands = _get_n_pop_band_for_type(in_dfs, 'female')
+    n_male_pop_bands = _get_n_pop_band_for_type(in_dfs, 'male')
+
+    assert (
+        n_spi_bands == n_total_pop_bands
+        or n_spi_bands * 2 == (n_male_pop_bands + n_female_pop_bands)
+    )
+
+    if n_male_pop_bands >= 1:
+        return True
+    else:
+        return False
 
 
 class DroughtSummary:
@@ -431,14 +526,35 @@ class DroughtSummary:
             2 * math.ceil(
                 len(self.params.in_df.indices_for_name(SPI_BAND_NAME)) /
                 self.params.drought_period
-            ) + 1
+            )
         )
+
+        if _have_pop_by_sex([self.params.in_df]):
+            # If have population disaggregated by sex, then the total
+            # population at max drought layer is written for each period except
+            # for the last, which also includes male/female totals - so need
+            # two more out bands
+            n_out_bands += 2
+
         out_ds = util.setup_output_image(
             self.params.in_df.path, self.params.out_file, n_out_bands,
             self.image_info
         )
 
         return out_ds
+
+
+def _get_population_band_instance(population_type, year_initial, year_final):
+    return Band(
+        name=POP_AT_SPI_MIN_OVER_PERIOD_BAND_NAME,
+        no_data_value=NODATA_VALUE,
+        metadata={
+            'year_initial': year_initial,
+            'year_final': year_final,
+            'type': population_type
+        },
+        activated=True
+    )
 
 
 def summarise_drought_vulnerability(
@@ -487,12 +603,14 @@ def summarise_drought_vulnerability(
         f"{int(params['layer_spi_years'][-1])}"
     )
 
-    for period_number, year_initial in enumerate(
-        range(
+    year_initials = [
+        *range(
             int(params['layer_spi_years'][0]),
             int(params['layer_spi_years'][-1]), drought_period
         )
-    ):
+    ]
+
+    for period_number, year_initial in enumerate(year_initials):
         if (year_initial + drought_period - 1) > params['layer_spi_years'][-1]:
             year_final = params['layer_spi_years'][-1]
         else:
@@ -512,16 +630,21 @@ def summarise_drought_vulnerability(
         )
 
         out_bands.append(
-            Band(
-                name=POP_AT_SPI_MIN_OVER_PERIOD_BAND_NAME,
-                no_data_value=NODATA_VALUE,
-                metadata={
-                    'year_initial': year_initial,
-                    'year_final': year_final
-                },
-                activated=True
-            )
+            _get_population_band_instance('total', year_initial, year_final)
         )
+
+        if _have_pop_by_sex(spi_dfs + population_dfs
+                            ) and period_number == (len(year_initials) - 1):
+            out_bands.append(
+                _get_population_band_instance(
+                    'female', year_initial, year_final
+                )
+            )
+            out_bands.append(
+                _get_population_band_instance(
+                    'male', year_initial, year_final
+                )
+            )
 
     out_df = DataFile(out_path.name, out_bands)
 

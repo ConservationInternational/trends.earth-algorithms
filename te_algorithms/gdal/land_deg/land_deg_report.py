@@ -99,27 +99,33 @@ def save_reporting_json(
             ]
         )
 
-        prod_summary = reporting.AreaList(
-            'Productivity', 'sq km', [
-                reporting.Area('Improved', st.prod_summary.get(1, 0.)),
-                reporting.Area('Stable', st.prod_summary.get(0, 0.)),
-                reporting.Area('Degraded', st.prod_summary.get(-1, 0.)),
-                reporting.Area(
-                    'No data', st.prod_summary.get(config.NODATA_VALUE, 0)
-                )
-            ]
-        )
+        prod_summaries = {
+            key: reporting.AreaList(
+                'Productivity', 'sq km', [
+                    reporting.Area('Improved', value.get(1, 0.)),
+                    reporting.Area('Stable', value.get(0, 0.)),
+                    reporting.Area('Degraded', value.get(-1, 0.)),
+                    reporting.Area(
+                        'No data', value.get(config.NODATA_VALUE, 0)
+                    )
+                ]
+            )
+            for key, value in st.prod_summary.items()
+        }
 
-        soc_summary = reporting.AreaList(
-            'Soil organic carbon', 'sq km', [
-                reporting.Area('Improved', st.soc_summary.get(1, 0.)),
-                reporting.Area('Stable', st.soc_summary.get(0, 0.)),
-                reporting.Area('Degraded', st.soc_summary.get(-1, 0.)),
-                reporting.Area(
-                    'No data', st.soc_summary.get(config.NODATA_VALUE, 0.)
-                )
-            ]
-        )
+        soc_summaries = {
+            key: reporting.AreaList(
+                'Soil organic carbon', 'sq km', [
+                    reporting.Area('Improved', value.get(1, 0.)),
+                    reporting.Area('Stable', value.get(0, 0.)),
+                    reporting.Area('Degraded', value.get(-1, 0.)),
+                    reporting.Area(
+                        'No data', value.get(config.NODATA_VALUE, 0.)
+                    )
+                ]
+            )
+            for key, value in st.soc_summary.items()
+        }
 
         lc_summary = reporting.AreaList(
             'Land cover', 'sq km', [
@@ -309,7 +315,7 @@ def save_reporting_json(
         land_condition_reports[period_name] = reporting.LandConditionReport(
             sdg=reporting.SDG15Report(summary=sdg_summary),
             productivity=reporting.ProductivityReport(
-                summary=prod_summary,
+                summaries=prod_summaries,
                 crosstabs_by_productivity_class=crosstab_prod
             ),
             land_cover=reporting.LandCoverReport(
@@ -320,7 +326,7 @@ def save_reporting_json(
                 land_cover_areas_by_year=lc_by_year_by_class
             ),
             soil_organic_carbon=reporting.SoilOrganicCarbonReport(
-                summary=soc_summary,
+                summaries=soc_summaries,
                 crosstab_by_land_cover_class=crosstab_soc_by_transition_per_ha,
                 soc_stock_by_year=soc_by_year_by_class
             )
@@ -379,28 +385,20 @@ def save_reporting_json(
                         )
                     ]
                 ),
-                productivity=reporting.AreaList(
-                    'Productivity (progress since baseline)', 'sq km', [
-                        reporting.Area(
-                            'Improved',
-                            summary_table_progress.prod_summary.get(1, 0.)
-                        ),
-                        reporting.Area(
-                            'Stable',
-                            summary_table_progress.prod_summary.get(0, 0.)
-                        ),
-                        reporting.Area(
-                            'Degraded',
-                            summary_table_progress.prod_summary.get(-1, 0.)
-                        ),
-                        reporting.Area(
-                            'No data',
-                            summary_table_progress.prod_summary.get(
-                                config.NODATA_VALUE, 0
+                productivity={
+                    key: reporting.AreaList(
+                        'Productivity (progress since baseline)', 'sq km', [
+                            reporting.Area('Improved', value.get(1, 0.)),
+                            reporting.Area('Stable', value.get(0, 0.)),
+                            reporting.Area('Degraded', value.get(-1, 0.)),
+                            reporting.Area(
+                                'No data', value.get(config.NODATA_VALUE, 0)
                             )
-                        )
-                    ]
-                ),
+                        ]
+                    )
+                    for key, value in
+                    summary_table_progress.prod_summary.items()
+                },
                 land_cover=reporting.AreaList(
                     'Land cover (progress since baseline)', 'sq km', [
                         reporting.Area(
@@ -423,28 +421,21 @@ def save_reporting_json(
                         )
                     ]
                 ),
-                soil_organic_carbon=reporting.AreaList(
-                    'Soil organic carbon (progress since baseline)', 'sq km', [
-                        reporting.Area(
-                            'Improved',
-                            summary_table_progress.soc_summary.get(1, 0.)
-                        ),
-                        reporting.Area(
-                            'Stable',
-                            summary_table_progress.soc_summary.get(0, 0.)
-                        ),
-                        reporting.Area(
-                            'Degraded',
-                            summary_table_progress.soc_summary.get(-1, 0.)
-                        ),
-                        reporting.Area(
-                            'No data',
-                            summary_table_progress.soc_summary.get(
-                                config.NODATA_VALUE, 0
+                soil_organic_carbon={
+                    key: reporting.AreaList(
+                        'Soil organic carbon (progress since baseline)',
+                        'sq km', [
+                            reporting.Area('Improved', value.get(1, 0.)),
+                            reporting.Area('Stable', value.get(0, 0.)),
+                            reporting.Area('Degraded', value.get(-1, 0.)),
+                            reporting.Area(
+                                'No data', value.get(config.NODATA_VALUE, 0)
                             )
-                        )
-                    ]
-                )
+                        ]
+                    )
+                    for key, value in
+                    summary_table_progress.prod_summary.items()
+                }
             )
 
     ##########################################################################

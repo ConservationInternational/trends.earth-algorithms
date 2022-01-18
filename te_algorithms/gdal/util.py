@@ -116,12 +116,11 @@ def combine_all_bands_into_vrt(
             out_gt = this_gt
             out_proj = this_proj
         else:
-            assert (
-                [round(x, 8)
-                 for x in out_gt] == [round(x, 8) for x in this_gt],
-                f"base file geotransform ({out_gt}) doesn't match "
-                f"geotransform in {in_file} ({this_gt})"
-            )
+            assert [round(x, 8)
+                    for x in out_gt] == [round(x, 8) for x in this_gt], (
+                        f"base file geotransform ({out_gt}) doesn't match "
+                        f"geotransform in {in_file} ({this_gt})"
+                    )
             assert out_proj == this_proj
 
         for band_num in range(1, in_ds.RasterCount + 1):

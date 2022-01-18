@@ -36,21 +36,29 @@ def _accumulate_ld_progress_summary_tables(
     else:
         out = tables[0]
 
-        for table in tables[1:]:
-            out.sdg_summary = util.accumulate_dicts(
-                [out.sdg_summary, table.sdg_summary]
+    for table in tables[1:]:
+        out.sdg_summary = util.accumulate_dicts(
+            [out.sdg_summary, table.sdg_summary]
+        )
+        assert set(out.prod_summary.keys()) == set(table.prod_summary.keys())
+        out.prod_summary = {
+            key: util.accumulate_dicts(
+                [out.prod_summary[key], table.prod_summary[key]]
             )
-            out.prod_summary = util.accumulate_dicts(
-                [out.prod_summary, table.prod_summary]
+            for key in out.prod_summary.keys()
+        }
+        assert set(out.soc_summary.keys()) == set(table.soc_summary.keys())
+        out.soc_summary = {
+            key: util.accumulate_dicts(
+                [out.soc_summary[key], table.soc_summary[key]]
             )
-            out.soc_summary = util.accumulate_dicts(
-                [out.soc_summary, table.soc_summary]
-            )
-            out.lc_summary = util.accumulate_dicts(
-                [out.lc_summary, table.lc_summary]
-            )
+            for key in out.soc_summary.keys()
+        }
+        out.lc_summary = util.accumulate_dicts(
+            [out.lc_summary, table.lc_summary]
+        )
 
-        return out
+    return out
 
 
 def compute_progress_summary(
@@ -328,6 +336,9 @@ def _process_block_progress(
         -1, -1,  0, 0, 1
     ]  # yapf: disable
 
+    water = in_array[params.band_dict['lc_baseline_bandnum'] - 1, :, :] == 7
+    water = water.astype(bool, copy=False)
+
     prod5_baseline = in_array[params.band_dict['prod5_baseline_bandnum'] -
                               1, :, :]
     prod5_progress = in_array[params.band_dict['prod5_progress_bandnum'] -
@@ -343,7 +354,17 @@ def _process_block_progress(
     deg_prod_progress = calc_deg_lc(
         prod5_baseline, prod5_progress, trans_code, trans_meaning_sdg, 10
     )
-    prod_summary = zonal_total(deg_prod_progress, cell_areas, mask)
+
+    # Make a tabulation of the productivity and SOC summaries without water for
+    # usage on Prais4
+    mask_plus_water = mask.copy()
+    mask_plus_water[water] = True
+
+    prod_summary = {
+        'all_cover_types': zonal_total(deg_prod_progress, cell_areas, mask),
+        'non_water':
+        zonal_total(deg_prod_progress, cell_areas, mask_plus_water)
+    }
 
     # LC
     deg_lc = calc_progress_lc_deg(
@@ -357,10 +378,11 @@ def _process_block_progress(
         in_array[params.band_dict['soc_initial_bandnum'] - 1, :, :],
         in_array[params.band_dict['soc_final_bandnum'] - 1, :, :]
     )
-    water = in_array[params.band_dict['lc_baseline_bandnum'] - 1, :, :] == 7
-    water = water.astype(bool, copy=False)
     deg_soc = recode_deg_soc(soc_pch, water)
-    soc_summary = zonal_total(deg_soc, cell_areas, mask)
+    soc_summary = {
+        'all_cover_types': zonal_total(deg_soc, cell_areas, mask),
+        'non_water': zonal_total(deg_soc, cell_areas, mask_plus_water)
+    }
 
     # Summarize results
     deg_sdg = calc_deg_sdg(deg_prod_progress, deg_lc, deg_soc)

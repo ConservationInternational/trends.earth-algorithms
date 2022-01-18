@@ -52,7 +52,7 @@ def get_s3_client(access_key_id=None, secret_access_key=None, no_sign=False):
             config=config
         )
     except IOError:
-        logging.warning(
+        logger.warning(
             "AWS credentials file not found. Credentials must be in "
             "environment variable in default AWS credentials location, "
             "or (if on the cloude) an instance role must be attached)"
@@ -251,7 +251,7 @@ def get_job_json_from_s3(
     )
 
     if len(objects['Contents']) == 0:
-        logging.exception(f"No objects found for {s3_prefix}")
+        logger.exception(f"No objects found for {s3_prefix}")
 
         return None
     else:
@@ -698,8 +698,8 @@ def _get_job_basename(job: jobs.Job):
         name_fragments.append(task_name)
 
     if job.script:
-        name_fragments.append(job.script.name)
-    name_fragments.extend([job.local_context.area_of_interest_name])
+        name_fragments.append(slugify(job.script.name))
+    name_fragments.extend([slugify(job.local_context.area_of_interest_name)])
 
     return separator.join(name_fragments)
 

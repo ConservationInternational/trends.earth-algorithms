@@ -106,12 +106,20 @@ def _accumulate_ld_summary_tables(
         out.sdg_summary = util.accumulate_dicts(
             [out.sdg_summary, table.sdg_summary]
         )
-        out.prod_summary = util.accumulate_dicts(
-            [out.prod_summary, table.prod_summary]
-        )
-        out.soc_summary = util.accumulate_dicts(
-            [out.soc_summary, table.soc_summary]
-        )
+        assert set(out.prod_summary.keys()) == set(table.prod_summary.keys())
+        out.prod_summary = {
+            key: util.accumulate_dicts(
+                [out.prod_summary[key], table.prod_summary[key]]
+            )
+            for key in out.prod_summary.keys()
+        }
+        assert set(out.soc_summary.keys()) == set(table.soc_summary.keys())
+        out.soc_summary = {
+            key: util.accumulate_dicts(
+                [out.soc_summary[key], table.soc_summary[key]]
+            )
+            for key in out.soc_summary.keys()
+        }
         out.lc_summary = util.accumulate_dicts(
             [out.lc_summary, table.lc_summary]
         )
@@ -338,20 +346,20 @@ def summarise_land_degradation(
         )
         sdg_df = DataFile(sdg_path, [sdg_band])
 
-        so3_band = Band(
-            name=config.POP_AFFECTED_BAND_NAME,
-            no_data_value=config.NODATA_VALUE.item(),  # write as python type
-            metadata={
-                'population_year':
-                period_params['periods']['productivity']['year_final'],
-                'deg_year_initial':
-                period_params['periods']['productivity']['year_initial'],
-                'deg_year_final':
-                period_params['periods']['productivity']['year_final']
-            },
-            add_to_map=False
+        so3_band_total = _get_so3_band_instance(
+            'total', period_params['periods']['productivity']
         )
-        sdg_df.bands.append(so3_band)
+        sdg_df.bands.append(so3_band_total)
+
+        if _have_pop_by_sex(population_dfs):
+            so3_band_female = _get_so3_band_instance(
+                'female', period_params['periods']['productivity']
+            )
+            sdg_df.bands.append(so3_band_female)
+            so3_band_male = _get_so3_band_instance(
+                'male', period_params['periods']['productivity']
+            )
+            sdg_df.bands.append(so3_band_male)
 
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             prod_band = Band(
@@ -728,12 +736,23 @@ def _process_block_summary(
     write_arrays.append({'array': deg_sdg, 'xoff': xoff, 'yoff': yoff})
 
     ###########################################################
-    # Tabulate SDG 15.3.1 indicator
+    # Tabulate summaries
     sdg_summary = zonal_total(deg_sdg, cell_areas, mask)
-    prod_summary = zonal_total(deg_prod3, cell_areas, mask)
     lc_summary = zonal_total(deg_lc, cell_areas, mask)
 
-    soc_summary = zonal_total(deg_soc, cell_areas, mask)
+    # Make a tabulation of the productivity and SOC summaries without water for
+    # usage on Prais4
+    mask_plus_water = mask.copy()
+    mask_plus_water[water] = True
+    prod_summary = {
+        'all_cover_types': zonal_total(deg_prod3, cell_areas, mask),
+        'non_water': zonal_total(deg_prod3, cell_areas, mask_plus_water)
+    }
+
+    soc_summary = {
+        'all_cover_types': zonal_total(deg_soc, cell_areas, mask),
+        'non_water': zonal_total(deg_soc, cell_areas, mask_plus_water)
+    }
 
     ###########################################################
     # Population affected by degradation
@@ -755,19 +774,16 @@ def _process_block_summary(
         pop_array_total = in_array[pop_rows_total[0], :, :].astype(np.float64)
         pop_array_total_masked = pop_array_total.copy()
         pop_array_total_masked[pop_array_total == config.NODATA_VALUE] = 0
-        pop_array_total_masked[water] = 0
         sdg_zonal_population_male = {}
         sdg_zonal_population_female = {}
     else:
         assert len(pop_rows_total) == 0
         assert len(pop_rows_male) == 1 and len(pop_rows_female) == 1
-
         pop_by_sex = True
 
         pop_array_male = in_array[pop_rows_male[0], :, :].astype(np.float64)
         pop_array_male_masked = pop_array_male.copy()
         pop_array_male_masked[pop_array_male == config.NODATA_VALUE] = 0
-        pop_array_male_masked[water] = 0
         sdg_zonal_population_male = zonal_total(
             deg_sdg, pop_array_male_masked, mask
         )
@@ -777,7 +793,6 @@ def _process_block_summary(
         )
         pop_array_female_masked = pop_array_female.copy()
         pop_array_female_masked[pop_array_female == config.NODATA_VALUE] = 0
-        pop_array_female_masked[water] = 0
         sdg_zonal_population_female = zonal_total(
             deg_sdg, pop_array_female_masked, mask
         )
@@ -791,23 +806,37 @@ def _process_block_summary(
 
     # Save SO3 array
     pop_array_total[deg_sdg == -1] = -pop_array_total[deg_sdg == -1]
+    # Set water to NODATA_VALUE as requested by UNCCD for Prais. Note this
+    # means LC transitions that indicate to/from water as deg/imp will be
+    # masked out
+    pop_array_total[water] = config.NODATA_VALUE
     write_arrays.append({'array': pop_array_total, 'xoff': xoff, 'yoff': yoff})
 
-    # if pop_by_sex:
-    #     write_arrays.append(
-    #         {
-    #             'array': pop_array_male,
-    #             'xoff': xoff,
-    #             'yoff': yoff
-    #         }
-    #     )
-    #     write_arrays.append(
-    #         {
-    #             'array': pop_array_female,
-    #             'xoff': xoff,
-    #             'yoff': yoff
-    #         }
-    #     )
+    if pop_by_sex:
+        # Set water to NODATA_VALUE as requested by UNCCD for Prais. Note this
+        # means LC transitions that indicate to/from water as deg/imp will be
+        # masked out
+        pop_array_female[water] = config.NODATA_VALUE
+        pop_array_female[deg_sdg == -1] = -pop_array_female[deg_sdg == -1]
+        write_arrays.append(
+            {
+                'array': pop_array_female,
+                'xoff': xoff,
+                'yoff': yoff
+            }
+        )
+        # Set water to NODATA_VALUE as requested by UNCCD for Prais. Note this
+        # means LC transitions that indicate to/from water as deg/imp will be
+        # masked out
+        pop_array_male[water] = config.NODATA_VALUE
+        pop_array_male[deg_sdg == -1] = -pop_array_male[deg_sdg == -1]
+        write_arrays.append(
+            {
+                'array': pop_array_male,
+                'xoff': xoff,
+                'yoff': yoff
+            }
+        )
 
     if params.prod_mode == 'Trends.Earth productivity':
         write_arrays.append({'array': deg_prod5, 'xoff': xoff, 'yoff': yoff})
@@ -821,6 +850,51 @@ def _process_block_summary(
             sdg_zonal_population_female, sdg_summary, prod_summary,
             soc_summary, lc_summary
         ), write_arrays
+    )
+
+
+def _get_n_pop_band_for_type(dfs, pop_type):
+    n_bands = 0
+
+    for df in dfs:
+        n_bands += len(
+            df.indices_for_name(
+                config.POPULATION_BAND_NAME,
+                field='type',
+                field_filter=pop_type
+            )
+        )
+
+    return n_bands
+
+
+def _have_pop_by_sex(pop_dfs):
+    n_total_pop_bands = _get_n_pop_band_for_type(pop_dfs, 'total')
+    n_female_pop_bands = _get_n_pop_band_for_type(pop_dfs, 'female')
+    n_male_pop_bands = _get_n_pop_band_for_type(pop_dfs, 'male')
+
+    if n_total_pop_bands == 1:
+        assert n_female_pop_bands == 0 and n_male_pop_bands == 0
+
+        return False
+    else:
+        assert n_total_pop_bands == 0
+        assert n_female_pop_bands == 1 and n_male_pop_bands == 1
+
+        return True
+
+
+def _get_so3_band_instance(population_type, prod_params):
+    return Band(
+        name=config.POP_AFFECTED_BAND_NAME,
+        no_data_value=config.NODATA_VALUE.item(),  # write as python type
+        metadata={
+            'population_year': prod_params['year_final'],
+            'deg_year_initial': prod_params['year_initial'],
+            'deg_year_final': prod_params['year_final'],
+            'type': population_type
+        },
+        add_to_map=False
     )
 
 
@@ -898,17 +972,10 @@ def _process_region(
         if mask_result:
             in_df = combine_data_files(output_layers_path, in_dfs)
 
-            # n_out_bands = 2
-            #
-            # pop_rows_total = in_df.indices_for_name(
-            #     config.POPULATION_BAND_NAME, field='type', field_filter='total'
-            # )
-            # pop_rows_male = in_df.indices_for_name(
-            #     config.POPULATION_BAND_NAME, field='type', field_filter='male'
-            # )
-            # pop_rows_female = in_df.indices_for_name(
-            #     config.POPULATION_BAND_NAME, field='type', field_filter='female'
-            # )
+            n_out_bands = 2
+
+            if _have_pop_by_sex(in_dfs):
+                n_out_bands += 2
 
             if prod_mode == 'Trends.Earth productivity':
                 model_band_number = in_df.index_for_name(
