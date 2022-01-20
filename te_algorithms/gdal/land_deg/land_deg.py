@@ -875,6 +875,11 @@ def _have_pop_by_sex(pop_dfs):
     n_female_pop_bands = _get_n_pop_band_for_type(pop_dfs, 'female')
     n_male_pop_bands = _get_n_pop_band_for_type(pop_dfs, 'male')
 
+    logger.info(
+        'n_total_pop_bands %s, n_female_pop_bands %s, n_male_pop_bands %s',
+        n_total_pop_bands, n_female_pop_bands, n_male_pop_bands
+    )
+
     if n_total_pop_bands == 1:
         assert n_female_pop_bands == 0 and n_male_pop_bands == 0
 

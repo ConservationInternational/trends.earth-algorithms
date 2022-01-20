@@ -133,8 +133,14 @@ def _process_block(
     pop_rows_female = params.in_df.indices_for_name(
         POPULATION_BAND_NAME, field='type', field_filter='female'
     )
-    a_water_mask = in_array[
-        params.in_df.index_for_name(WATER_MASK_BAND_NAME), :, :]
+
+    try:
+        water_mask_index = params.in_df.index_for_name(WATER_MASK_BAND_NAME)
+    except IndexError:
+        mask_water = False
+    else:
+        mask_water = True
+        a_water_mask = in_array[water_mask_index, :, :]
 
     # There should either be one pop row for each SPI row (if using total pop)
     # or two rows per SPI row (if using gender disaggregated population data)
@@ -170,7 +176,9 @@ def _process_block(
             a_pop_male = in_array[pop_row_male, :, :].astype(np.float64)
             a_pop_male_recoded = a_pop_male.copy()
             a_pop_male_recoded[a_pop_male == NODATA_VALUE] = 0
-            a_pop_male_recoded[a_water_mask == 1] = 0
+
+            if mask_water:
+                a_pop_male_recoded[a_water_mask == 1] = 0
             annual_population_by_drought_class_male.append(
                 zonal_total(a_drought_class, a_pop_male_recoded, mask)
             )
@@ -178,7 +186,9 @@ def _process_block(
             a_pop_female = in_array[pop_row_female, :, :].astype(np.float64)
             a_pop_female_recoded = a_pop_female.copy()
             a_pop_female_recoded[a_pop_female == NODATA_VALUE] = 0
-            a_pop_female_recoded[a_water_mask == 1] = 0
+
+            if mask_water:
+                a_pop_female_recoded[a_water_mask == 1] = 0
             annual_population_by_drought_class_female.append(
                 zonal_total(a_drought_class, a_pop_female_recoded, mask)
             )
@@ -190,7 +200,9 @@ def _process_block(
             a_pop_total = in_array[pop_row_total, :, :]
             a_pop_total_recoded = a_pop_total.copy()
             a_pop_total_recoded[a_pop_total == NODATA_VALUE] = 0
-            a_pop_total_recoded[a_water_mask == 1] = 0
+
+            if mask_water:
+                a_pop_total_recoded[a_water_mask == 1] = 0
 
         annual_population_by_drought_class_total.append(
             zonal_total(a_drought_class, a_pop_total_recoded, mask)
@@ -263,7 +275,9 @@ def _process_block(
             max_drought < -1000
         ] = -pop_total_max_drought_masked[max_drought < -1000]
         # Set water to NODATA_VALUE as requested by UNCCD for Prais
-        pop_total_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
+
+        if mask_water:
+            pop_total_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
 
         # Add one as output band numbers start at 1, not zero
         write_arrays[2 * period_number + 1] = {
@@ -290,7 +304,9 @@ def _process_block(
                 max_drought < -1000
             ] = -pop_female_max_drought_masked[max_drought < -1000]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
-            pop_female_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
+
+            if mask_water:
+                pop_female_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the third band for this period
@@ -307,7 +323,9 @@ def _process_block(
                 max_drought < -1000
             ] = -pop_male_max_drought_masked[max_drought < -1000]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
-            pop_male_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
+
+            if mask_water:
+                pop_male_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the fourth band for this period
@@ -429,6 +447,11 @@ def _have_pop_by_sex(in_dfs):
     n_total_pop_bands = _get_n_pop_band_for_type(in_dfs, 'total')
     n_female_pop_bands = _get_n_pop_band_for_type(in_dfs, 'female')
     n_male_pop_bands = _get_n_pop_band_for_type(in_dfs, 'male')
+
+    logger.info(
+        'n_total_pop_bands %s, n_female_pop_bands %s, n_male_pop_bands %s',
+        n_total_pop_bands, n_female_pop_bands, n_male_pop_bands
+    )
 
     assert (
         n_spi_bands == n_total_pop_bands
@@ -583,10 +606,15 @@ def summarise_drought_vulnerability(
         [params['layer_jrc_band_index']]
     )
 
-    water_df = _prepare_dfs(
-        params['layer_water_path'], [params['layer_water_band']],
-        [params['layer_water_band_index']]
-    )
+    if params.get('layer_water_path') is not None:
+        # Water layers are optional - if not provided then water won't be
+        # masked
+        water_df = _prepare_dfs(
+            params['layer_water_path'], [params['layer_water_band']],
+            [params['layer_water_band_index']]
+        )
+    else:
+        water_df = []
 
     summary_table, out_path = _compute_drought_summary_table(
         aoi=aoi,
@@ -929,7 +957,7 @@ def save_reporting_json(
                 if key != MASK_VALUE
             ]
         )
-        logging.debug(
+        logger.debug(
             f'Total land area in {year} per drought data {total_land_area}'
         )
 
