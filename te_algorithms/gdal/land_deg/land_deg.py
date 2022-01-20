@@ -495,7 +495,7 @@ def _process_block_summary(
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1],
                            axis=1).astype(np.float64)
 
-    if params.prod_mode == 'Trends.Earth productivity':
+    if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
         traj_array = in_array[
             params.in_df.index_for_name(config.TRAJ_BAND_NAME), :, :]
         traj_recode = recode_traj(traj_array)
@@ -509,13 +509,15 @@ def _process_block_summary(
 
         deg_prod5 = calc_prod5(traj_recode, state_recode, perf_array)
 
-    else:
+    elif params.prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
         deg_prod5 = in_array[
             params.in_df.index_for_name(config.JRC_LPD_BAND_NAME), :, :]
         # TODO: Below is temporary until missing data values are
         # fixed in LPD layer on GEE and missing data values are
         # fixed in LPD layer made by UNCCD for SIDS
         deg_prod5[(deg_prod5 == 0) | (deg_prod5 == 15)] = config.NODATA_VALUE
+    else:
+        raise Exception(f"Unknown productivity mode {prod_mode}")
 
     # Recode deg_prod5 as stable, degraded, improved (deg_prod3)
     deg_prod3 = prod5_to_prod3(deg_prod5)
