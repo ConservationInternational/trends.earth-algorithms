@@ -110,10 +110,33 @@ class DroughtSummaryParams(SchemaBase):
     mask_file: str
 
 
+def _expand_dims(array, in_array):
+    '''
+    Avoid indexing errors when a tile winds up with a single row or col
+
+    Need to add a dimension to arrays if the first or second dimension of
+    in_array is 1 (meaning there is only 1 row or 1 column in a block) as
+    otherwise the squeeze done after finding the max drought indices will
+    result in a missing dimension of the max drought arrays, throwing off the
+    later masking code as all those arrays will have full dimensions
+    '''
+
+    for axis in [1, 2]:
+        if in_array.shape[axis] == 1:
+            logger.debug(
+                'expanding dim %s as in_array.shape is %s', axis - 1,
+                in_array.shape
+            )
+            array = np.expand_dims(array, axis=axis - 1)
+
+    return array
+
+
 def _process_block(
     params: DroughtSummaryParams, in_array, mask, xoff: int, yoff: int,
     cell_areas_raw
 ) -> Tuple[SummaryTableDrought, Dict]:
+    logger.debug('in_array.shape is %s', in_array.shape)
 
     write_arrays = {}
 
@@ -262,29 +285,27 @@ def _process_block(
         # and multiplication by cell_areas as all those arrays will have a
         # second dimension of 1
 
-        if in_array.shape[2] == 1:
-            pop_total_max_drought = np.expand_dims(
-                pop_total_max_drought, axis=1
+        pop_total_max_drought = _expand_dims(pop_total_max_drought, in_array)
+        max_drought = _expand_dims(max_drought, in_array)
+
+        if pop_by_sex:
+            pop_female_max_drought = _expand_dims(
+                pop_female_max_drought, in_array
             )
-            max_drought = np.expand_dims(max_drought, axis=1)
+            pop_male_max_drought = _expand_dims(pop_male_max_drought, in_array)
 
-            if pop_by_sex:
-                pop_female_max_drought = np.expand_dims(
-                    pop_female_max_drought, axis=1
-                )
-                pop_male_max_drought = np.expand_dims(
-                    pop_male_max_drought, axis=1
-                )
-
-        pop_total_max_drought_masked = pop_total_max_drought
-        pop_total_max_drought_masked[pop_total_max_drought == NODATA_VALUE] = 0
-        pop_total_max_drought_masked[
-            max_drought < -1000
-        ] = -pop_total_max_drought_masked[max_drought < -1000]
+        pop_total_max_drought[pop_total_max_drought == NODATA_VALUE] = 0
+        pop_total_max_drought[max_drought < -1000
+                              ] = -pop_total_max_drought[max_drought < -1000]
         # Set water to NODATA_VALUE as requested by UNCCD for Prais
 
+        logger.debug(
+            'pop_total_max_drought.shape %s', pop_total_max_drought.shape
+        )
+        logger.debug('a_water_mask.shape %s', a_water_mask.shape)
+
         if mask_water:
-            pop_total_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
+            pop_total_max_drought[a_water_mask == 1] = NODATA_VALUE
 
         # Add one as output band numbers start at 1, not zero
         write_arrays[2 * period_number + 1] = {
@@ -296,7 +317,7 @@ def _process_block(
         # Add two as output band numbers start at 1, not zero, and this is the
         # second band for this period
         write_arrays[2 * period_number + 2] = {
-            'array': pop_total_max_drought_masked,
+            'array': pop_total_max_drought,
             'xoff': xoff,
             'yoff': yoff
         }
@@ -304,40 +325,35 @@ def _process_block(
         if pop_by_sex and period_number == (len(first_rows) - 1):
             # Only write out population disaggregated by sex for the last
             # period
-            pop_female_max_drought_masked = pop_female_max_drought
-            pop_female_max_drought_masked[pop_female_max_drought ==
-                                          NODATA_VALUE] = 0
-            pop_female_max_drought_masked[
+            pop_female_max_drought[pop_female_max_drought == NODATA_VALUE] = 0
+            pop_female_max_drought[
                 max_drought < -1000
-            ] = -pop_female_max_drought_masked[max_drought < -1000]
+            ] = -pop_female_max_drought[max_drought < -1000]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
 
             if mask_water:
-                pop_female_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
+                pop_female_max_drought[a_water_mask == 1] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the third band for this period
             write_arrays[2 * period_number + 3] = {
-                'array': pop_female_max_drought_masked,
+                'array': pop_female_max_drought,
                 'xoff': xoff,
                 'yoff': yoff
             }
 
-            pop_male_max_drought_masked = pop_male_max_drought
-            pop_male_max_drought_masked[pop_male_max_drought == NODATA_VALUE
-                                        ] = 0
-            pop_male_max_drought_masked[
-                max_drought < -1000
-            ] = -pop_male_max_drought_masked[max_drought < -1000]
+            pop_male_max_drought[pop_male_max_drought == NODATA_VALUE] = 0
+            pop_male_max_drought[max_drought < -1000
+                                 ] = -pop_male_max_drought[max_drought < -1000]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
 
             if mask_water:
-                pop_male_max_drought_masked[a_water_mask == 1] = NODATA_VALUE
+                pop_male_max_drought[a_water_mask == 1] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the fourth band for this period
             write_arrays[2 * period_number + 4] = {
-                'array': pop_male_max_drought_masked,
+                'array': pop_male_max_drought,
                 'xoff': xoff,
                 'yoff': yoff
             }
@@ -399,8 +415,8 @@ def _process_line(line_params: LineParams):
         else:
             win_xsize = line_params.image_info.x_size - x
 
-        logger.debug(f'image_info: {line_params.image_info}')
-        logger.debug(f'x {x}, win_xsize {win_xsize}')
+        logger.debug('image_info: %s', line_params.image_info)
+        logger.debug('x %s, win_xsize %s', x, win_xsize)
 
         src_array = src_ds.ReadAsArray(
             xoff=x,
@@ -532,22 +548,23 @@ class DroughtSummary:
     #
     #     out = []
     #     with multiprocessing.Pool(3) as p:
+    #         n = 0
     #         for result in p.imap_unordered(
-    #             _process_line,
-    #             line_params_list,
-    #             chunksize=20
+    #             _process_line, line_params_list, chunksize=20
     #         ):
     #             if self.is_killed():
     #                 p.terminate()
+    #
     #                 break
-    #             # self.emit_progress(n / len(line_params_list))
+    #             self.emit_progress(n / len(line_params_list))
     #
     #             out.append(result[0])
-    #             for key, value in result[1].items():
-    #                 logger.debug(f'key {key}, value {value}')
-    #                 out_ds.GetRasterBand(key).WriteArray(**value)
     #
-    #     out = accumulate_drought_summary_tables(out)
+    #             for key, value in result[1].items():
+    #                 out_ds.GetRasterBand(key).WriteArray(**value)
+    #             n += 1
+    #
+    #     out = _accumulate_drought_summary_tables(out)
     #
     #     return out
 
