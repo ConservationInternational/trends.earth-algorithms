@@ -67,7 +67,7 @@ setup(
         'te_algorithms.gee', 'te_algorithms.api'
     ],
     package_dir={'te_algorithms': 'te_algorithms'},
-    package_data={'te_algorithms': ['version.json']},
+    package_data={'te_algorithms': ['version.json', 'data/*']},
     include_package_data=True,
 
     # List run-time dependencies here.  These will be installed by pip when
