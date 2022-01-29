@@ -302,9 +302,9 @@ def _process_block(
         logger.debug(
             'pop_total_max_drought.shape %s', pop_total_max_drought.shape
         )
-        logger.debug('a_water_mask.shape %s', a_water_mask.shape)
 
         if mask_water:
+            logger.debug('a_water_mask.shape %s', a_water_mask.shape)
             pop_total_max_drought[a_water_mask == 1] = NODATA_VALUE
 
         # Add one as output band numbers start at 1, not zero
