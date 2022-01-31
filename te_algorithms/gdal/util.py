@@ -1,10 +1,10 @@
 import json
-import logging
 import pathlib
 import shutil
 import tempfile
 from typing import List
 
+import logger
 import marshmallow_dataclass
 from defusedxml.ElementTree import parse
 from osgeo import gdal
@@ -12,6 +12,10 @@ from osgeo import ogr
 from osgeo import osr
 
 from .util_numba import _accumulate_dicts
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @marshmallow_dataclass.dataclass
@@ -223,4 +227,4 @@ def accumulate_dicts(z):
 
 
 def log_progress(fraction, message=None, data=None):
-    logging.info('%s - %.2f%%', message, 100 * fraction)
+    logger.info('%s - %.2f%%', message, 100 * fraction)
