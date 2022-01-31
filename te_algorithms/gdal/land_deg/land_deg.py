@@ -252,6 +252,8 @@ def summarise_land_degradation(
         lc_dfs = _prepare_land_cover_dfs(period_params)
         soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
         population_dfs = _prepare_population_dfs(period_params)
+        logger.debug('len(population_dfs) %s', len(population_dfs))
+        logger.debug('population_dfs %s', population_dfs)
         sub_job_output_path = job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
         prod_mode = period_params["prod_mode"]
 
@@ -782,6 +784,15 @@ def _process_block_summary(
         assert len(pop_rows_total) == 0
         assert len(pop_rows_male) == 1 and len(pop_rows_female) == 1
         pop_by_sex = True
+
+        logger.debug(
+            'pop_rows_male[0] %s, in_array.shape %s', pop_rows_male[0],
+            in_array.shape
+        )
+        logger.debug(
+            'pop_rows_female[0] %s, in_array.shape %s', pop_rows_female[0],
+            in_array.shape
+        )
 
         pop_array_male = in_array[pop_rows_male[0], :, :].astype(np.float64)
         pop_array_male_masked = pop_array_male.copy()
