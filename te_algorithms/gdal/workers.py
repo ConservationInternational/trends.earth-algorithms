@@ -1,19 +1,19 @@
 import dataclasses
 import json
-import os
 import logging
+import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from osgeo import gdal
 
 from . import util
-from te_schemas.datafile import DataFile
 
 NODATA_VALUE = -32768
 MASK_VALUE = -32767
 
 logger = logging.getLogger(__name__)
+
 
 # Function to get a temporary filename that handles closing the file created by
 # NamedTemporaryFile - necessary when the file is for usage in another process
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 def _get_temp_filename(suffix):
     f = NamedTemporaryFile(suffix=suffix, delete=False)
     f.close()
+
     return f.name
 
 
@@ -40,6 +41,7 @@ class Clip:
             json.dump(self.geojson, f, separators=(',', ': '))
 
         gdal.UseExceptions()
+        gdal.SetConfigOption("GDAL_CACHEMAX", '500')
         res = gdal.Warp(
             self.out_file,
             self.in_file,
@@ -51,14 +53,10 @@ class Clip:
             dstSRS="epsg:4326",
             outputType=gdal.GDT_Int16,
             resampleAlg=gdal.GRA_NearestNeighbour,
-            warpOptions=[
-                'NUM_THREADS=ALL_CPUS',
-                'GDAL_CACHEMAX=500',
-            ],
+            targetAlignedPixels=True,
+            warpOptions=['NUM_THREADS=ALL_CPUS'],
             creationOptions=[
-                'COMPRESS=LZW',
-                'NUM_THREADS=ALL_CPUS',
-                'TILED=YES'
+                'COMPRESS=LZW', 'NUM_THREADS=ALL_CPUS', 'TILED=YES'
             ],
             multithread=True,
             warpMemoryLimit=500,
@@ -76,6 +74,7 @@ class Clip:
 class Warp:
     in_file: Path
     out_file: Path
+    compress: str = 'LZW'
 
     def progress_callback(self, *args, **kwargs):
         '''Reimplement to display progress messages'''
@@ -84,6 +83,13 @@ class Warp:
     def work(self):
         gdal.UseExceptions()
 
+        creationOptions = ['BIGTIFF=YES', 'NUM_THREADS=ALL_CPUS', 'TILED=YES']
+
+        gdal.SetConfigOption("GDAL_CACHEMAX", '500')
+
+        if self.compress is not None:
+            creationOptions += [f'COMPRESS={self.compress}']
+
         res = gdal.Warp(
             self.out_file,
             self.in_file,
@@ -91,20 +97,14 @@ class Warp:
             srcNodata=NODATA_VALUE,
             outputType=gdal.GDT_Int16,
             resampleAlg=gdal.GRA_NearestNeighbour,
-            warpOptions=[
-                'NUM_THREADS=ALL_CPUS',
-                'GDAL_CACHEMAX=500',
-            ],
-            creationOptions=[
-                'COMPRESS=LZW',
-                'BIGTIFF=YES',
-                'NUM_THREADS=ALL_CPUS',
-                'TILED=YES'
-            ],
+            warpOptions=['NUM_THREADS=ALL_CPUS'],
+            creationOptions=creationOptions,
+            targetAlignedPixels=True,
             multithread=True,
             warpMemoryLimit=500,
             callback=self.progress_callback
         )
+
         if res:
             return True
         else:
@@ -117,6 +117,7 @@ def _get_bounding_box(ds):
     width, height = ds.RasterXSize, ds.RasterYSize
     xmax = xmin + width * xpixel
     ymin = ymax + height * ypixel
+
     return (xmin, ymin, xmax, ymax)
 
 
@@ -161,9 +162,7 @@ class Mask:
             outputSRS="epsg:4326",
             outputType=gdal.GDT_Int16,
             creationOptions=[
-                'COMPRESS=LZW',
-                'NUM_THREADS=ALL_CPUS',
-                'TILED=YES'
+                'COMPRESS=LZW', 'NUM_THREADS=ALL_CPUS', 'TILED=YES'
             ],
             callback=self.progress_callback
         )
@@ -173,6 +172,7 @@ class Mask:
             return True
         else:
             return None
+
 
 @dataclasses.dataclass()
 class Rasterize:
@@ -216,9 +216,7 @@ class Rasterize:
             outputSRS="epsg:4326",
             outputType=gdal.GDT_Int16,
             creationOptions=[
-                'COMPRESS=LZW',
-                'NUM_THREADS=ALL_CPUS',
-                'TILED=YES'
+                'COMPRESS=LZW', 'NUM_THREADS=ALL_CPUS', 'TILED=YES'
             ],
             callback=self.progress_callback
         )
@@ -228,6 +226,7 @@ class Rasterize:
             return True
         else:
             return None
+
 
 @dataclasses.dataclass()
 class Translate:
@@ -245,9 +244,7 @@ class Translate:
             self.out_file,
             self.in_file,
             creationOptions=[
-                'COMPRESS=LZW',
-                'NUM_THREADS=ALL_CPUs',
-                'TILED=YES'
+                'COMPRESS=LZW', 'NUM_THREADS=ALL_CPUs', 'TILED=YES'
             ],
             callback=self.progress_callback
         )
