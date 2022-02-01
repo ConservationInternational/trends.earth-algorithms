@@ -1,10 +1,10 @@
 import json
+import logging
 import pathlib
 import shutil
 import tempfile
 from typing import List
 
-import logger
 import marshmallow_dataclass
 from defusedxml.ElementTree import parse
 from osgeo import gdal
@@ -12,8 +12,6 @@ from osgeo import ogr
 from osgeo import osr
 
 from .util_numba import _accumulate_dicts
-
-import logging
 
 logger = logging.getLogger(__name__)
 
