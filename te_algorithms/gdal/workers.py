@@ -1,10 +1,13 @@
 import dataclasses
 import json
 import logging
+import math
+import multiprocessing
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+import numpy as np
 from osgeo import gdal
 
 from . import util
@@ -71,6 +74,203 @@ class Clip:
 
 
 @dataclasses.dataclass()
+class CutParams:
+    src_win: tuple
+    out_file: Path
+
+
+def _next_power_of_two(x):
+    i = 1
+
+    while i < x:
+        i *= 2
+
+    return i
+
+
+def _block_sizes_valid(x_bs, y_bs, img_width, img_height, max_pixel_per_cpu):
+    if (
+        ((x_bs * y_bs) > max_pixel_per_cpu) or (x_bs > img_width)
+        or (y_bs > img_height)
+    ):
+        return False
+    else:
+        return True
+
+
+def _get_closest_multiple(base, target_value, max_value):
+    'used to get closest multiple of tile size that includes target_value'
+    out = base
+
+    while out < target_value:
+        out += base
+
+    if out > max_value:
+        return max_value
+
+    return out
+
+
+def _get_tile_size(
+    img_width,
+    img_height,
+    x_bs_initial,
+    y_bs_initial,
+    n_cpus,
+    min_tile_size=2048,
+    max_tile_size=8192
+):
+    n_pixels = img_width * img_height
+    max_pixel_per_cpu = math.ceil(n_pixels / n_cpus)
+
+    logger.info('max_pixel_per_cpu %s', max_pixel_per_cpu)
+
+    x_bs_out = x_bs_initial
+    y_bs_out = y_bs_initial
+
+    x_stop = y_stop = False
+
+    while not (x_stop and y_stop):
+        x_bs_out += x_bs_initial
+
+        if not _block_sizes_valid(
+            x_bs_out, y_bs_out, img_width, img_height, max_pixel_per_cpu
+        ) or x_bs_out > max_tile_size:
+            x_bs_out -= x_bs_initial
+            x_stop = True
+
+        y_bs_out += y_bs_initial
+
+        if not _block_sizes_valid(
+            x_bs_out, y_bs_out, img_width, img_height, max_pixel_per_cpu
+        ) or y_bs_out > max_tile_size:
+            y_bs_out -= y_bs_initial
+            y_stop = True
+
+    if x_bs_out < min_tile_size:
+        x_bs_out = _get_closest_multiple(
+            x_bs_initial, min_tile_size, img_width
+        )
+
+    if y_bs_out < min_tile_size:
+        y_bs_out = _get_closest_multiple(
+            y_bs_initial, min_tile_size, img_height
+        )
+
+    return x_bs_out, y_bs_out
+
+
+@dataclasses.dataclass()
+class CutTiles:
+    in_file: Path
+    n_cpus: int = max(multiprocessing.cpu_count() - 1, 16)
+    out_file: Path = None
+    datatype: int = gdal.GDT_Int16
+
+    def work(self):
+        gdal.UseExceptions()
+
+        in_ds = gdal.Open(str(self.in_file))
+        xmin, x_res, _, ymax, _, y_res = in_ds.GetGeoTransform()
+        width, height = in_ds.RasterXSize, in_ds.RasterYSize
+
+        band = in_ds.GetRasterBand(1)
+        x_block_size, y_block_size = band.GetBlockSize()
+        logger.debug(
+            'Image size %s, %s, block size %s, %s', width, height,
+            x_block_size, y_block_size
+        )
+
+        tile_size = _get_tile_size(
+            width, height, x_block_size, y_block_size, self.n_cpus
+        )
+        logger.debug('Chose tile size %s', tile_size)
+
+        x_starts = np.arange(1, width, tile_size[0])
+        y_starts = np.arange(1, height, tile_size[1])
+
+        src_wins = []
+
+        logger.debug(
+            'Tile generation x_starts are %s, y_starts are %s', x_starts,
+            y_starts
+        )
+
+        for x_index, x_start in enumerate(x_starts):
+            for y_index, y_start in enumerate(y_starts):
+                if x_start == x_starts[-1]:
+                    x_width = in_ds.RasterXSize
+                else:
+                    x_width = tile_size[0]
+
+                if y_start == y_starts[-1]:
+                    y_height = in_ds.RasterYSize
+                else:
+                    y_height = tile_size[1]
+
+                src_wins.append((x_start, y_start, x_width, y_height))
+
+        del in_ds
+
+        logger.info('Generating %s tiles', len(src_wins))
+        logger.debug('Tile src_wins are %s ', src_wins)
+
+        if len(src_wins) > 1:
+            out_files = [
+                self.out_file.parent / (self.out_file.stem + f'_{n}.tif')
+                for n in range(len(src_wins))
+            ]
+        else:
+            out_files = [self.out_file]
+
+        params = [
+            CutParams(src_win, out_file)
+            for src_win, out_file in zip(src_wins, out_files)
+        ]
+
+        with multiprocessing.Pool(self.n_cpus) as p:
+            n = 1
+
+            for results in p.imap_unordered(self.cut_tile, params):
+                self.emit_progress(n / len(src_wins))
+                n += 1
+
+        return out_files
+
+    def emit_progress(self, *args):
+        '''Reimplement to display progress messages'''
+        util.log_progress(
+            *args, message=f"Splitting {self.in_file} into tiles"
+        )
+
+    def cut_tile(self, params):
+        gdal.SetConfigOption("GDAL_CACHEMAX", '500')
+        res = gdal.Translate(
+            str(params.out_file),
+            str(self.in_file),
+            srcWin=params.src_win,
+            outputType=self.datatype,
+            resampleAlg=gdal.GRA_NearestNeighbour,
+            creationOptions=[
+                'BIGTIFF=YES', 'COMPRESS=LZW', 'NUM_THREADS=ALL_CPUs',
+                'TILED=YES'
+            ],
+            callback=self.progress_callback,
+            callback_data=str(params.out_file)
+        )
+
+        if res:
+            return params.out_file
+        else:
+            return None
+
+    def progress_callback(self, fraction, message, callback_data):
+        logger.info(
+            '%s - %.2f%%', f"Splitting tile {callback_data}", 100 * fraction
+        )
+
+
+@dataclasses.dataclass()
 class Warp:
     in_file: Path
     out_file: Path
@@ -90,6 +290,11 @@ class Warp:
         if self.compress is not None:
             creationOptions += [f'COMPRESS={self.compress}']
 
+        # in_ds = gdal.Open(self.in_file)
+        # gt = in_ds.GetGeoTransform()
+        # x_res = gt[1]
+        # y_res = gt[5]
+
         res = gdal.Warp(
             self.out_file,
             self.in_file,
@@ -99,7 +304,9 @@ class Warp:
             resampleAlg=gdal.GRA_NearestNeighbour,
             warpOptions=['NUM_THREADS=ALL_CPUS'],
             creationOptions=creationOptions,
-            targetAlignedPixels=True,
+            #targetAlignedPixels=True,
+            #xRes=x_res,
+            #yRes=y_res,
             multithread=True,
             warpMemoryLimit=500,
             callback=self.progress_callback

@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import logging
 import math
+import multiprocessing
 import tempfile
 from copy import deepcopy
 from pathlib import Path
@@ -50,6 +51,15 @@ POP_AT_SPI_MIN_OVER_PERIOD_BAND_NAME = "Population at minimum SPI over period"
 logger = logging.getLogger(__name__)
 
 
+# Numba compiled functions return numba types which won't pickle correctly
+# (which is needed for multiprocessing), so cast them to regular python types
+def _cast_numba_dict_list_to_cpython(dict_list):
+    return [
+        {int(key): float(value)
+         for key, value in dictionary.items()} for dictionary in dict_list
+    ]
+
+
 @marshmallow_dataclass.dataclass
 class SummaryTableDrought(SchemaBase):
     annual_area_by_drought_class: List[Dict[int, float]]
@@ -57,6 +67,20 @@ class SummaryTableDrought(SchemaBase):
     annual_population_by_drought_class_male: List[Dict[int, float]]
     annual_population_by_drought_class_female: List[Dict[int, float]]
     dvi_value_sum_and_count: Tuple[float, int]
+
+    def cast_to_cpython(self):
+        self.annual_area_by_drought_class = _cast_numba_dict_list_to_cpython(
+            self.annual_area_by_drought_class
+        )
+        self.annual_population_by_drought_class_total = _cast_numba_dict_list_to_cpython(
+            self.annual_population_by_drought_class_total
+        )
+        self.annual_population_by_drought_class_male = _cast_numba_dict_list_to_cpython(
+            self.annual_population_by_drought_class_male
+        )
+        self.annual_population_by_drought_class_female = _cast_numba_dict_list_to_cpython(
+            self.annual_population_by_drought_class_female
+        )
 
 
 def _accumulate_drought_summary_tables(
@@ -361,14 +385,14 @@ def _process_block(
     jrc_row = params.in_df.index_for_name(JRC_BAND_NAME)
     dvi_value_sum_and_count = jrc_sum_and_count(in_array[jrc_row, :, :], mask)
 
-    return (
-        SummaryTableDrought(
-            annual_area_by_drought_class,
-            annual_population_by_drought_class_total,
-            annual_population_by_drought_class_male,
-            annual_population_by_drought_class_female, dvi_value_sum_and_count
-        ), write_arrays
+    out_table = SummaryTableDrought(
+        annual_area_by_drought_class, annual_population_by_drought_class_total,
+        annual_population_by_drought_class_male,
+        annual_population_by_drought_class_female, dvi_value_sum_and_count
     )
+    #out_table.cast_to_cpython()
+
+    return out_table, write_arrays
 
 
 @dataclasses.dataclass()
@@ -471,7 +495,7 @@ def _have_pop_by_sex(in_dfs):
     n_female_pop_bands = _get_n_pop_band_for_type(in_dfs, 'female')
     n_male_pop_bands = _get_n_pop_band_for_type(in_dfs, 'male')
 
-    logger.info(
+    logger.debug(
         'n_total_pop_bands %s, n_female_pop_bands %s, n_male_pop_bands %s',
         n_total_pop_bands, n_female_pop_bands, n_male_pop_bands
     )
@@ -497,7 +521,10 @@ class DroughtSummary:
 
     def emit_progress(self, *args):
         '''Reimplement to display progress messages'''
-        util.log_progress(*args, message='Processing drought summary')
+        util.log_progress(
+            *args,
+            message=f'Processing drought summary for {self.params.in_df.path}'
+        )
 
     def get_line_params(self):
         '''Make a list of parameters to use in the _process_line function'''
@@ -505,6 +532,11 @@ class DroughtSummary:
         src_ds = gdal.Open(str(self.params.in_df.path))
         src_gt = src_ds.GetGeoTransform()
         lat = src_gt[3]
+
+        logger.info(
+            'getting line params for image with xsize '
+            '%s, and ysize %s', src_ds.RasterXSize, src_ds.RasterYSize
+        )
 
         line_params = []
 
@@ -542,31 +574,6 @@ class DroughtSummary:
         out = _accumulate_drought_summary_tables(out)
 
         return out
-
-    # def multiprocess_lines(self, line_params_list):
-    #     out_ds = self._get_out_ds()
-    #
-    #     out = []
-    #     with multiprocessing.Pool(3) as p:
-    #         n = 0
-    #         for result in p.imap_unordered(
-    #             _process_line, line_params_list, chunksize=20
-    #         ):
-    #             if self.is_killed():
-    #                 p.terminate()
-    #
-    #                 break
-    #             self.emit_progress(n / len(line_params_list))
-    #
-    #             out.append(result[0])
-    #
-    #             for key, value in result[1].items():
-    #                 out_ds.GetRasterBand(key).WriteArray(**value)
-    #             n += 1
-    #
-    #     out = _accumulate_drought_summary_tables(out)
-    #
-    #     return out
 
     def _get_out_ds(self):
         n_out_bands = int(
@@ -608,6 +615,7 @@ def summarise_drought_vulnerability(
     drought_job: Job,
     aoi: AOI,
     job_output_path: Path,
+    n_cpus: int = multiprocessing.cpu_count() - 1
 ) -> Job:
     logger.debug('at top of summarise_drought_vulnerability')
 
@@ -646,7 +654,8 @@ def summarise_drought_vulnerability(
         output_job_path=job_output_path.parent /
         f"{job_output_path.stem}.json",
         in_dfs=spi_dfs + population_dfs + jrc_df + water_df,
-        drought_period=drought_period
+        drought_period=drought_period,
+        n_cpus=n_cpus
     )
 
     out_bands = []
@@ -698,6 +707,7 @@ def summarise_drought_vulnerability(
                 )
             )
 
+    logger.info('out_path is %s', out_path)
     out_df = DataFile(out_path.name, out_bands)
 
     # Also save bands to a key file for ease of use in PRAIS
@@ -729,7 +739,8 @@ def summarise_drought_vulnerability(
                 datatype=DataType.INT16,
                 filetype=RasterFileType.COG
             )
-        }
+        },
+        data={'report': report_json}
     )
 
     drought_job.end_date = dt.datetime.now(dt.timezone.utc)
@@ -750,7 +761,7 @@ def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
     return dfs
 
 
-def _calculate_summary_table(
+def _summarize_over_aoi(
     wkt_aoi,
     pixel_aligned_bbox,
     in_dfs: List[DataFile],
@@ -758,8 +769,9 @@ def _calculate_summary_table(
     mask_worker_process_name,
     drought_worker_process_name,
     drought_period: int,
-    reproject_worker_function: Callable = None,
-    reproject_worker_params: dict = None,
+    n_cpus: int,
+    translate_worker_function: Callable = None,
+    translate_worker_params: dict = None,
     mask_worker_function: Callable = None,
     mask_worker_params: dict = None,
     drought_worker_function: Callable = None,
@@ -769,94 +781,169 @@ def _calculate_summary_table(
     indic_vrt = tempfile.NamedTemporaryFile(
         suffix='_drought_indicators.vrt', delete=False
     ).name
+    indic_vrt = Path(indic_vrt)
     logger.info(u'Saving indicator VRT to {}'.format(indic_vrt))
     # The plus one is because band numbers start at 1, not zero
     gdal.BuildVRT(
-        indic_vrt, [item.path for item in in_dfs],
+        str(indic_vrt), [item.path for item in in_dfs],
         outputBounds=pixel_aligned_bbox,
         resolution='highest',
         resampleAlg=gdal.GRA_NearestNeighbour,
         separate=True
     )
 
-    error_message = ""
     indic_reproj = tempfile.NamedTemporaryFile(
-        suffix='_drought_indicators_reproj.tif', delete=False
+        suffix='_drought_indicators_reproj_tiles.tif', delete=False
     ).name
+    indic_reproj = Path(indic_reproj)
     logger.info(f'Reprojecting inputs and saving to {indic_reproj}')
 
-    if reproject_worker_function:
-        reproject_result = reproject_worker_function(
-            indic_vrt, str(indic_reproj), **reproject_worker_params
+    error_message = ""
+
+    if translate_worker_function:
+        tiles = translate_worker_function(
+            indic_vrt, str(indic_reproj), **translate_worker_params
         )
 
     else:
-        reproject_worker = workers.Warp(indic_vrt, str(indic_reproj))
-        reproject_result = reproject_worker.work()
+        translate_worker = workers.CutTiles(
+            indic_vrt, n_cpus, indic_reproj, gdal.GDT_Int32
+        )
+        tiles = translate_worker.work()
+        logger.debug('Tiles are %s', tiles)
 
-    if reproject_result:
-        # Compute a mask layer that will be used in the tabulation code to
-        # mask out areas outside of the AOI. Do this instead of using
-        # gdal.Clip to save having to clip and rewrite all of the layers in
-        # the VRT
-        mask_tif = tempfile.NamedTemporaryFile(
-            suffix='_drought_mask.tif', delete=False
-        ).name
+    if tiles:
+        out_files = [
+            output_tif_path.parent / (output_tif_path.stem + f'_{n}.tif')
+            for n in range(len(tiles))
+        ]
+        inputs = [
+            SummarizeTileInputs(
+                tile=tile,
+                out_file=out_file,
+                aoi=wkt_aoi,
+                drought_period=drought_period,
+                in_dfs=in_dfs,
+                mask_worker_function=mask_worker_function,
+                mask_worker_params=mask_worker_params,
+                drought_worker_function=drought_worker_function,
+                drought_worker_params=drought_worker_params
+            ) for tile, out_file in zip(tiles, out_files)
+        ]
+        with multiprocessing.Pool(n_cpus) as p:
+            n = 0
 
-        logger.info(f'Saving mask to {mask_tif}')
-        geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
+            results = []
 
-        if mask_worker_function:
-            mask_result = mask_worker_function(
-                mask_tif, geojson, indic_reproj, **mask_worker_params
-            )
-        else:
-            mask_worker = workers.Mask(mask_tif, geojson, indic_reproj)
-            mask_result = mask_worker.work()
-
-        if mask_result:
-            # Combine all in_dfs together and update path to refer to indicator
-            # VRT
-            in_df = DataFile(
-                indic_reproj, [b for d in in_dfs for b in d.bands]
-            )
-            params = DroughtSummaryParams(
-                in_df=in_df,
-                out_file=str(output_tif_path),
-                mask_file=mask_tif,
-                drought_period=drought_period
-            )
-
-            logger.info(
-                f'Calculating summary table and saving rasters to {output_tif_path}'
-            )
-
-            if drought_worker_function:
-                result = drought_worker_function(
-                    params, **drought_worker_params
+            for output in p.imap_unordered(_summarize_tile, inputs):
+                util.log_progress(
+                    n / len(inputs),
+                    message='Processing drought summaries overall progress'
                 )
-            else:
-                summarizer = DroughtSummary(params)
-                result = summarizer.process_lines(summarizer.get_line_params())
+                error_message = output[1]
 
-            if not result:
-                if result.is_killed():
-                    error_message = "Cancelled calculation of summary table."
-                else:
-                    error_message = "Error calculating summary table."
-                    result = None
-        else:
-            error_message = "Error creating mask."
-            result = None
+                if error_message is not None:
+                    p.terminate()
+
+                    break
+
+                results.append(output[0])
+                n += 1
+
+        results = _accumulate_drought_summary_tables(results)
     else:
         error_message = "Error reprojecting layers."
+        results = None
+
+    return results, out_files, error_message
+
+
+@dataclasses.dataclass()
+class SummarizeTileInputs:
+    tile: Path
+    out_file: Path
+    aoi: str
+    drought_period: int
+    in_dfs: List[DataFile]
+    mask_worker_function: Callable = None
+    mask_worker_params: dict = None
+    drought_worker_function: Callable = None
+    drought_worker_params: dict = None
+
+
+def _summarize_tile(tile_input):
+    logger.info('Processing tile %s', tile_input.tile)
+    # Compute a mask layer that will be used in the tabulation code to
+    # mask out areas outside of the AOI. Do this instead of using
+    # gdal.Clip to save having to clip and rewrite all of the layers in
+    # the VRT
+    mask_tif = tempfile.NamedTemporaryFile(
+        suffix='_drought_mask.tif', delete=False
+    ).name
+
+    logger.info(f'Saving mask to {mask_tif}')
+    geojson = util.wkt_geom_to_geojson_file_string(tile_input.aoi)
+
+    error_message = None
+
+    if tile_input.mask_worker_function:
+        mask_result = tile_input.mask_worker_function(
+            mask_tif, geojson, str(tile_input.tile),
+            **tile_input.mask_worker_params
+        )
+    else:
+        mask_worker = workers.Mask(mask_tif, geojson, str(tile_input.tile))
+        mask_result = mask_worker.work()
+
+    if mask_result:
+        # Combine all in_dfs together and update path to refer to indicator
+        # VRT
+        in_df = DataFile(
+            tile_input.tile, [b for d in tile_input.in_dfs for b in d.bands]
+        )
+        params = DroughtSummaryParams(
+            in_df=in_df,
+            out_file=str(tile_input.out_file),
+            mask_file=mask_tif,
+            drought_period=tile_input.drought_period
+        )
+
+        logger.info(
+            'Calculating summary table and saving '
+            f'rasters to {tile_input.out_file}'
+        )
+
+        if tile_input.drought_worker_function:
+            result = tile_input.drought_worker_function(
+                params, **tile_input.drought_worker_params
+            )
+        else:
+            summarizer = DroughtSummary(params)
+            result = summarizer.process_lines(summarizer.get_line_params())
+
+        if not result:
+            if result.is_killed():
+                error_message = (
+                    "Cancelled calculation of summary "
+                    f"table for {tile_input.tile}."
+                )
+            else:
+                error_message = (
+                    f"Error calculating summary table for  {tile_input.tile}."
+                )
+                result = None
+        else:
+            result.cast_to_cpython()
+    else:
+        error_message = f"Error creating mask for tile {tile_input.tile}."
         result = None
 
     return result, error_message
 
 
 def _compute_drought_summary_table(
-    aoi, compute_bbs_from, in_dfs, output_job_path: Path, drought_period: int
+    aoi, compute_bbs_from, in_dfs, output_job_path: Path, drought_period: int,
+    n_cpus: int
 ) -> Tuple[SummaryTableDrought, Path, Path]:
     """Computes summary table and the output tif file(s)"""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
@@ -884,9 +971,8 @@ def _compute_drought_summary_table(
         logger.info(f'Calculating summary table {index} of {len(wkt_aois)}')
         out_path = output_job_path.parent / output_name_pattern.format(
             index=index
-        )
-        out_paths.append(out_path)
-        result, error_message = _calculate_summary_table(
+        )  # This is a base path - there may be multiple tiles generated below
+        result, out_files, error_message = _summarize_over_aoi(
             wkt_aoi=wkt_aoi,
             pixel_aligned_bbox=pixel_aligned_bbox,
             output_tif_path=out_path,
@@ -895,8 +981,10 @@ def _compute_drought_summary_table(
                 index=index
             ),
             in_dfs=deepcopy(in_dfs),
-            drought_period=drought_period
+            drought_period=drought_period,
+            n_cpus=n_cpus
         )
+        out_paths.extend(out_files)
 
         if result is None:
             raise RuntimeError(error_message)
