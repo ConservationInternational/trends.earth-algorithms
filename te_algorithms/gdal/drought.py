@@ -533,7 +533,7 @@ class DroughtSummary:
         src_gt = src_ds.GetGeoTransform()
         lat = src_gt[3]
 
-        logger.info(
+        logger.debug(
             'getting line params for image with xsize '
             '%s, and ysize %s', src_ds.RasterXSize, src_ds.RasterYSize
         )
@@ -707,7 +707,6 @@ def summarise_drought_vulnerability(
                 )
             )
 
-    logger.info('out_path is %s', out_path)
     out_df = DataFile(out_path.name, out_bands)
 
     # Also save bands to a key file for ease of use in PRAIS
