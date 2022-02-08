@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import logging
 import tempfile
+from copy import copy
 from pathlib import Path
 from typing import Callable
 from typing import Dict
@@ -161,15 +162,14 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
 def _prepare_population_dfs(params: Dict) -> DataFile:
     population_dfs = []
 
-    for population_band, population_band_index, in zip(
+    for population_band, population_band_index, path in zip(
         params["layer_population_bands"],
-        params["layer_population_band_indexes"]
+        params["layer_population_band_indexes"],
+        params["layer_population_paths"]
     ):
         population_dfs.append(
             DataFile(
-                path=util.save_vrt(
-                    params["layer_population_path"], population_band_index
-                ),
+                path=util.save_vrt(path, population_band_index),
                 bands=[Band(**population_band)]
             )
         )
@@ -993,6 +993,10 @@ def _process_region(
             n_out_bands = 2
 
             if _have_pop_by_sex(in_dfs):
+                logger.info(
+                    'Have population broken down by sex - '
+                    'adding 2 output bands'
+                )
                 n_out_bands += 2
 
             if prod_mode == 'Trends.Earth productivity':

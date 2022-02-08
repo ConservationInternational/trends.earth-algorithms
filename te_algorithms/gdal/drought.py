@@ -760,6 +760,51 @@ def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
     return dfs
 
 
+def _aoi_process_multiprocess(inputs, n_cpus):
+    with multiprocessing.Pool(n_cpus) as p:
+        n = 0
+
+        results = []
+
+        for output in p.imap_unordered(_summarize_tile, inputs):
+            util.log_progress(
+                n / len(inputs),
+                message='Processing drought summaries overall progress'
+            )
+            error_message = output[1]
+
+            if error_message is not None:
+                p.terminate()
+
+                break
+
+            results.append(output[0])
+            n += 1
+
+    return results
+
+
+def _aoi_process_sequential(inputs):
+    results = []
+
+    for item in inputs:
+        n = 0
+        output = _summarize_tile(item)
+        util.log_progress(
+            n / len(inputs),
+            message='Processing drought summaries overall progress'
+        )
+        error_message = output[1]
+
+        if error_message is not None:
+            break
+
+        results.append(output[0])
+        n += 1
+
+    return results
+
+
 def _summarize_over_aoi(
     wkt_aoi,
     pixel_aligned_bbox,
@@ -829,25 +874,11 @@ def _summarize_over_aoi(
                 drought_worker_params=drought_worker_params
             ) for tile, out_file in zip(tiles, out_files)
         ]
-        with multiprocessing.Pool(n_cpus) as p:
-            n = 0
 
-            results = []
-
-            for output in p.imap_unordered(_summarize_tile, inputs):
-                util.log_progress(
-                    n / len(inputs),
-                    message='Processing drought summaries overall progress'
-                )
-                error_message = output[1]
-
-                if error_message is not None:
-                    p.terminate()
-
-                    break
-
-                results.append(output[0])
-                n += 1
+        if n_cpus > 1:
+            results = _aoi_process_multiprocess(inputs, n_cpus)
+        else:
+            results = _aoi_process_sequential(inputs)
 
         results = _accumulate_drought_summary_tables(results)
     else:

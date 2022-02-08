@@ -228,14 +228,28 @@ class CutTiles:
             for src_win, out_file in zip(src_wins, out_files)
         ]
 
+        if self.n_cpus > 1:
+            self._cut_tiles_multiprocess(params)
+        else:
+            self._cut_tiles_sequential(params)
+
+        return out_files
+
+    def _cut_tiles_multiprocess(self, params):
         with multiprocessing.Pool(self.n_cpus) as p:
             n = 1
 
             for results in p.imap_unordered(self.cut_tile, params):
-                self.emit_progress(n / len(src_wins))
+                self.emit_progress(n / len(params))
                 n += 1
 
-        return out_files
+    def _cut_tiles_sequential(self, params):
+        n = 1
+
+        for param in params:
+            self.cut_tile(param)
+            self.emit_progress(n / len(params))
+            n += 1
 
     def emit_progress(self, *args):
         '''Reimplement to display progress messages'''
