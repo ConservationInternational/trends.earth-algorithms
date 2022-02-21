@@ -96,6 +96,8 @@ def combine_all_bands_into_vrt(
     All bands must have the same extent, resolution, and crs
     '''
 
+    logger.debug('Making %s', out_file)
+
     if aws_access_key_id is not None:
         gdal.SetConfigOption("AWS_ACCESS_KEY_ID", aws_access_key_id)
 
@@ -110,6 +112,7 @@ def combine_all_bands_into_vrt(
     </SimpleSource>'''
 
     for file_num, in_file in enumerate(in_files):
+        logger.debug('Adding %s (file number %s)', in_file, file_num)
         in_ds = gdal.Open(str(in_file))
         this_gt = in_ds.GetGeoTransform()
         this_proj = in_ds.GetProjectionRef()
