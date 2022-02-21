@@ -16,7 +16,6 @@ from . import models
 from . import worker
 from .. import util
 from .. import workers
-from .. import xl
 from ..util_numba import zonal_total
 from .land_deg_numba import calc_deg_lc
 from .land_deg_numba import calc_deg_sdg
