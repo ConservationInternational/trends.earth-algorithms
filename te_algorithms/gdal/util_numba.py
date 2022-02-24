@@ -177,26 +177,5 @@ def cast_numba_int_dict_to_cpython(dictionary):
     return {int(key): float(value) for key, value in dictionary.items()}
 
 
-def cast_numba_str_dict_list_to_cpython(dict_list):
-    return [
-        cast_numba_str_dict_to_cpython(dictionary) for dictionary in dict_list
-    ]
-
-
-def cast_numba_str_dict_to_cpython(dictionary):
-    return {str(key): float(value) for key, value in dictionary.items()}
-
-
-def cast_numba_tuple_dict_list_to_cpython(dict_list):
-    return [
-        cast_numba_tuple_dict_to_cpython(dictionary)
-        for dictionary in dict_list
-    ]
-
-
-def cast_numba_tuple_dict_to_cpython(dictionary):
-    return {tuple(key): float(value) for key, value in dictionary.items()}
-
-
 if __name__ == "__main__":
     cc.compile()
