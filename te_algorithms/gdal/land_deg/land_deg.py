@@ -1,3 +1,4 @@
+import dataclasses
 import datetime as dt
 import json
 import logging
@@ -896,23 +897,26 @@ def _get_so3_band_instance(population_type, prod_params):
     )
 
 
-def _process_tile(
-    in_file: Path,
-    wkt_aoi: str,
-    in_dfs: List[DataFile],
-    prod_mode: str,
-    lc_legend_nesting: land_cover.LCLegendNesting,
-    lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
-    period_name: str,
-    periods: dict,
-    mask_worker_function: Callable = None,
-    mask_worker_params: dict = None,
-    deg_worker_function: Callable = None,
-    deg_worker_params: dict = None,
-):
+@dataclasses.dataclass()
+class SummarizeTileInputs:
+    in_file: Path
+    wkt_aoi: str
+    in_dfs: List[DataFile]
+    prod_mode: str
+    lc_legend_nesting: land_cover.LCLegendNesting
+    lc_trans_matrix: land_cover.LCTransitionDefinitionDeg
+    period_name: str
+    periods: dict
+    mask_worker_function: Callable = None
+    mask_worker_params: dict = None
+    deg_worker_function: Callable = None
+    deg_worker_params: dict = None
 
-    error_message = ""
-    logger.info('Processing tile %s', in_file)
+
+def _summarize_tile(inputs: SummarizeTileInputs):
+
+    error_message = None
+    logger.info('Processing tile %s', inputs.in_file)
 
     # Compute a mask layer that will be used in the tabulation code to
     # mask out areas outside of the AOI. Do this instead of using
@@ -922,17 +926,17 @@ def _process_tile(
         suffix='_ld_summary_mask.tif', delete=False
     ).name
     logger.info('Saving mask to %s', mask_tif)
-    geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
+    geojson = util.wkt_geom_to_geojson_file_string(inputs.wkt_aoi)
 
-    if mask_worker_function:
-        mask_result = mask_worker_function(
-            mask_tif, geojson, str(in_file),
-            **mask_worker_params
+    if inputs.mask_worker_function:
+        mask_result = inputs.mask_worker_function(
+            mask_tif, geojson, str(inputs.in_file),
+            **inputs.mask_worker_params
         )
 
     else:
         mask_worker = workers.Mask(
-            mask_tif, geojson, str(in_file)
+            mask_tif, geojson, str(inputs.in_file)
         )
         mask_result = mask_worker.work()
 
@@ -941,17 +945,17 @@ def _process_tile(
         result = None
 
     else:
-        in_df = combine_data_files(in_file, in_dfs)
+        in_df = combine_data_files(inputs.in_file, inputs.in_dfs)
         n_out_bands = 2
 
-        if _have_pop_by_sex(in_dfs):
+        if _have_pop_by_sex(inputs.in_dfs):
             logger.info(
                 'Have population broken down by sex - '
                 'adding 2 output bands'
             )
             n_out_bands += 2
 
-        if prod_mode == 'Trends.Earth productivity':
+        if inputs.prod_mode == 'Trends.Earth productivity':
             model_band_number = in_df.index_for_name(
                 config.TRAJ_BAND_NAME
             ) + 1
@@ -964,25 +968,25 @@ def _process_tile(
             ) + 1
 
 
-        out_file = in_file.parent / (in_file.stem + '_sdg' + in_file.suffix)
+        out_file = inputs.in_file.parent / (inputs.in_file.stem + '_sdg' + inputs.in_file.suffix)
         logger.info('Calculating summary table and saving to %s', out_file)
 
         params = models.DegradationSummaryParams(
             in_df=in_df,
-            prod_mode=prod_mode,
+            prod_mode=inputs.prod_mode,
             in_file=in_df.path,
             out_file=out_file,
             model_band_number=model_band_number,
             n_out_bands=n_out_bands,
             mask_file=mask_tif,
-            nesting=lc_legend_nesting,
-            trans_matrix=lc_trans_matrix,
-            period_name=period_name,
-            periods=periods
+            nesting=inputs.lc_legend_nesting,
+            trans_matrix=inputs.lc_trans_matrix,
+            period_name=inputs.period_name,
+            periods=inputs.periods
         )
 
-        if deg_worker_function:
-            result = deg_worker_function(params, **deg_worker_params)
+        if inputs.deg_worker_function:
+            result = inputs.deg_worker_function(params, **inputs.deg_worker_params)
         else:
             summarizer = worker.DegradationSummary(
                 params, _process_block_summary
@@ -997,8 +1001,58 @@ def _process_tile(
                 result = None
         else:
             result = _accumulate_ld_summary_tables(result)
+            result.cast_to_cpython()  # needed for multiprocessing
 
     return result, out_file, error_message
+
+
+
+def _aoi_process_multiprocess(inputs, n_cpus):
+    with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
+        summary_tables = []
+        out_files = []
+
+        for n, output in enumerate(p.imap_unordered(_summarize_tile, inputs)):
+            util.log_progress(
+                n / len(inputs),
+                message='Processing land degradation summaries overall progress'
+            )
+            error_message = output[2]
+
+            if error_message is not None:
+                p.terminate()
+
+                return None
+
+            summary_tables.append(output[0])
+            out_files.append(output[1])
+
+    summary_table = _accumulate_ld_summary_tables(summary_tables)
+
+    return summary_table, out_files
+
+
+def _aoi_process_sequential(inputs):
+    summary_tables = []
+    out_files = []
+
+    for n, item in enumerate(inputs):
+        output = _summarize_tile(item)
+        util.log_progress(
+            n / len(inputs),
+            message='Processing land degradation summaries overall progress'
+        )
+        error_message = output[1]
+
+        if error_message is not None:
+            break
+
+        summary_tables.append(output[0])
+        out_files.append(output[1])
+
+    summary_table = _accumulate_ld_summary_tables(summary_tables)
+
+    return summary_table, out_files
 
 def _process_region(
     wkt_aoi,
@@ -1049,10 +1103,8 @@ def _process_region(
 
     logger.info('Calculating summaries for each tile')
     if tiles:
-        summary_tables = []
-        sdg_paths = []
-        for tile in tiles:
-            results = _process_tile(
+        inputs = [
+            SummarizeTileInputs(
                 in_file=tile,
                 wkt_aoi=wkt_aoi,
                 in_dfs=in_dfs,
@@ -1065,11 +1117,12 @@ def _process_region(
                 mask_worker_params=mask_worker_params,
                 deg_worker_function=deg_worker_function,
                 deg_worker_params=deg_worker_params
-            )
-            summary_tables.append(results[0])
-            sdg_paths.append(results[1])
-
-        summary_table = _accumulate_ld_summary_tables(summary_tables)
+            ) for tile in tiles
+        ]
+        if n_cpus > 1:
+            summary_table, sdg_paths = _aoi_process_multiprocess(inputs, n_cpus)
+        else:
+            summary_table, sdg_paths = _aoi_process_sequential(inputs)
     else:
         error_message = "Error reprojecting layers."
         summary_table = None

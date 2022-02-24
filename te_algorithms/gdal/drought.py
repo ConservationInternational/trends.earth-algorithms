@@ -51,15 +51,6 @@ POP_AT_SPI_MIN_OVER_PERIOD_BAND_NAME = "Population at minimum SPI over period"
 logger = logging.getLogger(__name__)
 
 
-# Numba compiled functions return numba types which won't pickle correctly
-# (which is needed for multiprocessing), so cast them to regular python types
-def _cast_numba_dict_list_to_cpython(dict_list):
-    return [
-        {int(key): float(value)
-         for key, value in dictionary.items()} for dictionary in dict_list
-    ]
-
-
 @marshmallow_dataclass.dataclass
 class SummaryTableDrought(SchemaBase):
     annual_area_by_drought_class: List[Dict[int, float]]
@@ -69,16 +60,16 @@ class SummaryTableDrought(SchemaBase):
     dvi_value_sum_and_count: Tuple[float, int]
 
     def cast_to_cpython(self):
-        self.annual_area_by_drought_class = _cast_numba_dict_list_to_cpython(
+        self.annual_area_by_drought_class = cast_numba_int_dict_list_to_cpython(
             self.annual_area_by_drought_class
         )
-        self.annual_population_by_drought_class_total = _cast_numba_dict_list_to_cpython(
+        self.annual_population_by_drought_class_total = cast_numba_int_dict_list_to_cpython(
             self.annual_population_by_drought_class_total
         )
-        self.annual_population_by_drought_class_male = _cast_numba_dict_list_to_cpython(
+        self.annual_population_by_drought_class_male = cast_numba_int_dict_list_to_cpython(
             self.annual_population_by_drought_class_male
         )
-        self.annual_population_by_drought_class_female = _cast_numba_dict_list_to_cpython(
+        self.annual_population_by_drought_class_female = cast_numba_int_dict_list_to_cpython(
             self.annual_population_by_drought_class_female
         )
 
@@ -390,7 +381,6 @@ def _process_block(
         annual_population_by_drought_class_male,
         annual_population_by_drought_class_female, dvi_value_sum_and_count
     )
-    #out_table.cast_to_cpython()
 
     return out_table, write_arrays
 
