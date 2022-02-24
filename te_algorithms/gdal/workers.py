@@ -76,7 +76,10 @@ class Clip:
 @dataclasses.dataclass()
 class CutParams:
     src_win: tuple
+    in_file: Path
     out_file: Path
+    datatype: int
+    progress_callback: callable
 
 
 def _next_power_of_two(x):
@@ -160,6 +163,55 @@ def _get_tile_size(
     return x_bs_out, y_bs_out
 
 
+def _cut_tiles_multiprocess(n_cpus, params):
+    logger.debug('Using multiprocessing')
+    logger.debug('Params are %s ', params)
+    results = []
+    with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
+        for result in p.imap_unordered(cut_tile, params):
+            logger.debug('Finished processing %s', result)
+            results.append(result)
+    return results
+
+
+def _cut_tiles_sequential(params):
+    logger.debug('Cutting tiles sequentially')
+    n = 1
+
+    logger.debug('Params are %s ', params)
+    results = []
+    for param in params:
+        results.append(cut_tile(param))
+        n += 1
+
+    return results
+
+
+def cut_tile(params):
+    logger.info('Starting tile %s', str(params.out_file))
+    gdal.SetConfigOption("GDAL_CACHEMAX", '500')
+    res = gdal.Translate(
+        str(params.out_file),
+        str(params.in_file),
+        srcWin=params.src_win,
+        outputType=params.datatype,
+        resampleAlg=gdal.GRA_NearestNeighbour,
+        creationOptions=[
+            'BIGTIFF=YES', 'COMPRESS=LZW', 'NUM_THREADS=ALL_CPUs', 'TILED=YES'
+        ],
+        callback=params.progress_callback,
+        callback_data=[str(params.in_file),
+                       str(params.out_file)]
+    )
+
+    logger.info('Finished tile %s', str(params.out_file))
+
+    if res:
+        return params.out_file
+    else:
+        return None
+
+
 @dataclasses.dataclass()
 class CutTiles:
     in_file: Path
@@ -186,8 +238,8 @@ class CutTiles:
         )
         logger.debug('Chose tile size %s', tile_size)
 
-        x_starts = np.arange(1, width, tile_size[0])
-        y_starts = np.arange(1, height, tile_size[1])
+        x_starts = np.arange(0, width, tile_size[0])
+        y_starts = np.arange(0, height, tile_size[1])
 
         src_wins = []
 
@@ -196,8 +248,8 @@ class CutTiles:
             y_starts
         )
 
-        for x_index, x_start in enumerate(x_starts):
-            for y_index, y_start in enumerate(y_starts):
+        for x_start in x_starts:
+            for y_start in y_starts:
                 if x_start == x_starts[-1]:
                     x_width = in_ds.RasterXSize
                 else:
@@ -224,63 +276,23 @@ class CutTiles:
             out_files = [self.out_file]
 
         params = [
-            CutParams(src_win, out_file)
-            for src_win, out_file in zip(src_wins, out_files)
+            CutParams(
+                src_win, self.in_file, out_file, self.datatype,
+                self.progress_callback
+            ) for src_win, out_file in zip(src_wins, out_files)
         ]
 
         if self.n_cpus > 1:
-            self._cut_tiles_multiprocess(params)
+            _cut_tiles_multiprocess(self.n_cpus, params)
         else:
-            self._cut_tiles_sequential(params)
+            _cut_tiles_sequential(params)
 
         return out_files
 
-    def _cut_tiles_multiprocess(self, params):
-        with multiprocessing.Pool(self.n_cpus) as p:
-            n = 1
-
-            for results in p.imap_unordered(self.cut_tile, params):
-                self.emit_progress(n / len(params))
-                n += 1
-
-    def _cut_tiles_sequential(self, params):
-        n = 1
-
-        for param in params:
-            self.cut_tile(param)
-            self.emit_progress(n / len(params))
-            n += 1
-
-    def emit_progress(self, *args):
-        '''Reimplement to display progress messages'''
-        util.log_progress(
-            *args, message=f"Splitting {self.in_file} into tiles"
-        )
-
-    def cut_tile(self, params):
-        gdal.SetConfigOption("GDAL_CACHEMAX", '500')
-        res = gdal.Translate(
-            str(params.out_file),
-            str(self.in_file),
-            srcWin=params.src_win,
-            outputType=self.datatype,
-            resampleAlg=gdal.GRA_NearestNeighbour,
-            creationOptions=[
-                'BIGTIFF=YES', 'COMPRESS=LZW', 'NUM_THREADS=ALL_CPUs',
-                'TILED=YES'
-            ],
-            callback=self.progress_callback,
-            callback_data=str(params.out_file)
-        )
-
-        if res:
-            return params.out_file
-        else:
-            return None
-
     def progress_callback(self, fraction, message, callback_data):
         logger.info(
-            '%s - %.2f%%', f"Splitting tile {callback_data}", 100 * fraction
+            "%s - %.2f%%", f"Splitting {callback_data[0]} into tile "
+            f"{callback_data[1]}", 100 * fraction
         )
 
 

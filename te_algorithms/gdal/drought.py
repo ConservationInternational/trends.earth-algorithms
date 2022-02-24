@@ -761,7 +761,7 @@ def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
 
 
 def _aoi_process_multiprocess(inputs, n_cpus):
-    with multiprocessing.Pool(n_cpus) as p:
+    with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
         n = 0
 
         results = []

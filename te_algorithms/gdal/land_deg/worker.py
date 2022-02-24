@@ -50,7 +50,7 @@ class DegradationSummary:
         # productivity bands
         driver = gdal.GetDriverByName("GTiff")
         dst_ds_deg = driver.Create(
-            self.params.out_file,
+            str(self.params.out_file),
             xsize,
             ysize,
             self.params.n_out_bands,

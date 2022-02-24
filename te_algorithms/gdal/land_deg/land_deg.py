@@ -1,52 +1,31 @@
 import datetime as dt
 import json
 import logging
+import multiprocessing
 import tempfile
-from copy import copy
 from pathlib import Path
-from typing import Callable
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from osgeo import gdal
 from te_schemas import land_cover
 from te_schemas.aoi import AOI
-from te_schemas.datafile import combine_data_files
-from te_schemas.datafile import DataFile
+from te_schemas.datafile import DataFile, combine_data_files
 from te_schemas.jobs import Job
 from te_schemas.productivity import ProductivityMode
-from te_schemas.results import Band
-from te_schemas.results import DataType
-from te_schemas.results import Raster
-from te_schemas.results import RasterFileType
-from te_schemas.results import RasterResults
-from te_schemas.results import URI
+from te_schemas.results import (URI, Band, DataType, Raster, RasterFileType,
+                                RasterResults)
 
-from . import config
-from . import models
-from . import worker
-from .. import util
-from .. import workers
-from .. import xl
-from ... import __release_date__
-from ... import __version__
-from ..util_numba import bizonal_total
-from ..util_numba import zonal_total
-from ..util_numba import zonal_total_weighted
-from .land_deg_numba import calc_deg_sdg
-from .land_deg_numba import calc_lc_trans
-from .land_deg_numba import calc_prod5
-from .land_deg_numba import prod5_to_prod3
-from .land_deg_numba import recode_deg_soc
-from .land_deg_numba import recode_indicator_errors
-from .land_deg_numba import recode_state
-from .land_deg_numba import recode_traj
+from ... import __release_date__, __version__
+from .. import util, workers, xl
+from ..util_numba import bizonal_total, zonal_total, zonal_total_weighted
+from . import config, models, worker
+from .land_deg_numba import (calc_deg_sdg, calc_lc_trans, calc_prod5,
+                             prod5_to_prod3, recode_deg_soc,
+                             recode_indicator_errors, recode_state,
+                             recode_traj)
 from .land_deg_progress import compute_progress_summary
-from .land_deg_report import save_reporting_json
-from .land_deg_report import save_summary_table_excel
+from .land_deg_report import save_reporting_json, save_summary_table_excel
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +216,7 @@ def _prepare_jrc_lpd_mode_df(params: Dict) -> DataFile:
 
 
 def summarise_land_degradation(
-    ldn_job: Job, aoi: AOI, job_output_path: Path
+    ldn_job: Job, aoi: AOI, job_output_path: Path, n_cpus: int = multiprocessing.cpu_count() - 1
 ) -> Job:
     """Calculate final SDG 15.3.1 indicator and save to disk"""
     logger.debug('at top of compute_ldn')
@@ -312,6 +291,7 @@ def summarise_land_degradation(
             period_name,
             "periods":
             period_params['periods'],
+            "n_cpus": n_cpus
         }
 
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -916,29 +896,130 @@ def _get_so3_band_instance(population_type, prod_params):
     )
 
 
+def _process_tile(
+    in_file: Path,
+    wkt_aoi: str,
+    in_dfs: List[DataFile],
+    prod_mode: str,
+    lc_legend_nesting: land_cover.LCLegendNesting,
+    lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
+    period_name: str,
+    periods: dict,
+    mask_worker_function: Callable = None,
+    mask_worker_params: dict = None,
+    deg_worker_function: Callable = None,
+    deg_worker_params: dict = None,
+):
+
+    error_message = ""
+    logger.info('Processing tile %s', in_file)
+
+    # Compute a mask layer that will be used in the tabulation code to
+    # mask out areas outside of the AOI. Do this instead of using
+    # gdal.Clip to save having to clip and rewrite all of the layers in
+    # the VRT
+    mask_tif = tempfile.NamedTemporaryFile(
+        suffix='_ld_summary_mask.tif', delete=False
+    ).name
+    logger.info('Saving mask to %s', mask_tif)
+    geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
+
+    if mask_worker_function:
+        mask_result = mask_worker_function(
+            mask_tif, geojson, str(in_file),
+            **mask_worker_params
+        )
+
+    else:
+        mask_worker = workers.Mask(
+            mask_tif, geojson, str(in_file)
+        )
+        mask_result = mask_worker.work()
+
+    if not mask_result:
+        error_message = "Error creating mask."
+        result = None
+
+    else:
+        in_df = combine_data_files(in_file, in_dfs)
+        n_out_bands = 2
+
+        if _have_pop_by_sex(in_dfs):
+            logger.info(
+                'Have population broken down by sex - '
+                'adding 2 output bands'
+            )
+            n_out_bands += 2
+
+        if prod_mode == 'Trends.Earth productivity':
+            model_band_number = in_df.index_for_name(
+                config.TRAJ_BAND_NAME
+            ) + 1
+            # Save the combined productivity indicator as well, in the
+            # second layer in the deg file
+            n_out_bands += 1
+        else:
+            model_band_number = in_df.index_for_name(
+                config.LC_DEG_BAND_NAME
+            ) + 1
+
+
+        out_file = in_file.parent / (in_file.stem + '_sdg' + in_file.suffix)
+        logger.info('Calculating summary table and saving to %s', out_file)
+
+        params = models.DegradationSummaryParams(
+            in_df=in_df,
+            prod_mode=prod_mode,
+            in_file=in_df.path,
+            out_file=out_file,
+            model_band_number=model_band_number,
+            n_out_bands=n_out_bands,
+            mask_file=mask_tif,
+            nesting=lc_legend_nesting,
+            trans_matrix=lc_trans_matrix,
+            period_name=period_name,
+            periods=periods
+        )
+
+        if deg_worker_function:
+            result = deg_worker_function(params, **deg_worker_params)
+        else:
+            summarizer = worker.DegradationSummary(
+                params, _process_block_summary
+            )
+            result = summarizer.work()
+
+        if not result:
+            if result.is_killed():
+                error_message = "Cancelled calculation of summary table."
+            else:
+                error_message = "Error calculating summary table."
+                result = None
+        else:
+            result = _accumulate_ld_summary_tables(result)
+
+    return result, out_file, error_message
+
 def _process_region(
     wkt_aoi,
     pixel_aligned_bbox,
     in_dfs: List[DataFile],
-    output_sdg_path: Path,
     output_layers_path: Path,
     prod_mode: str,
     lc_legend_nesting: land_cover.LCLegendNesting,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
-    reproject_worker_process_name,
-    mask_worker_process_name,
-    deg_worker_process_name,
     period_name: str,
     periods: dict,
-    reproject_worker_function: Callable = None,
-    reproject_worker_params: dict = None,
+    n_cpus: int,
+    translate_worker_function: Callable = None,
+    translate_worker_params: dict = None,
     mask_worker_function: Callable = None,
     mask_worker_params: dict = None,
     deg_worker_function: Callable = None,
     deg_worker_params: dict = None
 ) -> Tuple[Optional[models.SummaryTableLD], str]:
     '''Runs summary statistics for a particular area'''
-    # build vrt
+
     # Combines SDG 15.3.1 input raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(
         suffix='_ld_summary_inputs.vrt', delete=False
@@ -953,115 +1034,56 @@ def _process_region(
     )
 
     error_message = ""
-    logger.info(f'Reprojecting inputs and saving to {output_layers_path}')
+    logger.info('Cutting input into tiles (and reprojecting) and saving to %s', output_layers_path)
 
-    if reproject_worker_function:
-        reproject_result = reproject_worker_function(
-            indic_vrt, str(output_layers_path), **reproject_worker_params
+    if translate_worker_function:
+        tiles = translate_worker_function(
+            indic_vrt, str(output_layers_path), **translate_worker_params
         )
 
     else:
-        reproject_worker = workers.Warp(indic_vrt, str(output_layers_path))
-        reproject_result = reproject_worker.work()
+        translate_worker = workers.CutTiles(
+            indic_vrt, n_cpus, output_layers_path
+        )
+        tiles = translate_worker.work()
 
-    if reproject_result:
-        # Compute a mask layer that will be used in the tabulation code to
-        # mask out areas outside of the AOI. Do this instead of using
-        # gdal.Clip to save having to clip and rewrite all of the layers in
-        # the VRT
-        mask_tif = tempfile.NamedTemporaryFile(
-            suffix='_ld_summary_mask.tif', delete=False
-        ).name
-        logger.info(f'Saving mask to {mask_tif}')
-        geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
-
-        if mask_worker_function:
-            mask_result = mask_worker_function(
-                mask_tif, geojson, str(output_layers_path),
-                **mask_worker_params
-            )
-
-        else:
-            mask_worker = workers.Mask(
-                mask_tif, geojson, str(output_layers_path)
-            )
-            mask_result = mask_worker.work()
-
-        if mask_result:
-            in_df = combine_data_files(output_layers_path, in_dfs)
-
-            n_out_bands = 2
-
-            if _have_pop_by_sex(in_dfs):
-                logger.info(
-                    'Have population broken down by sex - '
-                    'adding 2 output bands'
-                )
-                n_out_bands += 2
-
-            if prod_mode == 'Trends.Earth productivity':
-                model_band_number = in_df.index_for_name(
-                    config.TRAJ_BAND_NAME
-                ) + 1
-                # Save the combined productivity indicator as well, in the
-                # second layer in the deg file
-                n_out_bands += 1
-            else:
-                model_band_number = in_df.index_for_name(
-                    config.LC_DEG_BAND_NAME
-                ) + 1
-
-            logger.info(
-                f'Calculating summary table and saving to {output_sdg_path}'
-            )
-
-            params = models.DegradationSummaryParams(
-                in_df=in_df,
+    logger.info('Calculating summaries for each tile')
+    if tiles:
+        summary_tables = []
+        sdg_paths = []
+        for tile in tiles:
+            results = _process_tile(
+                in_file=tile,
+                wkt_aoi=wkt_aoi,
+                in_dfs=in_dfs,
                 prod_mode=prod_mode,
-                in_file=in_df.path,
-                out_file=str(output_sdg_path),
-                model_band_number=model_band_number,
-                n_out_bands=n_out_bands,
-                mask_file=mask_tif,
-                nesting=lc_legend_nesting,
-                trans_matrix=lc_trans_matrix,
+                lc_legend_nesting=lc_legend_nesting,
+                lc_trans_matrix=lc_trans_matrix,
                 period_name=period_name,
-                periods=periods
+                periods=periods,
+                mask_worker_function=mask_worker_function,
+                mask_worker_params=mask_worker_params,
+                deg_worker_function=deg_worker_function,
+                deg_worker_params=deg_worker_params
             )
+            summary_tables.append(results[0])
+            sdg_paths.append(results[1])
 
-            if deg_worker_function:
-                result = deg_worker_function(params, **deg_worker_params)
-            else:
-                summarizer = worker.DegradationSummary(
-                    params, _process_block_summary
-                )
-                result = summarizer.work()
-
-            if not result:
-                if result.is_killed():
-                    error_message = "Cancelled calculation of summary table."
-                else:
-                    error_message = "Error calculating summary table."
-                    result = None
-            else:
-                result = _accumulate_ld_summary_tables(result)
-
-        else:
-            error_message = "Error creating mask."
-            result = None
-
+        summary_table = _accumulate_ld_summary_tables(summary_tables)
     else:
         error_message = "Error reprojecting layers."
-        result = None
+        summary_table = None
+        tiles = None
+        sdg_paths = None
 
-    return result, error_message
+    return summary_table, tiles, sdg_paths, error_message
 
 
 def _compute_ld_summary_table(
     aoi, in_dfs, compute_bbs_from, prod_mode, output_job_path: Path,
     lc_legend_nesting: land_cover.LCLegendNesting,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg, period_name: str,
-    periods: dict
+    periods: dict, n_cpus: int
 ) -> Tuple[models.SummaryTableLD, Path, Path]:
     """Computes summary table and the output tif file(s)"""
 
@@ -1073,18 +1095,6 @@ def _compute_ld_summary_table(
         1: f"{output_job_path.stem}" + "_{layer}.tif",
         2: f"{output_job_path.stem}" + "{layer}_{index}.tif"
     }[len(wkt_aois)]
-    reproject_name_fragment = {
-        1: "Reprojecting layers",
-        2: "Reprojecting layers (part {index} of 2)",
-    }[len(wkt_aois)]
-    mask_name_fragment = {
-        1: "Generating mask",
-        2: "Generating mask (part {index} of 2)",
-    }[len(wkt_aois)]
-    summary_name_fragment = {
-        1: "Calculating summary table",
-        2: "Calculating summary table (part {index} of 2)",
-    }[len(wkt_aois)]
     stable_kwargs = {
         "in_dfs": in_dfs,
         "prod_mode": prod_mode,
@@ -1092,6 +1102,7 @@ def _compute_ld_summary_table(
         "lc_trans_matrix": lc_trans_matrix,
         "period_name": period_name,
         "periods": periods,
+        "n_cpus": n_cpus,
     }
 
     summary_tables = []
@@ -1100,32 +1111,23 @@ def _compute_ld_summary_table(
 
     for index, (wkt_aoi,
                 pixel_aligned_bbox) in enumerate(zip(wkt_aois, bbs), start=1):
-        sdg_path = output_job_path.parent / output_name_pattern.format(
-            layer="sdg", index=index
-        )
-        sdg_paths.append(sdg_path)
-        reproj_path = output_job_path.parent / output_name_pattern.format(
+        base_output_path = output_job_path.parent / output_name_pattern.format(
             layer="inputs", index=index
         )
-        reproj_paths.append(reproj_path)
 
-        result, error_message = _process_region(
+        this_summary_table, these_reproj_paths, these_sdg_paths, error_message = _process_region(
             wkt_aoi=wkt_aoi,
             pixel_aligned_bbox=pixel_aligned_bbox,
-            output_sdg_path=sdg_path,
-            output_layers_path=reproj_path,
-            reproject_worker_process_name=reproject_name_fragment.format(
-                index=index
-            ),
-            mask_worker_process_name=mask_name_fragment.format(index=index),
-            deg_worker_process_name=summary_name_fragment.format(index=index),
+            output_layers_path=base_output_path,
             **stable_kwargs
         )
 
-        if result is None:
+        if this_summary_table is None:
             raise RuntimeError(error_message)
         else:
-            summary_tables.append(result)
+            summary_tables.append(this_summary_table)
+            reproj_paths.extend(these_reproj_paths)
+            sdg_paths.extend(these_sdg_paths)
 
     summary_table = _accumulate_ld_summary_tables(summary_tables)
 
