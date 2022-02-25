@@ -195,16 +195,14 @@ def recode_errors(params) -> Job:
             Band(
                 name=config.SDG_BAND_NAME,
                 no_data_value=int(config.NODATA_VALUE),
-                metadata=params['metadata'
-                                ],  # copy over metadata from input job
+                metadata=params['metadata'],  # copy metadata from input job
                 add_to_map=True,
                 activated=True
             ),
             Band(
                 name=config.ERROR_RECODE_BAND_NAME,
                 no_data_value=int(config.NODATA_VALUE),
-                metadata=params['metadata'
-                                ],  # copy over metadata from input job
+                metadata=params['metadata'],  # copy metadata from input job
                 add_to_map=False,
                 activated=False
             )
