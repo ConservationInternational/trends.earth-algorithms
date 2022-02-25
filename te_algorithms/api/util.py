@@ -428,7 +428,7 @@ def _get_main_raster_uri(
 
 
 def write_results_to_s3_cog(
-    results,
+    res,
     aoi,
     filename_base,
     s3_prefix,
@@ -438,7 +438,7 @@ def write_results_to_s3_cog(
     nodata_value=-32768,
     s3_extra_args={}
 ):
-    bounding_boxes = aoi.get_aligned_output_bounds(str(results.uri.uri))
+    bounding_boxes = aoi.get_aligned_output_bounds(str(res.uri.uri))
 
     gdal.SetConfigOption(
         "AWS_ACCESS_KEY_ID",
@@ -447,7 +447,7 @@ def write_results_to_s3_cog(
     gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
     cog_vsi_base = get_vsis3_path(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
-        for key, raster in results.rasters.items():
+        for key, raster in res.rasters.items():
             # Fill in  main uri field (linking to all rasters making up this
             # raster
 
@@ -508,7 +508,7 @@ def write_results_to_s3_cog(
 
             if len(out_uris) > 1:
                 # Write a TiledRaster
-                results.rasters[key] = results.TiledRaster(
+                res.rasters[key] = results.TiledRaster(
                     tile_uris=out_uris,
                     bands=raster.bands,
                     datatype=raster.datatype,
@@ -518,17 +518,17 @@ def write_results_to_s3_cog(
 
             else:
                 # Write a Raster
-                results.rasters[key] = results.Raster(
+                res.rasters[key] = results.Raster(
                     uri=out_uris[0],
                     bands=raster.bands,
                     datatype=raster.datatype,
                     filetype=raster.filetype
                 )
 
-        if (len(results.rasters) > 1 or results.has_tiled_raster()):
+        if (len(res.rasters) > 1 or res.has_tiled_raster()):
             main_vrt_file = Path(temp_dir) / f"{filename_base}.vrt"
             logger.info('Saving main vrt file to %s', main_vrt_file)
-            main_uris = [uri.uri for uri in results.get_main_uris()]
+            main_uris = [uri.uri for uri in res.get_main_uris()]
             combine_all_bands_into_vrt(
                 main_uris,
                 main_vrt_file,
@@ -542,7 +542,7 @@ def write_results_to_s3_cog(
                 prefix=s3_prefix,
                 s3_extra_args=s3_extra_args
             )
-            results.uri = results.URI(
+            res.uri = results.URI(
                 uri=get_vsis3_path(main_vrt_file.name, s3_prefix, s3_bucket),
                 type='cloud',
                 etag=get_etag(
@@ -551,9 +551,9 @@ def write_results_to_s3_cog(
                 )
             )
         else:
-            results.uri = [*results.rasters.values()][0].uri
-            results.uri.type = 'cloud'
-    return results
+            res.uri = [*res.rasters.values()][0].uri
+            res.uri.type = 'cloud'
+    return res
 
 
 def write_job_to_s3_cog(
@@ -568,7 +568,7 @@ def write_job_to_s3_cog(
     s3_extra_args={}
 ):
     write_results_to_s3_cog(
-        job,
+        job.results,
         aoi,
         filename_base,
         s3_prefix,
