@@ -427,20 +427,18 @@ def _get_main_raster_uri(
     return raster.uri
 
 
-def write_job_to_s3_cog(
-    job,
+def write_results_to_s3_cog(
+    results,
     aoi,
     filename_base,
     s3_prefix,
     s3_bucket,
-    s3_region,
     aws_access_key_id=None,
     aws_secret_access_key=None,
-    extra_suffix='',
     nodata_value=-32768,
     s3_extra_args={}
 ):
-    bounding_boxes = aoi.get_aligned_output_bounds(str(job.results.uri.uri))
+    bounding_boxes = aoi.get_aligned_output_bounds(str(results.uri.uri))
 
     gdal.SetConfigOption(
         "AWS_ACCESS_KEY_ID",
@@ -449,7 +447,7 @@ def write_job_to_s3_cog(
     gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
     cog_vsi_base = get_vsis3_path(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
-        for key, raster in job.results.rasters.items():
+        for key, raster in results.rasters.items():
             # Fill in  main uri field (linking to all rasters making up this
             # raster
 
@@ -510,7 +508,7 @@ def write_job_to_s3_cog(
 
             if len(out_uris) > 1:
                 # Write a TiledRaster
-                job.results.rasters[key] = results.TiledRaster(
+                results.rasters[key] = results.TiledRaster(
                     tile_uris=out_uris,
                     bands=raster.bands,
                     datatype=raster.datatype,
@@ -520,17 +518,17 @@ def write_job_to_s3_cog(
 
             else:
                 # Write a Raster
-                job.results.rasters[key] = results.Raster(
+                results.rasters[key] = results.Raster(
                     uri=out_uris[0],
                     bands=raster.bands,
                     datatype=raster.datatype,
                     filetype=raster.filetype
                 )
 
-        if (len(job.results.rasters) > 1 or job.results.has_tiled_raster()):
+        if (len(results.rasters) > 1 or results.has_tiled_raster()):
             main_vrt_file = Path(temp_dir) / f"{filename_base}.vrt"
             logger.info('Saving main vrt file to %s', main_vrt_file)
-            main_uris = [uri.uri for uri in job.results.get_main_uris()]
+            main_uris = [uri.uri for uri in results.get_main_uris()]
             combine_all_bands_into_vrt(
                 main_uris,
                 main_vrt_file,
@@ -544,7 +542,7 @@ def write_job_to_s3_cog(
                 prefix=s3_prefix,
                 s3_extra_args=s3_extra_args
             )
-            job.results.uri = results.URI(
+            results.uri = results.URI(
                 uri=get_vsis3_path(main_vrt_file.name, s3_prefix, s3_bucket),
                 type='cloud',
                 etag=get_etag(
@@ -553,14 +551,40 @@ def write_job_to_s3_cog(
                 )
             )
         else:
-            job.results.uri = [*job.results.rasters.values()][0].uri
-            job.results.uri.type = 'cloud'
+            results.uri = [*results.rasters.values()][0].uri
+            results.uri.type = 'cloud'
+    return results
 
-        job.status = jobs.JobStatus.DOWNLOADED
 
-        write_job_json_to_s3(
-            job, filename_base + '.json', s3_prefix, s3_bucket, s3_extra_args
-        )
+def write_job_to_s3_cog(
+    job,
+    aoi,
+    filename_base,
+    s3_prefix,
+    s3_bucket,
+    aws_access_key_id=None,
+    aws_secret_access_key=None,
+    nodata_value=-32768,
+    s3_extra_args={}
+):
+    write_results_to_s3_cog(
+        job,
+        aoi,
+        filename_base,
+        s3_prefix,
+        s3_bucket,
+        aws_access_key_id,
+        aws_secret_access_key,
+        nodata_value,
+        s3_extra_args={}
+    )
+    job.status = jobs.JobStatus.DOWNLOADED
+
+    write_job_json_to_s3(
+        job, filename_base + '.json', s3_prefix, s3_bucket, s3_extra_args
+    )
+
+    return job
 
 
 def write_job_json_to_s3(

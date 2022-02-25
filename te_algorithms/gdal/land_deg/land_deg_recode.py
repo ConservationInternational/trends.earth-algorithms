@@ -15,7 +15,12 @@ from te_schemas.error_recode import ErrorRecodePolygons
 from te_schemas.jobs import Job
 from te_schemas.results import Band
 from te_schemas.results import CloudResults
+from te_schemas.results import DataType
 from te_schemas.results import JsonResults
+from te_schemas.results import RasterFileType
+from te_schemas.results import Raster
+from te_schemas.results import TiledRaster
+from te_schemas.results import URI
 
 from . import config
 from .. import workers
@@ -176,7 +181,7 @@ def recode_errors(params) -> Job:
         params['error_polygons']
     )
 
-    summary_table, out_path = _compute_error_recode(
+    summary_table, error_recode_paths = _compute_error_recode(
         sdg_df=sdg_df,
         error_recode_df=error_recode_df,
         aoi=aoi,
@@ -205,23 +210,43 @@ def recode_errors(params) -> Job:
             )
         ]
 
-        results = CloudResults(
+        if len(error_recode_paths) > 1:
+            error_recode_vrt = job_output_path.parent / f"{job_output_path.stem}_error_recode.vrt"
+            gdal.BuildVRT(
+                str(error_recode_vrt), [str(p) for p in error_recode_paths]
+            )
+            rasters = TiledRaster(
+                tile_uris=[
+                    URI(uri=p, type='local') for p in error_recode_paths
+                ],
+                uri=URI(uri=error_recode_vrt, type='local'),
+                bands=out_bands,
+                datatype=DataType.INT16,
+                filetype=RasterFileType.COG,
+            )
+        else:
+            rasters = Raster(
+                uri=URI(uri=error_recode_paths[0], type='local'),
+                bands=out_bands,
+                datatype=DataType.INT16,
+                filetype=RasterFileType.COG
+            )
+
+        results = RasterResults(
             name=params['layer_input_band']['name'],
-            bands=out_bands,
-            data_path=
-            out_path,  # local path, needs to be pushed to COG in calling function
-            urls=[],  # needs to be set in calling function after pushing COG(s)
+            uri=rasters.uri,
+            rasters=rasters,
             data=get_serialized_results(
                 summary_table, params['layer_input_band']['name'] + ' recode'
-            ),
-            other_paths=[]
+            )
         )
+
     else:
         results = JsonResults(
             name=params['layer_input_band']['name'],
             data=get_serialized_results(
                 summary_table, params['layer_input_band']['name'] + ' recode'
-            ),
+            )
         )
 
     return results
@@ -334,12 +359,4 @@ def _compute_error_recode(
 
     error_recode_table = _accumulate_summary_tables(error_recode_tables)
 
-    if len(error_recode_paths) > 1:
-        error_recode_path = job_output_path.parent / f"{job_output_path.stem}_error_recode.vrt"
-        gdal.BuildVRT(
-            str(error_recode_path), [str(p) for p in error_recode_paths]
-        )
-    else:
-        error_recode_path = error_recode_paths[0]
-
-    return error_recode_table, error_recode_path
+    return error_recode_table, error_recode_paths
