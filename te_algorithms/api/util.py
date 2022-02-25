@@ -843,7 +843,7 @@ def get_bands_by_name(
     sort_property: str = "year"
 ) -> typing.List[results.Band]:
 
-    bands = job.results.bands
+    bands = job.results.get_bands()
 
     bands_and_indices = [
         (band, index) for index, band in enumerate(bands, start=1)
