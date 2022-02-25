@@ -154,7 +154,7 @@ def get_serialized_results(st, layer_name):
             reporting.Area('Stable', st.sdg_summary.get(0, 0.)),
             reporting.Area('Degraded', st.sdg_summary.get(-1, 0.)),
             reporting.Area(
-                'No data', st.sdg_summary.get(config.NODATA_VALUE, 0)
+                'No data', st.sdg_summary.get(int(config.NODATA_VALUE), 0)
             )
         ]
     )
@@ -194,7 +194,7 @@ def recode_errors(params) -> Job:
         out_bands = [
             Band(
                 name=config.SDG_BAND_NAME,
-                no_data_value=config.NODATA_VALUE,
+                no_data_value=int(config.NODATA_VALUE),
                 metadata=params['metadata'
                                 ],  # copy over metadata from input job
                 add_to_map=True,
@@ -202,7 +202,7 @@ def recode_errors(params) -> Job:
             ),
             Band(
                 name=config.ERROR_RECODE_BAND_NAME,
-                no_data_value=config.NODATA_VALUE,
+                no_data_value=int(config.NODATA_VALUE),
                 metadata=params['metadata'
                                 ],  # copy over metadata from input job
                 add_to_map=False,
