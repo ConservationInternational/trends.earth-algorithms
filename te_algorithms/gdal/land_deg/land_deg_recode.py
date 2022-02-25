@@ -19,6 +19,7 @@ from te_schemas.results import DataType
 from te_schemas.results import JsonResults
 from te_schemas.results import RasterFileType
 from te_schemas.results import Raster
+from te_schemas.results import RasterResults
 from te_schemas.results import TiledRaster
 from te_schemas.results import URI
 
