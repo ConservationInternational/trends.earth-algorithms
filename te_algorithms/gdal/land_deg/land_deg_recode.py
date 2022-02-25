@@ -13,9 +13,9 @@ from te_schemas.aoi import AOI
 from te_schemas.datafile import DataFile
 from te_schemas.error_recode import ErrorRecodePolygons
 from te_schemas.jobs import Job
-from te_schemas.jobs import JobCloudResults
-from te_schemas.jobs import JobJsonResults
 from te_schemas.results import Band
+from te_schemas.results import CloudResults
+from te_schemas.results import JsonResults
 
 from . import config
 from .. import workers
@@ -205,7 +205,7 @@ def recode_errors(params) -> Job:
             )
         ]
 
-        results = JobCloudResults(
+        results = CloudResults(
             name=params['layer_input_band']['name'],
             bands=out_bands,
             data_path=
@@ -217,7 +217,7 @@ def recode_errors(params) -> Job:
             other_paths=[]
         )
     else:
-        results = JobJsonResults(
+        results = JsonResults(
             name=params['layer_input_band']['name'],
             data=get_serialized_results(
                 summary_table, params['layer_input_band']['name'] + ' recode'
