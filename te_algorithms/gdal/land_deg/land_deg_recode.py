@@ -215,7 +215,7 @@ def recode_errors(params) -> Job:
                 str(error_recode_vrt), [str(p) for p in error_recode_paths]
             )
             rasters = {
-                DataType.INT16: TiledRaster(
+                DataType.INT16.value: TiledRaster(
                     tile_uris=[
                         URI(uri=p, type='local') for p in error_recode_paths
                     ],
@@ -228,7 +228,7 @@ def recode_errors(params) -> Job:
             main_uri = URI(uri=error_recode_vrt, type='local')
         else:
             rasters = {
-                DataType.INT16: Raster(
+                DataType.INT16.value: Raster(
                     uri=URI(uri=error_recode_paths[0], type='local'),
                     bands=out_bands,
                     datatype=DataType.INT16,
