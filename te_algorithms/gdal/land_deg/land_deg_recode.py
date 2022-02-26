@@ -225,6 +225,7 @@ def recode_errors(params) -> Job:
                     filetype=RasterFileType.COG,
                 )
             }
+            main_uri = error_recode_vrt
         else:
             rasters = {
                 DataType.INT16: Raster(
@@ -234,10 +235,11 @@ def recode_errors(params) -> Job:
                     filetype=RasterFileType.COG
                 )
             }
+            main_uri = error_recode_paths[0]
 
         results = RasterResults(
             name=params['layer_input_band']['name'],
-            uri=rasters.uri,
+            uri=main_uri,
             rasters=rasters,
             data=get_serialized_results(
                 summary_table, params['layer_input_band']['name'] + ' recode'
