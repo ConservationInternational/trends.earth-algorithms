@@ -214,22 +214,26 @@ def recode_errors(params) -> Job:
             gdal.BuildVRT(
                 str(error_recode_vrt), [str(p) for p in error_recode_paths]
             )
-            rasters = TiledRaster(
-                tile_uris=[
-                    URI(uri=p, type='local') for p in error_recode_paths
-                ],
-                uri=URI(uri=error_recode_vrt, type='local'),
-                bands=out_bands,
-                datatype=DataType.INT16,
-                filetype=RasterFileType.COG,
-            )
+            rasters = {
+                DataType.INT16: TiledRaster(
+                    tile_uris=[
+                        URI(uri=p, type='local') for p in error_recode_paths
+                    ],
+                    uri=URI(uri=error_recode_vrt, type='local'),
+                    bands=out_bands,
+                    datatype=DataType.INT16,
+                    filetype=RasterFileType.COG,
+                )
+            }
         else:
-            rasters = Raster(
-                uri=URI(uri=error_recode_paths[0], type='local'),
-                bands=out_bands,
-                datatype=DataType.INT16,
-                filetype=RasterFileType.COG
-            )
+            rasters = {
+                DataType.INT16: Raster(
+                    uri=URI(uri=error_recode_paths[0], type='local'),
+                    bands=out_bands,
+                    datatype=DataType.INT16,
+                    filetype=RasterFileType.COG
+                )
+            }
 
         results = RasterResults(
             name=params['layer_input_band']['name'],
