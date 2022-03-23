@@ -1020,6 +1020,7 @@ def _aoi_process_multiprocess(inputs, n_cpus):
             error_message = output[2]
 
             if error_message is not None:
+                logger.error('Error %s', error_message)
                 p.terminate()
 
                 return None
@@ -1042,9 +1043,10 @@ def _aoi_process_sequential(inputs):
             n / len(inputs),
             message='Processing land degradation summaries overall progress'
         )
-        error_message = output[1]
+        error_message = output[2]
 
         if error_message is not None:
+            logger.error('Error %s', error_message)
             break
 
         summary_tables.append(output[0])
