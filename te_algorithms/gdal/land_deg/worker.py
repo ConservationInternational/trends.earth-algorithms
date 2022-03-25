@@ -55,7 +55,7 @@ class DegradationSummary:
             ysize,
             self.params.n_out_bands,
             gdal.GDT_Int16,
-            options=['COMPRESS=LZW']
+            options=['COMPRESS=LZW', "BIGTIFF=YES", "NUM_THREADS=ALL_CPUS", "TILED=YES"]
         )
         src_gt = src_ds.GetGeoTransform()
         dst_ds_deg.SetGeoTransform(src_gt)
