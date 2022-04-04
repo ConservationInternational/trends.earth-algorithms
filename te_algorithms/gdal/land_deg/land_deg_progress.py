@@ -225,8 +225,10 @@ def compute_progress_summary(
             name=config.LC_DEG_COMPARISON_BAND_NAME,
             no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
-                'year_initial': baseline_period['year_initial'],
-                'year_final': progress_period['year_final']
+                'baseline_year_initial': baseline_period['year_initial'],
+                'baseline_year_final': baseline_period['year_final'],
+                'progress_year_initial': progress_period['year_initial'],
+                'progress_year_final': progress_period['year_final']
             },
             add_to_map=True,
             activated=True

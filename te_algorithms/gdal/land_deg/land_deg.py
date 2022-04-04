@@ -600,17 +600,17 @@ def _process_block_summary(
 
     # First filter the SOC years to only those years for which land cover is
     # available.
-    lc_years = [year for band, year in lc_bands]
+    lc_years = [year for _, year in lc_bands]
     soc_bands_with_lc_avail = [
         (band, year) for band, year in soc_bands if year in lc_years
     ]
     lc_rows_for_soc = [
         params.in_df.index_for_name(config.LC_BAND_NAME, 'year', year)
-        for band, year in soc_bands_with_lc_avail
+        for _, year in soc_bands_with_lc_avail
     ]
     soc_by_lc_annual_totals = []
 
-    for index, (soc_row, soc_year) in enumerate(soc_bands_with_lc_avail):
+    for index, (soc_row, _) in enumerate(soc_bands_with_lc_avail):
         a_lc = in_array[lc_rows_for_soc[index], :, :]
         a_soc = in_array[soc_row, :, :]
         soc_by_lc_annual_totals.append(
@@ -672,7 +672,7 @@ def _process_block_summary(
 
     lc_annual_totals = []
 
-    for lc_row, lc_year in lc_bands:
+    for lc_row, _ in lc_bands:
         a_lc = in_array[lc_row, :, :]
         lc_annual_totals.append(zonal_total(a_lc, cell_areas, mask))
 
@@ -699,7 +699,7 @@ def _process_block_summary(
         soc_error_recode = in_array[
             params.in_df.index_for_name(config.
                                         SOC_DEG_ERROR_RECODE_BAND_NAME), :, :]
-        recode_indicator_errors(deg_soc, soc_error_recode)
+        deg_soc = recode_indicator_errors(deg_soc, soc_error_recode)
 
     deg_lc = in_array[
         params.in_df.index_for_name(config.LC_DEG_BAND_NAME), :, :]
@@ -708,7 +708,7 @@ def _process_block_summary(
         lc_error_recode = in_array[
             params.in_df.index_for_name(config.
                                         LC_DEG_ERROR_RECODE_BAND_NAME), :, :]
-        recode_indicator_errors(deg_lc, lc_error_recode)
+        deg_lc = recode_indicator_errors(deg_lc, lc_error_recode)
 
     deg_sdg = calc_deg_sdg(deg_prod3, deg_lc, deg_soc)
 
@@ -716,7 +716,7 @@ def _process_block_summary(
         sdg_error_recode = in_array[
             params.in_df.index_for_name(config.
                                         SDG_DEG_ERROR_RECODE_BAND_NAME), :, :]
-        recode_indicator_errors(deg_sdg, sdg_error_recode)
+        deg_sdg = recode_indicator_errors(deg_sdg, sdg_error_recode)
 
     write_arrays.append({'array': deg_sdg, 'xoff': xoff, 'yoff': yoff})
 
