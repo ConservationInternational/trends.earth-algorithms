@@ -115,7 +115,7 @@ def _get_tile_size(
     x_bs_initial,
     y_bs_initial,
     n_cpus,
-    min_tile_size=1024 * 3,
+    min_tile_size=1024 * 4,
     max_tile_size=2048 * 6,
 ):
     n_pixels = img_width * img_height
