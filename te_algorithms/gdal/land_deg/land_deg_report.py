@@ -521,7 +521,9 @@ def _write_productivity_sheet(
     st: models.SummaryTableLD,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
 ):
-    xl.write_col_to_sheet(sheet, _get_summary_array(st.prod_summary), 6, 6)
+    xl.write_col_to_sheet(
+        sheet, _get_summary_array(st.prod_summary["all_cover_types"]), 6, 6
+    )
 
     if len([*st.lc_trans_prod_bizonal.keys()]) > 0:
         # If no land cover data was available for first year of productivity
@@ -557,7 +559,9 @@ def _write_soc_sheet(
     st: models.SummaryTableLD,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
 ):
-    xl.write_col_to_sheet(sheet, _get_summary_array(st.soc_summary), 6, 6)
+    xl.write_col_to_sheet(
+        sheet, _get_summary_array(st.soc_summary["all_cover_types"]), 6, 6
+    )
 
     # First write baseline
 
