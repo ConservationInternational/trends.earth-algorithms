@@ -298,7 +298,7 @@ def summarise_land_degradation(
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
             in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-            summary_table, sdg_path, reproj_path = _compute_ld_summary_table(
+            summary_table, output_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
                 prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
                 compute_bbs_from=traj.path,
@@ -307,7 +307,7 @@ def summarise_land_degradation(
         elif prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
             lpd_df = _prepare_jrc_lpd_mode_df(period_params)
             in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-            summary_table, sdg_path, reproj_path = _compute_ld_summary_table(
+            summary_table, output_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
                 prod_mode=ProductivityMode.JRC_5_CLASS_LPD.value,
                 compute_bbs_from=lpd_df.path,
@@ -327,22 +327,22 @@ def summarise_land_degradation(
             },
             activated=True
         )
-        sdg_df = DataFile(sdg_path, [sdg_band])
+        output_df = DataFile(output_path, [sdg_band])
 
         so3_band_total = _get_so3_band_instance(
             'total', period_params['periods']['productivity']
         )
-        sdg_df.bands.append(so3_band_total)
+        output_df.bands.append(so3_band_total)
 
         if _have_pop_by_sex(population_dfs):
             so3_band_female = _get_so3_band_instance(
                 'female', period_params['periods']['productivity']
             )
-            sdg_df.bands.append(so3_band_female)
+            output_df.bands.append(so3_band_female)
             so3_band_male = _get_so3_band_instance(
                 'male', period_params['periods']['productivity']
             )
-            sdg_df.bands.append(so3_band_male)
+            output_df.bands.append(so3_band_male)
 
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             prod_band = Band(
@@ -357,7 +357,7 @@ def summarise_land_degradation(
                 },
                 activated=True
             )
-            sdg_df.bands.append(prod_band)
+            output_df.bands.append(prod_band)
 
         reproj_df = combine_data_files(reproj_path, in_dfs)
         # Don't add any of the input layers to the map by default - only SDG,
@@ -367,12 +367,12 @@ def summarise_land_degradation(
             band.add_to_map = False
 
         period_vrt = job_output_path.parent / f"{sub_job_output_path.stem}_rasterdata.vrt"
-        util.combine_all_bands_into_vrt([sdg_path, reproj_path], period_vrt)
+        util.combine_all_bands_into_vrt([output_path, reproj_path], period_vrt)
 
         # Now that there is a single VRT with all files in it, combine the DFs
         # into it so that it can be used to source band names/metadata for the
         # job bands list
-        period_df = combine_data_files(period_vrt, [sdg_df, reproj_df])
+        period_df = combine_data_files(period_vrt, [output_df, reproj_df])
 
         for band in period_df.bands:
             band.metadata['period'] = period_name
@@ -832,7 +832,7 @@ def _process_block_summary(
             }
         )
 
-    if params.prod_mode == 'Trends.Earth productivity':
+    if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
         write_arrays.append({'array': deg_prod5, 'xoff': xoff, 'yoff': yoff})
 
     return (
@@ -946,7 +946,7 @@ def _summarize_tile(inputs: SummarizeTileInputs):
 
     else:
         in_df = combine_data_files(inputs.in_file, inputs.in_dfs)
-        n_out_bands = 2
+        n_out_bands = 2 # 1 band for SDG, and 1 band for total pop affected
 
         if _have_pop_by_sex(inputs.in_dfs):
             logger.info(
@@ -955,12 +955,11 @@ def _summarize_tile(inputs: SummarizeTileInputs):
             )
             n_out_bands += 2
 
-        if inputs.prod_mode == 'Trends.Earth productivity':
+        if inputs.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             model_band_number = in_df.index_for_name(
                 config.TRAJ_BAND_NAME
             ) + 1
-            # Save the combined productivity indicator as well, in the
-            # second layer in the deg file
+            # Add a band for the combined productivity indicator
             n_out_bands += 1
         else:
             model_band_number = in_df.index_for_name(
@@ -1122,16 +1121,16 @@ def _process_region(
             ) for tile in tiles
         ]
         if n_cpus > 1:
-            summary_table, sdg_paths = _aoi_process_multiprocess(inputs, n_cpus)
+            summary_table, output_paths = _aoi_process_multiprocess(inputs, n_cpus)
         else:
-            summary_table, sdg_paths = _aoi_process_sequential(inputs)
+            summary_table, output_paths = _aoi_process_sequential(inputs)
     else:
         error_message = "Error reprojecting layers."
         summary_table = None
         tiles = None
-        sdg_paths = None
+        output_paths = None
 
-    return summary_table, tiles, sdg_paths, error_message
+    return summary_table, tiles, output_paths, error_message
 
 
 def _compute_ld_summary_table(
@@ -1162,7 +1161,7 @@ def _compute_ld_summary_table(
 
     summary_tables = []
     reproj_paths = []
-    sdg_paths = []
+    output_paths = []
 
     for index, (wkt_aoi,
                 pixel_aligned_bbox) in enumerate(zip(wkt_aois, bbs), start=1):
@@ -1170,7 +1169,7 @@ def _compute_ld_summary_table(
             layer="inputs", index=index
         )
 
-        this_summary_table, these_reproj_paths, these_sdg_paths, error_message = _process_region(
+        this_summary_table, these_reproj_paths, these_output_paths, error_message = _process_region(
             wkt_aoi=wkt_aoi,
             pixel_aligned_bbox=pixel_aligned_bbox,
             output_layers_path=base_output_path,
@@ -1182,7 +1181,7 @@ def _compute_ld_summary_table(
         else:
             summary_tables.append(this_summary_table)
             reproj_paths.extend(these_reproj_paths)
-            sdg_paths.extend(these_sdg_paths)
+            output_paths.extend(these_output_paths)
 
     summary_table = _accumulate_ld_summary_tables(summary_tables)
 
@@ -1192,10 +1191,10 @@ def _compute_ld_summary_table(
     else:
         reproj_path = reproj_paths[0]
 
-    if len(sdg_paths) > 1:
-        sdg_path = output_job_path.parent / f"{output_job_path.stem}_sdg.vrt"
-        gdal.BuildVRT(str(sdg_path), [str(p) for p in sdg_paths])
+    if len(output_paths) > 1:
+        output_path = output_job_path.parent / f"{output_job_path.stem}_sdg.vrt"
+        gdal.BuildVRT(str(output_path), [str(p) for p in output_paths])
     else:
-        sdg_path = sdg_paths[0]
+        output_path = output_paths[0]
 
-    return summary_table, sdg_path, reproj_path
+    return summary_table, output_path, reproj_path
