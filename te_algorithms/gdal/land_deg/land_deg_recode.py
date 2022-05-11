@@ -17,8 +17,8 @@ from te_schemas.results import Band
 from te_schemas.results import CloudResults
 from te_schemas.results import DataType
 from te_schemas.results import JsonResults
-from te_schemas.results import RasterFileType
 from te_schemas.results import Raster
+from te_schemas.results import RasterFileType
 from te_schemas.results import RasterResults
 from te_schemas.results import TiledRaster
 from te_schemas.results import URI
@@ -113,7 +113,7 @@ def _accumulate_summary_tables(
 
 def _get_error_recode_input_vrt(sdg_df, error_df):
     df_band_list = [
-        ('sdg_bandnum', sdg_df.index_for_name(config.SDG_BAND_NAME)),
+        ('sdg_bandnum', 1) # there is only 1 band in sdg_df
         (
             'recode_bandnum',
             error_df.index_for_name(config.ERROR_RECODE_BAND_NAME)
@@ -121,8 +121,7 @@ def _get_error_recode_input_vrt(sdg_df, error_df):
     ]
 
     band_vrts = [
-        save_vrt(sdg_df.path,
-                 sdg_df.index_for_name(config.SDG_BAND_NAME) + 1),
+        save_vrt(sdg_df.path, 1), # there is only 1 band in sdg_df
         save_vrt(
             error_df.path,
             error_df.index_for_name(config.ERROR_RECODE_BAND_NAME) + 1
@@ -182,6 +181,8 @@ def recode_errors(params) -> Job:
         params['error_polygons']
     )
 
+    input_band = Band.Schema().load(params['layer_input_band'])
+
     summary_table, error_recode_paths = _compute_error_recode(
         sdg_df=sdg_df,
         error_recode_df=error_recode_df,
@@ -194,7 +195,7 @@ def recode_errors(params) -> Job:
     if params['write_tifs']:
         out_bands = [
             Band(
-                name=config.SDG_BAND_NAME,
+                name=input_band.name,
                 no_data_value=int(config.NODATA_VALUE),
                 metadata=params['metadata'],  # copy metadata from input job
                 add_to_map=True,
