@@ -113,7 +113,7 @@ def _accumulate_summary_tables(
 
 def _get_error_recode_input_vrt(sdg_df, error_df):
     df_band_list = [
-        ('sdg_bandnum', 1) # there is only 1 band in sdg_df
+        ('sdg_bandnum', 1), # there is only 1 band in sdg_df
         (
             'recode_bandnum',
             error_df.index_for_name(config.ERROR_RECODE_BAND_NAME)
