@@ -426,7 +426,7 @@ def summarise_land_degradation(
         ldn_job.params, ldn_job.task_name, aoi, summary_table_stable_kwargs
     )
 
-    ldn_job.results = RasterResults(
+    results = RasterResults(
         name='land_condition_summary',
         uri=URI(uri=overall_vrt_path, type='local'),
         rasters={
@@ -444,7 +444,7 @@ def summarise_land_degradation(
     ldn_job.end_date = dt.datetime.now(dt.timezone.utc)
     ldn_job.progress = 100
 
-    return ldn_job
+    return results
 
 
 def _process_block_summary(

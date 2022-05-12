@@ -717,7 +717,7 @@ def summarise_drought_vulnerability(
         years=[int(y) for y in params['layer_spi_years']]
     )
 
-    drought_job.results = RasterResults(
+    results = RasterResults(
         name='drought_vulnerability_summary',
         uri=URI(uri=out_path, type='local'),
         rasters={
@@ -732,10 +732,7 @@ def summarise_drought_vulnerability(
         data={'report': report_json}
     )
 
-    drought_job.end_date = dt.datetime.now(dt.timezone.utc)
-    drought_job.progress = 100
-
-    return drought_job
+    return results
 
 
 def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:

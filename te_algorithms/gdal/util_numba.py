@@ -94,7 +94,7 @@ def zonal_total(z, d, mask):
     return totals
 
 
-@numba.jit(nopython=True, boundscheck=True)
+@numba.jit(nopython=True)
 @cc.export(
     'zonal_total_weighted',
     'DictType(i2, f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])'
