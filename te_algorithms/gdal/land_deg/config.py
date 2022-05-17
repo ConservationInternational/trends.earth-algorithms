@@ -9,7 +9,8 @@ SDG_BAND_NAME = "SDG 15.3.1 Indicator"
 SDG_STATUS_BAND_NAME = "SDG 15.3.1 Indicator (status)"
 ERROR_RECODE_BAND_NAME = "Error recode"
 PROD_DEG_COMPARISON_BAND_NAME = "Productivity degradation (comparison)"
-JRC_LPD_BAND_NAME = "Land Productivity Dynamics (from JRC)"
+FAO_WOCAT_BAND_NAME = "Land Productivity Dynamics (from JRC)"
+FAO_WOCAT_LPD_BAND_NAME = "Land Productivity Dynamics (from FAO-WOCAT)"
 TE_LPD_BAND_NAME = "Land Productivity Dynamics (from Trends.Earth)"
 TRAJ_BAND_NAME = "Productivity trajectory (significance)"
 PERF_BAND_NAME = "Productivity performance (degradation)"
@@ -24,10 +25,10 @@ POPULATION_BAND_NAME = "Population (number of people)"
 POP_AFFECTED_BAND_NAME = "Population affected by degradation (number of people)"
 
 PRODUCTIVITY_CLASS_KEY = {
-    'Increasing': 5,
-    'Stable': 4,
-    'Stressed': 3,
-    'Moderate decline': 2,
-    'Declining': 1,
-    'No data': NODATA_VALUE
+    "Increasing": 5,
+    "Stable": 4,
+    "Stressed": 3,
+    "Moderate decline": 2,
+    "Declining": 1,
+    "No data": NODATA_VALUE,
 }

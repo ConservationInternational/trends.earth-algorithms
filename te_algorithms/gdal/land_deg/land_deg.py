@@ -245,7 +245,8 @@ def summarise_land_degradation(
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             period_params['periods']['productivity'] = period_params[
                 "layer_traj_years"]
-        elif prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
+        elif prod_mode in (ProductivityMode.JRC_5_CLASS_LPD.value,
+                           ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value):
             period_params['periods']['productivity'] = period_params[
                 "layer_lpd_years"]
         else:
@@ -304,12 +305,13 @@ def summarise_land_degradation(
                 compute_bbs_from=traj.path,
                 **summary_table_stable_kwargs[period_name]
             )
-        elif prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
+        elif prod_mode in (ProductivityMode.JRC_5_CLASS_LPD.value,
+                           ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value):
             lpd_df = _prepare_jrc_lpd_mode_df(period_params)
             in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
             summary_table, output_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
-                prod_mode=ProductivityMode.JRC_5_CLASS_LPD.value,
+                prod_mode=prod_mode,
                 compute_bbs_from=lpd_df.path,
                 **summary_table_stable_kwargs[period_name],
             )
@@ -492,15 +494,20 @@ def _process_block_summary(
 
         deg_prod5 = calc_prod5(traj_recode, state_recode, perf_array)
 
-    elif params.prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
+    elif params.prod_mode in (ProductivityMode.JRC_5_CLASS_LPD.value,
+                       ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value):
+        if params.prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
+            band_name = config.JRC_LPD_BAND_NAME
+        elif params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
+            band_name = config.FAO_WOCAT_LPD_BAND_NAME
         deg_prod5 = in_array[
-            params.in_df.index_for_name(config.JRC_LPD_BAND_NAME), :, :]
+            params.in_df.index_for_name(band_name), :, :]
         # TODO: Below is temporary until missing data values are
         # fixed in LPD layer on GEE and missing data values are
         # fixed in LPD layer made by UNCCD for SIDS
         deg_prod5[(deg_prod5 == 0) | (deg_prod5 == 15)] = config.NODATA_VALUE
     else:
-        raise Exception(f"Unknown productivity mode {prod_mode}")
+        raise Exception(f"Unknown productivity mode {params.prod_mode}")
 
     # Recode deg_prod5 as stable, degraded, improved (deg_prod3)
     deg_prod3 = prod5_to_prod3(deg_prod5)
