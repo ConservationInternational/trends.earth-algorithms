@@ -5,28 +5,49 @@ import logging
 import multiprocessing
 import tempfile
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
 
 import numpy as np
 from osgeo import gdal
 from te_schemas import land_cover
 from te_schemas.aoi import AOI
-from te_schemas.datafile import DataFile, combine_data_files
+from te_schemas.datafile import combine_data_files
+from te_schemas.datafile import DataFile
 from te_schemas.jobs import Job
 from te_schemas.productivity import ProductivityMode
-from te_schemas.results import (URI, Band, DataType, Raster, RasterFileType,
-                                RasterResults)
+from te_schemas.results import Band
+from te_schemas.results import DataType
+from te_schemas.results import Raster
+from te_schemas.results import RasterFileType
+from te_schemas.results import RasterResults
+from te_schemas.results import URI
 
-from ... import __release_date__, __version__
-from .. import util, workers, xl
-from ..util_numba import bizonal_total, zonal_total, zonal_total_weighted
-from . import config, models, worker
-from .land_deg_numba import (calc_deg_sdg, calc_lc_trans, calc_prod5,
-                             prod5_to_prod3, recode_deg_soc,
-                             recode_indicator_errors, recode_state,
-                             recode_traj)
+from . import config
+from . import models
+from . import worker
+from .. import util
+from .. import workers
+from .. import xl
+from ... import __release_date__
+from ... import __version__
+from ..util_numba import bizonal_total
+from ..util_numba import zonal_total
+from ..util_numba import zonal_total_weighted
+from .land_deg_numba import calc_deg_sdg
+from .land_deg_numba import calc_lc_trans
+from .land_deg_numba import calc_prod5
+from .land_deg_numba import prod5_to_prod3
+from .land_deg_numba import recode_deg_soc
+from .land_deg_numba import recode_indicator_errors
+from .land_deg_numba import recode_state
+from .land_deg_numba import recode_traj
 from .land_deg_progress import compute_progress_summary
-from .land_deg_report import save_reporting_json, save_summary_table_excel
+from .land_deg_report import save_reporting_json
+from .land_deg_report import save_summary_table_excel
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +228,7 @@ def _prepare_trends_earth_mode_dfs(
     return traj_vrt_df, perf_vrt_df, state_vrt_df
 
 
-def _prepare_jrc_lpd_mode_df(params: Dict) -> DataFile:
+def _prepare_precalculated_lpd_df(params: Dict) -> DataFile:
     return DataFile(
         path=util.save_vrt(
             params["layer_lpd_path"], params["layer_lpd_band_index"]
@@ -307,7 +328,7 @@ def summarise_land_degradation(
             )
         elif prod_mode in (ProductivityMode.JRC_5_CLASS_LPD.value,
                            ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value):
-            lpd_df = _prepare_jrc_lpd_mode_df(period_params)
+            lpd_df = _prepare_precalculated_lpd_df(period_params)
             in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
             summary_table, output_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
@@ -494,8 +515,10 @@ def _process_block_summary(
 
         deg_prod5 = calc_prod5(traj_recode, state_recode, perf_array)
 
-    elif params.prod_mode in (ProductivityMode.JRC_5_CLASS_LPD.value,
-                       ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value):
+    elif params.prod_mode in (
+            ProductivityMode.JRC_5_CLASS_LPD.value,
+            ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value
+        ):
         if params.prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
             band_name = config.JRC_LPD_BAND_NAME
         elif params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:

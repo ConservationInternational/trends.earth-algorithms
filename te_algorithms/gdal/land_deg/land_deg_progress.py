@@ -247,10 +247,16 @@ def _get_progress_summary_input_vrt(df, prod_mode):
             )
         ]
     else:
+        if prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
+            lpd_layer_name = config.JRC_LPD_BAND_NAME
+        elif prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
+            lpd_layer_name = config.FAO_WOCAT_LPD_BAND_NAME
+        else:
+            raise KeyError
         prod5_indices = [
             (index, year) for index, year in zip(
-                df.indices_for_name(config.JRC_LPD_BAND_NAME),
-                df.metadata_for_name(config.JRC_LPD_BAND_NAME, 'year_initial')
+                df.indices_for_name(lpd_layer_name),
+                df.metadata_for_name(lpd_layer_name, 'year_initial')
             )
         ]
     assert len(prod5_indices) == 2
@@ -321,21 +327,38 @@ def _process_block_progress(
 
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
-    trans_code = [
-        11, 12, 13, 14, 15,
-        21, 22, 23, 24, 25,
-        31, 32, 33, 34, 35,
-        41, 42, 43, 44, 45,
-        51, 52, 53, 54, 55
-    ]  # yapf: disable
+    if params.prod_mode ==  ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
+        trans_code = [
+            11, 12, 13, 14, 15,
+            21, 22, 23, 24, 25,
+            31, 32, 33, 34, 35,
+            41, 42, 43, 44, 45,
+            51, 52, 53, 54, 55
+        ]  # yapf: disable
 
-    trans_meaning_sdg = [
-        -1, -1, -1, 1, 1,
-        -1, -1, -1, 0, 1,
-        -1, -1,  0, 0, 1,
-        -1, -1,  0, 0, 1,
-        -1, -1,  0, 0, 1
-    ]  # yapf: disable
+        trans_meaning_sdg = [
+            -1, -1, -1, 0, 1,
+            -1, -1, -1, 0, 1,
+            -1, -1,  0, 0, 1,
+            -1, -1,  0, 0, 1,
+            -1, -1,  0, 0, 1
+        ]  # yapf: disable
+    else:
+        trans_code = [
+            11, 12, 13, 14, 15,
+            21, 22, 23, 24, 25,
+            31, 32, 33, 34, 35,
+            41, 42, 43, 44, 45,
+            51, 52, 53, 54, 55
+        ]  # yapf: disable
+
+        trans_meaning_sdg = [
+            -1, -1, -1, 1, 1,
+            -1, -1, -1, 0, 1,
+            -1, -1,  0, 0, 1,
+            -1, -1,  0, 0, 1,
+            -1, -1,  0, 0, 1
+        ]  # yapf: disable
 
     water = in_array[params.band_dict['lc_baseline_bandnum'] - 1, :, :] == 7
     water = water.astype(bool, copy=False)
