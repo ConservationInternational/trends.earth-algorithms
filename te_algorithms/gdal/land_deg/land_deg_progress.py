@@ -247,7 +247,7 @@ def _get_progress_summary_input_vrt(df, prod_mode):
             )
         ]
     else:
-        if prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
+        if prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
             lpd_layer_name = config.JRC_LPD_BAND_NAME
         elif prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
             lpd_layer_name = config.FAO_WOCAT_LPD_BAND_NAME
