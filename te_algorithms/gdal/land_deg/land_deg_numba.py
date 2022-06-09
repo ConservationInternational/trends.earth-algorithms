@@ -36,18 +36,20 @@ MASK_VALUE = np.array([-32767], dtype=np.int16)
 # @cc.export(
 #     'recode_indicator_errors', '(i2[:,:], i2[:,:], i2[:], i2[:], i2[:], i2[:])'
 # )
-def recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to):
+def recode_indicator_errors(
+    x, recode, codes, deg_to, stable_to, imp_to
+):
     out = x.copy()
     for code, new_deg_value, new_stable_value, new_imp_value in zip(
         codes, deg_to, stable_to, imp_to
     ):
-        if new_deg_value:
+        if new_deg_value is not None:
             out[(x == -1) & (recode == code)] = new_deg_value
 
-        if new_stable_value:
+        if new_stable_value is not None:
             out[(x == 0) & (recode == code)] = new_stable_value
 
-        if new_imp_value:
+        if new_imp_value is not None:
             out[(x == 1) & (recode == code)] = new_imp_value
 
     return out
