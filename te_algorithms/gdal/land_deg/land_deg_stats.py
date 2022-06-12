@@ -12,14 +12,10 @@ from te_schemas.results import JsonResults
 from . import config
 
 def calculate_statistics(params: Dict) -> Job:
-    error_polygons = ErrorRecodePolygons.Schema().load(
-        params['error_polygons']
-    )
-
     stats = {}
     for band in params['band_datas']:
         stats[band['name']] = _calc_stats(
-            error_polygons, params['path'], band['name'], band['index']
+            params['error_polygons'], params['path'], band['name'], band['index']
         )
     
     # Before reorganizing the dictionary ensure all stats have the same set of uuids
