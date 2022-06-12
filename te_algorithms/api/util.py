@@ -826,6 +826,32 @@ def get_bands_by_name(
     return [BandData(b[0], b[1]) for b in sorted_bands_and_indices]
 
 
+# This version drops the sort_property in favor or filtering down to a single band based
+# on metadata
+def get_bands_by_name_v2(
+    job, band_name: str, filter_field = None, filter_value = None
+) -> typing.List[results.Band]:
+
+    bands = job.results.get_bands()
+
+    bands_and_indices = [
+        (band, index)
+        for index, band in enumerate(bands, start=1)
+        if (
+            band.name == band_name and
+            band.metadata[filter_field] == filter_value
+        )
+    ]
+
+    if len(bands_and_indices) > 1:
+        raise Exception(
+            f"multiple bands found when filtering by {filter_field} "
+            f"equal to {filter_value}"
+        )
+    else:
+        return BandData(**bands_and_indices[0])
+
+
 def make_job(params, script):
     final_params = params.copy()
     task_name = final_params.pop("task_name")
