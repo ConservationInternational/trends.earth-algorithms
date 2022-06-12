@@ -2,6 +2,9 @@ import json
 from os import stat
 from typing import Dict
 
+from concurrent.futures import as_completed
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 from osgeo import gdal
 from osgeo import ogr
@@ -13,11 +16,23 @@ from . import config
 
 def calculate_statistics(params: Dict) -> Job:
     stats = {}
-    for band in params['band_datas']:
-        stats[band['name']] = _calc_stats(
-            params['error_polygons'], params['path'], band['name'], band['index']
-        )
-    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        res = []
+        for band in params['band_datas']:
+            res.append((
+                stats[band['name']],
+                executor.submit(
+                    _calc_stats,
+                    params['error_polygons'],
+                    params['path'],
+                    band['name'],
+                    band['index']
+                )
+            ))
+
+    for band_name, this_res in as_completed(res):
+        stats[band_name] = this_res.result()
+        
     # Before reorganizing the dictionary ensure all stats have the same set of uuids
     band_names = [*stats.keys()]
     uuids = [*stats[band_names[0]].keys()]
@@ -32,9 +47,6 @@ def calculate_statistics(params: Dict) -> Job:
         stat_dict =  {
             band_name: stats[band_name][uuid] for band_name in stats.keys()
         }
-        # Drop the unneeded uuid key in each stat dict
-        for band_name, value in stat_dict.items():
-            value.pop('uuid')
         out[uuid] = stat_dict
     return JsonResults(name='sdg-15-3-1-statistics', data={'stats': out})
 
@@ -116,7 +128,7 @@ def _calc_stats(geojson, raster, band_name, band: int):
     return out
 
 def _get_stats_for_band(band_name, uuid, masked, area):
-    this_out = {}
+    this_out = {'area_ha': area}
     if band_name in [
         config.SDG_BAND_NAME,
         config.SDG_STATUS_BAND_NAME,
@@ -147,7 +159,5 @@ def _get_stats_for_band(band_name, uuid, masked, area):
     # Convert from numpy types so they can be serialized
     for key, value in this_out.items():
         this_out[key] = float(value)
-
-    this_out.update({'uuid': uuid, 'area_ha': float(area)})
 
     return this_out
