@@ -842,8 +842,8 @@ def get_bands_by_name_v2(
             if (
                 band.name == band_name and
                 all(
-                    str(band.metadata[filter['filter_field']]) ==
-                    str(filter['filter_value'])
+                    str(band.metadata[filter['field']]) ==
+                    str(filter['value'])
                     for filter in filters
                 )
             )
