@@ -27,14 +27,15 @@ def calculate_statistics(params: Dict) -> Job:
             assert(set(uuids)== set(these_uuids))
 
     # reorganize stats so they are keyed by uuid and then by band_name
-    out = []
+    out = {}
     for uuid in uuids:
         stat_dict =  {
             band_name: stats[band_name][uuid] for band_name in stats.keys()
         }
-        stat_dict['uuid'] = uuid
-        out.append(stat_dict)
-        
+        # Drop the unneeded uuid key in each stat dict
+        for band_name, value in stat_dict:
+            value.pop('uuid')
+        out['uuid'] = stat_dict
     return JsonResults(name='sdg-15-3-1-statistics', data={'stats': out})
 
 
@@ -144,8 +145,8 @@ def _get_stats_for_band(band_name, uuid, masked, area):
         this_out['fraction_improved'] = np.sum(masked >= 10) / area
 
     # Convert from numpy types so they can be serialized
-    for key, item in this_out.items():
-        this_out[key] = float(item)
+    for key, value in this_out.items():
+        this_out[key] = float(value)
 
     this_out.update({'uuid': uuid, 'area_ha': float(area)})
 
