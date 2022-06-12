@@ -18,9 +18,10 @@ def calculate_statistics(params: Dict) -> Job:
     stats = {}
     with ThreadPoolExecutor(max_workers=4) as executor:
         res = []
+        band_names = []
         for band in params['band_datas']:
-            res.append((
-                stats[band['name']],
+            band_names.append(stats[band['name']])
+            res.append(
                 executor.submit(
                     _calc_stats,
                     params['error_polygons'],
@@ -28,9 +29,9 @@ def calculate_statistics(params: Dict) -> Job:
                     band['name'],
                     band['index']
                 )
-            ))
+            )
 
-    for band_name, this_res in as_completed(res):
+    for band_name, this_res in zip(as_completed(res), band_names):
         stats[band_name] = this_res.result()
         
     # Before reorganizing the dictionary ensure all stats have the same set of uuids
