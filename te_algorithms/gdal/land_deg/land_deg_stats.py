@@ -16,7 +16,7 @@ from . import config
 
 def calculate_statistics(params: Dict) -> Job:
     stats = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         res = []
         for band in params['band_datas']:
             res.append((
