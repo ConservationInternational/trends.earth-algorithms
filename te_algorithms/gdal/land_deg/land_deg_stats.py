@@ -31,7 +31,7 @@ def calculate_statistics(params: Dict) -> Job:
                 )
             )
 
-    for band_name, this_res in zip(as_completed(res), band_names):
+    for this_res, band_name in zip(as_completed(res), band_names):
         stats[band_name] = this_res.result()
         
     # Before reorganizing the dictionary ensure all stats have the same set of uuids
