@@ -33,7 +33,7 @@ def calculate_statistics(params: Dict) -> Job:
             band_name: stats[band_name][uuid] for band_name in stats.keys()
         }
         # Drop the unneeded uuid key in each stat dict
-        for band_name, value in stat_dict:
+        for band_name, value in stat_dict.items():
             value.pop('uuid')
         out['uuid'] = stat_dict
     return JsonResults(name='sdg-15-3-1-statistics', data={'stats': out})
