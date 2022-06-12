@@ -145,4 +145,9 @@ def _get_stats_for_band(band_name, uuid, masked, area):
         this_out['fraction_degraded'] = np.sum(masked <= -10) / area
         this_out['fraction_stable'] = np.sum(masked == 0) / area
         this_out['fraction_improved'] = np.sum(masked >= 10) / area
+
+    # Convert from numpy types so they can be serialized
+    for key, item in this_out.items():
+        this_out[key] = float(item)
+
     return this_out
