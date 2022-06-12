@@ -834,14 +834,21 @@ def get_bands_by_name_v2(
 
     bands = job.results.get_bands()
 
-    bands_and_indices = [
-        (band, index)
-        for index, band in enumerate(bands, start=1)
-        if (
-            band.name == band_name and
-            band.metadata[filter_field] == filter_value
-        )
-    ]
+    if filter_field:
+        bands_and_indices = [
+            (band, index)
+            for index, band in enumerate(bands, start=1)
+            if (
+                band.name == band_name and
+                band.metadata[filter_field] == filter_value
+            )
+        ]
+    else:
+        bands_and_indices = [
+            (band, index)
+            for index, band in enumerate(bands, start=1)
+            if band.name == band_name
+        ]
 
     if len(bands_and_indices) > 1:
         raise Exception(
