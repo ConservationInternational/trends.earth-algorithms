@@ -35,7 +35,7 @@ def calculate_statistics(params: Dict) -> Job:
         stat_dict['uuid'] = uuid
         out.append(stat_dict)
         
-    return JsonResults(name='sdg-15-3-1-statistics', data=out)
+    return JsonResults(name='sdg-15-3-1-statistics', data={'stats': out})
 
 
 def _calc_stats(geojson, raster, band_name, band: int):
