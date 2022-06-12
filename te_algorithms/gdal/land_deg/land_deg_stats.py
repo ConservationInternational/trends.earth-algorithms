@@ -19,11 +19,11 @@ def calculate_statistics(params: Dict) -> Job:
         )
     
     # Before reorganizing the dictionary ensure all stats have the same set of uuids
-    uuids = [uuid for uuid in stats[band_names[0]].keys()]
+    band_names = [*stats.keys()]
+    uuids = [*stats[band_names[0]].keys()]
     if len([*stats.keys]) > 1:
-        band_names = [*stats.keys()]
         for band_name in band_names[1:]:
-            these_uuids = [uuid for uuid in stats[band_name].keys()]
+            these_uuids = [*stats[band_name].keys()]
             assert(set(uuids)== set(these_uuids))
 
     # reorganize stats so they are keyed by uuid and then by band_name
