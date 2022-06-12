@@ -850,13 +850,18 @@ def get_bands_by_name_v2(
             if band.name == band_name
         ]
 
-    if len(bands_and_indices) > 1:
+    if len(bands_and_indices) == 0:
         raise Exception(
-            f"multiple bands found when filtering by {filter_field} "
+            f"no bands found when filtering for {band_name} and {filter_field} "
+            f"equal to {filter_value}"
+        )
+    elif len(bands_and_indices) > 1:
+        raise Exception(
+            f"multiple bands found when filtering for {band_name} and {filter_field} "
             f"equal to {filter_value}"
         )
     else:
-        return BandData(**bands_and_indices[0])
+        return BandData(*bands_and_indices[0])
 
 
 def make_job(params, script):
