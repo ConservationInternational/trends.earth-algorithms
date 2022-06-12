@@ -840,7 +840,7 @@ def get_bands_by_name_v2(
             for index, band in enumerate(bands, start=1)
             if (
                 band.name == band_name and
-                band.metadata[filter_field] == filter_value
+                str(band.metadata[filter_field]) == str(filter_value)
             )
         ]
     else:
