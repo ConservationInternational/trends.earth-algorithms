@@ -20,7 +20,7 @@ def calculate_statistics(params: Dict) -> Job:
         res = []
         band_names = []
         for band in params['band_datas']:
-            band_names.append(stats[band['name']])
+            band_names.append(band['name'])
             res.append(
                 executor.submit(
                     _calc_stats,
