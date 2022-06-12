@@ -115,10 +115,7 @@ def _calc_stats(geojson, raster, band_name, band: int):
     return out
 
 def _get_stats_for_band(band_name, uuid, masked, area):
-    this_out = {
-        'uuid': uuid,
-        'area_ha': area
-    }
+    this_out = {}
     if band_name in [
         config.SDG_BAND_NAME,
         config.SDG_STATUS_BAND_NAME,
@@ -149,5 +146,7 @@ def _get_stats_for_band(band_name, uuid, masked, area):
     # Convert from numpy types so they can be serialized
     for key, item in this_out.items():
         this_out[key] = float(item)
+
+    this_out.update({'uuid': uuid, 'area_ha': float(area)})
 
     return this_out
