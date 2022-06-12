@@ -841,11 +841,11 @@ def get_bands_by_name_v2(
             for index, band in enumerate(bands, start=1)
             if (
                 band.name == band_name and
-                all(
+                all([
                     str(band.metadata[filter['field']]) ==
                     str(filter['value'])
                     for filter in filters
-                )
+                ])
             )
         ]
     else:
