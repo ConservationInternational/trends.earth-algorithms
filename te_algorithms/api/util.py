@@ -14,6 +14,7 @@ import uuid
 from copy import deepcopy
 from pathlib import Path
 from pathlib import PurePosixPath
+from typing import Dict
 from typing import List
 from urllib.parse import unquote
 from urllib.parse import urlparse
@@ -809,7 +810,7 @@ class BandData:
 
 def get_bands_by_name(
     job, band_name: str, sort_property: str = "year"
-) -> typing.List[results.Band]:
+) -> typing.List[BandData]:
 
     bands = job.results.get_bands()
 
@@ -829,18 +830,22 @@ def get_bands_by_name(
 # This version drops the sort_property in favor or filtering down to a single band based
 # on metadata
 def get_bands_by_name_v2(
-    job, band_name: str, filter_field = None, filter_value = None
-) -> typing.List[results.Band]:
+    job, band_name: str, filters: List[Dict]
+    ) -> typing.List[BandData]:
 
     bands = job.results.get_bands()
 
-    if filter_field:
+    if filters:
         bands_and_indices = [
             (band, index)
             for index, band in enumerate(bands, start=1)
             if (
                 band.name == band_name and
-                str(band.metadata[filter_field]) == str(filter_value)
+                all(
+                    str(band.metadata[filter['filter_field']]) ==
+                    str(filter['filter_value'])
+                    for filter in filters
+                )
             )
         ]
     else:
