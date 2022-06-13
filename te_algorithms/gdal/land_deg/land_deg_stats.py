@@ -122,7 +122,7 @@ def _calc_stats(geojson, raster, band_name, band: int):
             src_array = np.nan_to_num(src_array)
             masked = np.ma.MaskedArray(
                 src_array,
-                mask=np.logical_or(src_array == nodata, np.logical_not(rv_array)),
+                mask=np.logical_or(np.logical_not(rv_array)),
             )
 
             # Convert areas to hectares
@@ -143,13 +143,13 @@ def _calc_stats(geojson, raster, band_name, band: int):
             cell_areas = np.repeat(cell_areas_raw, masked.shape[1], axis=1)
 
             out[feature.GetField("uuid")] = _get_stats_for_band(
-                band_name, masked, cell_areas
+                band_name, masked, cell_areas, nodata
             )
 
     return out
 
 
-def _get_stats_for_band(band_name, masked, cell_areas):
+def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     this_out = {"area_ha": np.sum(np.logical_not(masked.mask) * cell_areas)}
     if band_name in [
         config.SDG_BAND_NAME,
@@ -179,7 +179,12 @@ def _get_stats_for_band(band_name, masked, cell_areas):
         this_out["improved_ha"] = np.sum((masked >= 10) * cell_areas)
 
     # Convert from numpy types so they can be serialized
+    checksum = 0
     for key, value in this_out.items():
         this_out[key] = float(value)
+        checksum += float(value)
+    this_out["checksum"] = checksum
+
+    this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
 
     return this_out
