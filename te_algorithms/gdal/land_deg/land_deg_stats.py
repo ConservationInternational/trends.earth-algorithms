@@ -187,6 +187,5 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     # Convert from numpy types so they can be serialized
     for key, value in this_out.items():
         this_out[key] = float(value)
-        if key != "area_ha":
 
     return this_out
