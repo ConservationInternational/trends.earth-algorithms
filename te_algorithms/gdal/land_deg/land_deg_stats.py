@@ -1,13 +1,11 @@
 import json
 from concurrent.futures import as_completed
 from concurrent.futures import ThreadPoolExecutor
-from os import stat
 from typing import Dict
 
 import numpy as np
 from osgeo import gdal
 from osgeo import ogr
-from te_schemas.error_recode import ErrorRecodePolygons
 from te_schemas.jobs import Job
 from te_schemas.results import JsonResults
 
@@ -15,39 +13,21 @@ from . import config
 from ..util_numba import calc_cell_area
 
 
-def calculate_statistics(params: Dict) -> Job:
-    stats = {}
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        res = []
-        for band in params["band_datas"]:
-            res.append(
-                executor.submit(
-                    _calc_features_stats,
-                    params["error_polygons"],
-                    params["path"],
-                    band["name"],
-                    band["index"],
-                )
-            )
+def _get_raster_bounds(rds):
+    ul_x, x_res, _, ul_y, _, y_res = rds.GetGeoTransform()
+    lr_x = ul_x + x_res * rds.RasterXSize
+    lr_y = ul_y + y_res * rds.RasterYSize
 
-    for this_res in as_completed(res):
-        results = this_res.result()
-        stats[results["band_name"]] = results["stats"]
-
-    # Before reorganizing the dictionary ensure all stats have the same set of uuids
-    band_names = [*stats.keys()]
-    uuids = [*stats[band_names[0]].keys()]
-    if len([*stats.keys()]) > 1:
-        for band_name in band_names[1:]:
-            these_uuids = [*stats[band_name].keys()]
-            assert set(uuids) == set(these_uuids)
-
-    # reorganize stats so they are keyed by uuid and then by band_name
-    out = {}
-    for uuid in uuids:
-        stat_dict = {band_name: stats[band_name][uuid] for band_name in stats.keys()}
-        out[uuid] = stat_dict
-    return JsonResults(name="sdg-15-3-1-statistics", data={"stats": out})
+    return ogr.CreateGeometryFromWkt(
+        f"""
+        POLYGON((
+            {ul_x} {ul_y},
+            {lr_x} {ul_y},
+            {lr_x} {lr_y},
+            {ul_x} {lr_y}, 
+            {ul_x} {ul_y}
+        ))"""
+    )
 
 
 def _create_geom_layer(geom):
@@ -63,7 +43,50 @@ def _create_geom_layer(geom):
     return geom_layer
 
 
-def get_feature_stats(raster_path, band, band_name, feature):
+def _get_stats_for_band(band_name, masked, cell_areas, nodata):
+    this_out = {"area_ha": np.sum(np.logical_not(masked.mask) * cell_areas)}
+    if band_name in [
+        config.SDG_BAND_NAME,
+        config.SDG_STATUS_BAND_NAME,
+        config.LC_DEG_BAND_NAME,
+        config.LC_DEG_COMPARISON_BAND_NAME,
+    ]:
+        this_out["degraded_ha"] = np.sum((masked == -1) * cell_areas)
+        this_out["stable_ha"] = np.sum((masked == 0) * cell_areas)
+        this_out["improved_ha"] = np.sum((masked == 1) * cell_areas)
+        this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
+    elif band_name in [
+        config.JRC_LPD_BAND_NAME,
+        config.FAO_WOCAT_LPD_BAND_NAME,
+        config.TE_LPD_BAND_NAME,
+        config.PROD_DEG_COMPARISON_BAND_NAME,
+    ]:
+        this_out["degraded_ha"] = np.sum(
+            np.sum(np.logical_or(masked == 1, masked == 2) * cell_areas)
+        )
+        this_out["stable_ha"] = np.sum(
+            np.sum(np.logical_or(masked == 3, masked == 4) * cell_areas)
+        )
+        this_out["improved_ha"] = np.sum((masked == 5) * cell_areas)
+        this_out["nodata"] = np.sum(
+            np.logical_or(masked == nodata, masked == 0) * cell_areas
+        )
+    elif band_name == config.SOC_DEG_BAND_NAME:
+        this_out["degraded_ha"] = np.sum(
+            np.logical_and(masked <= -10, masked >= -101) * cell_areas
+        )
+        this_out["stable_ha"] = np.sum((masked == 0) * cell_areas)
+        this_out["improved_ha"] = np.sum((masked >= 10) * cell_areas)
+        this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
+
+    # Convert from numpy types so they can be serialized
+    for key, value in this_out.items():
+        this_out[key] = float(value)
+
+    return this_out
+
+
+def get_feature_stats(raster_path, band_name, band, feature):
     rds = gdal.Open(raster_path, gdal.GA_ReadOnly)
     if not rds:
         raise Exception("Failed to open raster.")
@@ -132,73 +155,48 @@ def get_feature_stats(raster_path, band, band_name, feature):
     return _get_stats_for_band(band_name, masked, cell_areas, rb.GetNoDataValue())
 
 
-def _get_raster_bounds(rds):
-    ul_x, x_res, _, ul_y, _, y_res = rds.GetGeoTransform()
-    lr_x = ul_x + x_res * rds.RasterXSize
-    lr_y = ul_y + y_res * rds.RasterYSize
-
-    return ogr.CreateGeometryFromWkt(
-        f"""
-        POLYGON((
-            {ul_x} {ul_y},
-            {lr_x} {ul_y},
-            {lr_x} {lr_y},
-            {ul_x} {lr_y}, 
-            {ul_x} {ul_y}
-        ))"""
-    )
-
-
 def _calc_features_stats(geojson, raster_path, band_name, band: int):
     out = {"band_name": band_name, "stats": {}}
 
     for layer in ogr.Open(json.dumps(geojson)):
         for feature in layer:
             out["stats"][feature.GetField("uuid")] = get_feature_stats(
-                raster_path, band, band_name, feature
+                raster_path, band_name, band, feature
             )
 
     return out
 
 
-def _get_stats_for_band(band_name, masked, cell_areas, nodata):
-    this_out = {"area_ha": np.sum(np.logical_not(masked.mask) * cell_areas)}
-    if band_name in [
-        config.SDG_BAND_NAME,
-        config.SDG_STATUS_BAND_NAME,
-        config.LC_DEG_BAND_NAME,
-        config.LC_DEG_COMPARISON_BAND_NAME,
-    ]:
-        this_out["degraded_ha"] = np.sum((masked == -1) * cell_areas)
-        this_out["stable_ha"] = np.sum((masked == 0) * cell_areas)
-        this_out["improved_ha"] = np.sum((masked == 1) * cell_areas)
-        this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
-    elif band_name in [
-        config.JRC_LPD_BAND_NAME,
-        config.FAO_WOCAT_LPD_BAND_NAME,
-        config.TE_LPD_BAND_NAME,
-        config.PROD_DEG_COMPARISON_BAND_NAME,
-    ]:
-        this_out["degraded_ha"] = np.sum(
-            np.sum(np.logical_or(masked == 1, masked == 2) * cell_areas)
-        )
-        this_out["stable_ha"] = np.sum(
-            np.sum(np.logical_or(masked == 3, masked == 4) * cell_areas)
-        )
-        this_out["improved_ha"] = np.sum((masked == 5) * cell_areas)
-        this_out["nodata"] = np.sum(
-            np.logical_or(masked == nodata, masked == 0) * cell_areas
-        )
-    elif band_name == config.SOC_DEG_BAND_NAME:
-        this_out["degraded_ha"] = np.sum(
-            np.logical_and(masked <= -10, masked >= -101) * cell_areas
-        )
-        this_out["stable_ha"] = np.sum((masked == 0) * cell_areas)
-        this_out["improved_ha"] = np.sum((masked >= 10) * cell_areas)
-        this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
+def calculate_statistics(params: Dict) -> Job:
+    stats = {}
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        res = []
+        for band in params["band_datas"]:
+            res.append(
+                executor.submit(
+                    _calc_features_stats,
+                    params["error_polygons"],
+                    params["path"],
+                    band["name"],
+                    band["index"],
+                )
+            )
 
-    # Convert from numpy types so they can be serialized
-    for key, value in this_out.items():
-        this_out[key] = float(value)
+    for this_res in as_completed(res):
+        results = this_res.result()
+        stats[results["band_name"]] = results["stats"]
 
-    return this_out
+    # Before reorganizing the dictionary ensure all stats have the same set of uuids
+    band_names = [*stats.keys()]
+    uuids = [*stats[band_names[0]].keys()]
+    if len([*stats.keys()]) > 1:
+        for band_name in band_names[1:]:
+            these_uuids = [*stats[band_name].keys()]
+            assert set(uuids) == set(these_uuids)
+
+    # reorganize stats so they are keyed by uuid and then by band_name
+    out = {}
+    for uuid in uuids:
+        stat_dict = {band_name: stats[band_name][uuid] for band_name in stats.keys()}
+        out[uuid] = stat_dict
+    return JsonResults(name="sdg-15-3-1-statistics", data={"stats": out})
