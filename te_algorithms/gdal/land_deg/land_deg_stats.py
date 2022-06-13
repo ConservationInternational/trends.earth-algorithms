@@ -22,7 +22,7 @@ def calculate_statistics(params: Dict) -> Job:
         for band in params["band_datas"]:
             res.append(
                 executor.submit(
-                    _calc_stats,
+                    _calc_features_stats,
                     params["error_polygons"],
                     params["path"],
                     band["name"],
@@ -149,7 +149,7 @@ def _get_raster_bounds(rds):
     )
 
 
-def _calc_stats(geojson, raster_path, band_name, band: int):
+def _calc_features_stats(geojson, raster_path, band_name, band: int):
     out = {"band_name": band_name, "stats": {}}
 
     for layer in ogr.Open(json.dumps(geojson)):
