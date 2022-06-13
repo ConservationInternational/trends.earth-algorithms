@@ -1,6 +1,5 @@
 import json
-from concurrent.futures import as_completed
-from concurrent.futures import ThreadPoolExecutor
+import logging
 from typing import Dict
 
 import numpy as np
@@ -11,6 +10,8 @@ from te_schemas.results import JsonResults
 
 from . import config
 from ..util_numba import calc_cell_area
+
+logger = logging.getLogger(__name__)
 
 
 def _get_raster_bounds(rds):
@@ -28,19 +29,6 @@ def _get_raster_bounds(rds):
             {ul_x} {ul_y}
         ))"""
     )
-
-
-def _create_geom_layer(geom):
-    mem_drv = ogr.GetDriverByName("Memory")
-    mem_ds = mem_drv.CreateDataSource("out")
-    geom_layer = mem_ds.CreateLayer("poly", None, ogr.wkbPolygon)
-    ogr_geom = ogr.CreateGeometryFromWkt(geom.ExportToWkt())
-    ft = ogr.Feature(geom_layer.GetLayerDefn())
-    ft.SetGeometry(ogr_geom)
-    geom_layer.CreateFeature(ft)
-    ft.Destroy()
-
-    return geom_layer
 
 
 def _get_stats_for_band(band_name, masked, cell_areas, nodata):
@@ -83,6 +71,7 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     for key, value in this_out.items():
         this_out[key] = float(value)
 
+    logger.debug("Got stats")
     return this_out
 
 
@@ -122,8 +111,17 @@ def get_feature_stats(raster_path, band_name, band, feature):
         y_res,
     )
 
-    geom_layer = _create_geom_layer(geom)
+    logger.debug("Creating vector layer for geom")
+    mem_drv = ogr.GetDriverByName("Memory")
+    mem_ds = mem_drv.CreateDataSource("out")
+    geom_layer = mem_ds.CreateLayer("poly", None, ogr.wkbPolygon)
+    ogr_geom = ogr.CreateGeometryFromWkt(geom.ExportToWkt())
+    ft = ogr.Feature(geom_layer.GetLayerDefn())
+    ft.SetGeometry(ogr_geom)
+    geom_layer.CreateFeature(ft)
+    ft.Destroy()
 
+    logger.debug("Rasterizing geom")
     driver = gdal.GetDriverByName("MEM")
     rvds = driver.Create("", width, height, 1, gdal.GDT_Byte)
     rvds.SetGeoTransform(new_gt)
@@ -136,6 +134,7 @@ def get_feature_stats(raster_path, band_name, band, feature):
     )
 
     # Convert areas to hectares
+    logger.debug("Calculating cell areas")
     cell_areas_raw = (
         np.array(
             [
@@ -152,6 +151,7 @@ def get_feature_stats(raster_path, band_name, band, feature):
     cell_areas_raw.shape = (cell_areas_raw.size, 1)
     cell_areas = np.repeat(cell_areas_raw, masked.shape[1], axis=1)
 
+    logger.debug("Getting stats")
     return _get_stats_for_band(band_name, masked, cell_areas, rb.GetNoDataValue())
 
 
@@ -169,21 +169,11 @@ def _calc_features_stats(geojson, raster_path, band_name, band: int):
 
 def calculate_statistics(params: Dict) -> Job:
     stats = {}
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        res = []
-        for band in params["band_datas"]:
-            res.append(
-                executor.submit(
-                    _calc_features_stats,
-                    params["error_polygons"],
-                    params["path"],
-                    band["name"],
-                    band["index"],
-                )
-            )
 
-    for this_res in as_completed(res):
-        results = this_res.result()
+    for band in params["band_datas"]:
+        results = _calc_features_stats(
+            params["error_polygons"], params["path"], band["name"], band["index"]
+        )
         stats[results["band_name"]] = results["stats"]
 
     # Before reorganizing the dictionary ensure all stats have the same set of uuids
@@ -199,4 +189,5 @@ def calculate_statistics(params: Dict) -> Job:
     for uuid in uuids:
         stat_dict = {band_name: stats[band_name][uuid] for band_name in stats.keys()}
         out[uuid] = stat_dict
+
     return JsonResults(name="sdg-15-3-1-statistics", data={"stats": out})
