@@ -30,7 +30,7 @@ def calculate_statistics(params: Dict) -> Job:
                 )
             )
 
-    for band_name, this_res in as_completed(res):
+    for this_res in as_completed(res):
         results = this_res.result()
         stats[results["band_name"]] = results["stats"]
 
