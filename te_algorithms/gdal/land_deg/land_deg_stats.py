@@ -174,7 +174,9 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
         )
         this_out["improved_ha"] = np.sum((masked == 5) * cell_areas)
     elif band_name == config.SOC_DEG_BAND_NAME:
-        this_out["degraded_ha"] = np.sum((masked <= -10) * cell_areas)
+        this_out["degraded_ha"] = np.sum(
+            np.logical_and(masked <= -10, masked >= -101) * cell_areas
+        )
         this_out["stable_ha"] = np.sum((masked == 0) * cell_areas)
         this_out["improved_ha"] = np.sum((masked >= 10) * cell_areas)
 
