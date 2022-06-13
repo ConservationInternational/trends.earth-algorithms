@@ -122,7 +122,7 @@ def _calc_stats(geojson, raster, band_name, band: int):
             src_array = np.nan_to_num(src_array)
             masked = np.ma.MaskedArray(
                 src_array,
-                mask=np.logical_or(np.logical_not(rv_array)),
+                mask=np.logical_not(rv_array),
             )
 
             # Convert areas to hectares
