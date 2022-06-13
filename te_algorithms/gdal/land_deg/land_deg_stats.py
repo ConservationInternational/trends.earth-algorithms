@@ -21,20 +21,18 @@ def calculate_statistics(params: Dict) -> Job:
         res = []
         for band in params["band_datas"]:
             res.append(
-                (
+                executor.submit(
+                    _calc_stats,
+                    params["error_polygons"],
+                    params["path"],
                     band["name"],
-                    executor.submit(
-                        _calc_stats,
-                        params["error_polygons"],
-                        params["path"],
-                        band["name"],
-                        band["index"],
-                    ),
+                    band["index"],
                 )
             )
 
     for band_name, this_res in as_completed(res):
-        stats[band_name] = this_res.result()
+        results = this_res.result()
+        stats[results["band_name"]] = results["stats"]
 
     # Before reorganizing the dictionary ensure all stats have the same set of uuids
     band_names = [*stats.keys()]
@@ -77,7 +75,7 @@ def _calc_stats(geojson, raster, band_name, band: int):
 
     nodata = rb.GetNoDataValue()
 
-    out = {}
+    out = {"band_name": band_name, "stats": {}}
 
     for layer in ogr.Open(json.dumps(geojson)):
         for feature in layer:
@@ -143,7 +141,7 @@ def _calc_stats(geojson, raster, band_name, band: int):
             cell_areas_raw.shape = (cell_areas_raw.size, 1)
             cell_areas = np.repeat(cell_areas_raw, masked.shape[1], axis=1)
 
-            out[feature.GetField("uuid")] = _get_stats_for_band(
+            out["stats"][feature.GetField("uuid")] = _get_stats_for_band(
                 band_name, masked, cell_areas, nodata
             )
 
