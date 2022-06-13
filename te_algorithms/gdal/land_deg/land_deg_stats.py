@@ -178,6 +178,8 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
         this_out["stable_ha"] = np.sum((masked == 0) * cell_areas)
         this_out["improved_ha"] = np.sum((masked >= 10) * cell_areas)
 
+    this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
+
     # Convert from numpy types so they can be serialized
     checksum = 0
     for key, value in this_out.items():
@@ -185,7 +187,5 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
         if key != "area_ha":
             checksum += float(value)
     this_out["checksum"] = checksum
-
-    this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
 
     return this_out
