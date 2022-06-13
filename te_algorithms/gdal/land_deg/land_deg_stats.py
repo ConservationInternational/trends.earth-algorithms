@@ -182,7 +182,8 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     checksum = 0
     for key, value in this_out.items():
         this_out[key] = float(value)
-        checksum += float(value)
+        if key != "area_ha":
+            checksum += float(value)
     this_out["checksum"] = checksum
 
     this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
