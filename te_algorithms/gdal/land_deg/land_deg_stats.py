@@ -50,18 +50,94 @@ def calculate_statistics(params: Dict) -> Job:
     return JsonResults(name="sdg-15-3-1-statistics", data={"stats": out})
 
 
-def _calc_stats(geojson, raster, band_name, band: int):
-    rds = gdal.Open(raster, gdal.GA_ReadOnly)
+def _create_geom_layer(geom):
+    mem_drv = ogr.GetDriverByName("Memory")
+    mem_ds = mem_drv.CreateDataSource("out")
+    geom_layer = mem_ds.CreateLayer("poly", None, ogr.wkbPolygon)
+    ogr_geom = ogr.CreateGeometryFromWkt(geom.ExportToWkt())
+    ft = ogr.Feature(geom_layer.GetLayerDefn())
+    ft.SetGeometry(ogr_geom)
+    geom_layer.CreateFeature(ft)
+    ft.Destroy()
+
+    return geom_layer
+
+
+def get_feature_stats(raster_path, band, band_name, feature):
+    rds = gdal.Open(raster_path, gdal.GA_ReadOnly)
     if not rds:
         raise Exception("Failed to open raster.")
     rb = rds.GetRasterBand(band)
     if not rb:
         raise Exception("Band {} not found.".format(rb))
     ul_x, x_res, _, ul_y, _, y_res = rds.GetGeoTransform()
+
+    raster_bounds = _get_raster_bounds(rds)
+
+    geom = feature.geometry()
+    # Ignore any areas of polygon that fall outside of the raster
+    geom = geom.Intersection(raster_bounds)
+    x_min, x_max, y_min, y_max = geom.GetEnvelope()
+
+    ul_col = int((x_min - ul_x) / x_res)
+    lr_col = int((x_max - ul_x) / x_res)
+    ul_row = int((y_max - ul_y) / y_res)
+    lr_row = int((y_min - ul_y) / y_res)
+    width = lr_col - ul_col
+    height = abs(ul_row - lr_row)
+
+    src_offset = (ul_col, ul_row, width, height)
+
+    src_array = rb.ReadAsArray(*src_offset)
+
+    new_gt = (
+        (ul_x + (src_offset[0] * x_res)),
+        x_res,
+        0.0,
+        (ul_y + (src_offset[1] * y_res)),
+        0.0,
+        y_res,
+    )
+
+    geom_layer = _create_geom_layer(geom)
+
+    driver = gdal.GetDriverByName("MEM")
+    rvds = driver.Create("", width, height, 1, gdal.GDT_Byte)
+    rvds.SetGeoTransform(new_gt)
+    gdal.RasterizeLayer(rvds, [1], geom_layer, burn_values=[1])
+    rv_array = rvds.ReadAsArray()
+    src_array = np.nan_to_num(src_array)
+    masked = np.ma.MaskedArray(
+        src_array,
+        mask=np.logical_not(rv_array),
+    )
+
+    # Convert areas to hectares
+    cell_areas_raw = (
+        np.array(
+            [
+                calc_cell_area(
+                    y_min + y_res * n,
+                    y_min + y_res * (n + 1),
+                    x_res,
+                )
+                for n in range(height)
+            ]
+        )
+        * 1e-4
+    )  # 1e-4 is to convert from meters to hectares
+    cell_areas_raw.shape = (cell_areas_raw.size, 1)
+    cell_areas = np.repeat(cell_areas_raw, masked.shape[1], axis=1)
+
+    return _get_stats_for_band(band_name, masked, cell_areas, rb.GetNoDataValue())
+
+
+def _get_raster_bounds(rds):
+    ul_x, x_res, _, ul_y, _, y_res = rds.GetGeoTransform()
     lr_x = ul_x + x_res * rds.RasterXSize
     lr_y = ul_y + y_res * rds.RasterYSize
 
-    raster_bounds = ogr.CreateGeometryFromWkt(
+    return ogr.CreateGeometryFromWkt(
         f"""
         POLYGON((
             {ul_x} {ul_y},
@@ -69,80 +145,17 @@ def _calc_stats(geojson, raster, band_name, band: int):
             {lr_x} {lr_y},
             {ul_x} {lr_y}, 
             {ul_x} {ul_y}
-        ))
-    """
+        ))"""
     )
 
-    nodata = rb.GetNoDataValue()
 
+def _calc_stats(geojson, raster_path, band_name, band: int):
     out = {"band_name": band_name, "stats": {}}
 
     for layer in ogr.Open(json.dumps(geojson)):
         for feature in layer:
-            geom = feature.geometry()
-            # Ignore any areas of polygon that fall outside of the raster
-            geom = geom.Intersection(raster_bounds)
-            x_min, x_max, y_min, y_max = geom.GetEnvelope()
-
-            ul_col = int((x_min - ul_x) / x_res)
-            lr_col = int((x_max - ul_x) / x_res)
-            ul_row = int((y_max - ul_y) / y_res)
-            lr_row = int((y_min - ul_y) / y_res)
-            width = lr_col - ul_col
-            height = abs(ul_row - lr_row)
-
-            src_offset = (ul_col, ul_row, width, height)
-
-            src_array = rb.ReadAsArray(*src_offset)
-
-            new_gt = (
-                (ul_x + (src_offset[0] * x_res)),
-                x_res,
-                0.0,
-                (ul_y + (src_offset[1] * y_res)),
-                0.0,
-                y_res,
-            )
-
-            mem_drv = ogr.GetDriverByName("Memory")
-            mem_ds = mem_drv.CreateDataSource("out")
-            mem_layer = mem_ds.CreateLayer("poly", None, ogr.wkbPolygon)
-            ogr_geom = ogr.CreateGeometryFromWkt(geom.ExportToWkt())
-            ft = ogr.Feature(mem_layer.GetLayerDefn())
-            ft.SetGeometry(ogr_geom)
-            mem_layer.CreateFeature(ft)
-            ft.Destroy()
-
-            driver = gdal.GetDriverByName("MEM")
-            rvds = driver.Create("", width, height, 1, gdal.GDT_Byte)
-            rvds.SetGeoTransform(new_gt)
-            gdal.RasterizeLayer(rvds, [1], mem_layer, burn_values=[1])
-            rv_array = rvds.ReadAsArray()
-            src_array = np.nan_to_num(src_array)
-            masked = np.ma.MaskedArray(
-                src_array,
-                mask=np.logical_not(rv_array),
-            )
-
-            # Convert areas to hectares
-            cell_areas_raw = (
-                np.array(
-                    [
-                        calc_cell_area(
-                            y_min + y_res * n,
-                            y_min + y_res * (n + 1),
-                            x_res,
-                        )
-                        for n in range(height)
-                    ]
-                )
-                * 1e-4
-            )  # 1e-4 is to convert from meters to hectares
-            cell_areas_raw.shape = (cell_areas_raw.size, 1)
-            cell_areas = np.repeat(cell_areas_raw, masked.shape[1], axis=1)
-
-            out["stats"][feature.GetField("uuid")] = _get_stats_for_band(
-                band_name, masked, cell_areas, nodata
+            out["stats"][feature.GetField("uuid")] = get_feature_stats(
+                raster_path, band, band_name, feature
             )
 
     return out
