@@ -75,7 +75,7 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     return this_out
 
 
-def get_feature_stats(raster_path, band_name, band, feature):
+def get_stats_for_geom(raster_path, band_name, band, geom, change_type):
     rds = gdal.Open(raster_path, gdal.GA_ReadOnly)
     if not rds:
         raise Exception("Failed to open raster.")
@@ -86,7 +86,6 @@ def get_feature_stats(raster_path, band_name, band, feature):
 
     raster_bounds = _get_raster_bounds(rds)
 
-    geom = feature.geometry()
     # Ignore any areas of polygon that fall outside of the raster
     geom = geom.Intersection(raster_bounds)
     x_min, x_max, y_min, y_max = geom.GetEnvelope()
@@ -160,8 +159,9 @@ def _calc_features_stats(geojson, raster_path, band_name, band: int):
 
     for layer in ogr.Open(json.dumps(geojson)):
         for feature in layer:
-            out["stats"][feature.GetField("uuid")] = get_feature_stats(
-                raster_path, band_name, band, feature
+            geom = feature.geometry()
+            out["stats"][feature.GetField("uuid")] = get_stats_for_geom(
+                raster_path, band_name, band, geom
             )
 
     return out
