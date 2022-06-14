@@ -75,7 +75,7 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     return this_out
 
 
-def get_stats_for_geom(raster_path, band_name, band, geom, change_type):
+def get_stats_for_geom(raster_path, band_name, band, geom):
     rds = gdal.Open(raster_path, gdal.GA_ReadOnly)
     if not rds:
         raise Exception("Failed to open raster.")
