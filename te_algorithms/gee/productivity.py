@@ -10,7 +10,21 @@ from . import stats
 from .util import TEImage
 
 
+def linear_trend(ndvi_series, logger):
+    logger.debug("Entering linear_trend function")
+    lf_trend = ndvi_series.select(['year', 'ndvi']).reduce(ee.Reducer.linearFit())
+    mk_trend = stats.mann_kendall(ndvi_series.select('ndvi'))
+    return (lf_trend, mk_trend)
+
+
 def ndvi_trend(year_initial, year_final, ndvi_1yr, logger):
+    logger.debug("Entering p_restrend function")
+    return linear_trend(
+        ndvi(year_initial, year_final, ndvi_1yr, logger), logger
+    )
+
+
+def ndvi(year_initial, year_final, ndvi_1yr, logger):
     """Calculate temporal NDVI analysis.
     Calculates the trend of temporal NDVI using NDVI data from the
     MODIS Collection 6 MOD13Q1 dataset. Areas where changes are not significant
@@ -25,35 +39,15 @@ def ndvi_trend(year_initial, year_final, ndvi_1yr, logger):
     """
     logger.debug("Entering ndvi_trend function.")
 
-    def f_img_coll(ndvi_stack):
-        img_coll = ee.List([])
+    img_coll = ee.List([])
 
-        for k in range(year_initial, year_final + 1):
-            ndvi_img = ndvi_stack.select('y' + str(k)).addBands(
-                ee.Image(k).float()
-            ).rename(['ndvi', 'year'])
-            img_coll = img_coll.add(ndvi_img)
+    for k in range(year_initial, year_final + 1):
+        ndvi_img = ndvi_1yr.select('y' + str(k)).addBands(
+            ee.Image(k).float()
+        ).rename(['ndvi', 'year'])
+        img_coll = img_coll.add(ndvi_img)
 
-        return ee.ImageCollection(img_coll)
-
-    # Apply function to compute NDVI annual integrals from 15d observed NDVI data
-    ndvi_1yr_coll = f_img_coll(ndvi_1yr)
-
-    # Compute linear trend function to predict ndvi based on year (ndvi trend)
-    lf_trend = ndvi_1yr_coll.select(['year',
-                                     'ndvi']).reduce(ee.Reducer.linearFit())
-
-    # Compute Kendall statistics
-    mk_trend = stats.mann_kendall(ndvi_1yr_coll.select('ndvi'))
-
-    return (lf_trend, mk_trend)
-
-
-def linear_trend(ndvi_series, logger):
-    logger.debug("Entering linear_trend function")
-    lf_trend = ndvi_series.select(['year', 'ndvi']).reduce(ee.Reducer.linearFit())
-    mk_trend = stats.mann_kendall(ndvi_series.select('ndvi'))
-    return (lf_trend, mk_trend)
+    return ee.ImageCollection(img_coll)
 
 
 def p_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
