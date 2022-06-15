@@ -49,9 +49,22 @@ def ndvi_trend(year_initial, year_final, ndvi_1yr, logger):
     return (lf_trend, mk_trend)
 
 
-def p_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
-    logger.debug("Entering p_restrend function.")
+def linear_trend(ndvi_series, logger):
+    logger.debug("Entering linear_trend function")
+    lf_trend = ndvi_series.select(['year', 'ndvi']).reduce(ee.Reducer.linearFit())
+    mk_trend = stats.mann_kendall(ndvi_series.select('ndvi'))
+    return (lf_trend, mk_trend)
 
+
+def p_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
+    logger.debug("Entering p_restrend function")
+    return linear_trend(
+        p_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger), logger
+    )
+
+
+def p_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
+    logger.debug("Entering p_residuals function")
     def f_img_coll(ndvi_stack):
         img_coll = ee.List([])
 
@@ -80,23 +93,7 @@ def p_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
         ndvi_p = ndvi_1yr_p.filter(ee.Filter.eq('year', year)).median()
         ndvi_r = ee.Image(year).float().addBands(ndvi_o.subtract(ndvi_p))
 
-        return ndvi_r.rename(['year', 'ndvi_res'])
-
-    # Function to compute differences between observed and predicted NDVI and compilation in an image collection
-    def stack(year_initial, year_final):
-        img_coll = ee.List([])
-
-        for k in range(year_initial, year_final + 1):
-            ndvi = ndvi_1yr_o.filter(ee.Filter.eq('year',
-                                                  k)).select('ndvi').median()
-            clim = clim_1yr_o.filter(ee.Filter.eq('year',
-                                                  k)).select('ndvi').median()
-            img = ndvi.addBands(clim.addBands(ee.Image(k).float())
-                                ).rename(['ndvi', 'clim',
-                                          'year']).set({'year': k})
-            img_coll = img_coll.add(img)
-
-        return ee.ImageCollection(img_coll)
+        return ndvi_r.rename(['year', 'ndvi'])
 
     # Function create image collection of residuals
     def f_ndvi_clim_r_coll(year_initial, year_final):
@@ -123,22 +120,16 @@ def p_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     # Apply function to compute NDVI annual residuals
     ndvi_1yr_r = f_ndvi_clim_r_coll(year_initial, year_final)
 
-    # Fit a linear regression to the NDVI residuals
-    lf_trend = ndvi_1yr_r.select(['year',
-                                  'ndvi_res']).reduce(ee.Reducer.linearFit())
-
-    # Compute Kendall statistics
-    mk_trend = stats.mann_kendall(ndvi_1yr_r.select('ndvi_res'))
-
-    return (lf_trend, mk_trend)
-
-
-def s_restrend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
-    #TODO: Copy this code over
-    logger.debug("Entering s_restrend function.")
+    return ndvi_1yr_r
 
 
 def ue_trend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
+    return linear_trend(
+        ue_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger)
+    )
+
+
+def ue_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     # Convert the climate layer to meters (for precip) so that RUE layer can be
     # scaled correctly
     # TODO: Need to handle scaling for ET for WUE
@@ -151,23 +142,12 @@ def ue_trend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
         for k in range(year_initial, year_final + 1):
             ndvi_img = ndvi_stack.select(f'y{k}').divide(
                 climate_1yr.select(f'y{k}')
-            ).addBands(ee.Image(k).float()).rename(['ue',
-                                                    'year']).set({'year': k})
+            ).addBands(ee.Image(k).float()).rename(['ndvi', 'year']).set({'year': k})
             img_coll = img_coll.add(ndvi_img)
 
         return ee.ImageCollection(img_coll)
 
-    # Apply function to compute ue and store as a collection
-    ue_1yr_coll = f_img_coll(ndvi_1yr)
-
-    # Compute linear trend function to predict ndvi based on year (ndvi trend)
-    lf_trend = ue_1yr_coll.select(['year',
-                                   'ue']).reduce(ee.Reducer.linearFit())
-
-    # Compute Kendall statistics
-    mk_trend = stats.mann_kendall(ue_1yr_coll.select('ue'))
-
-    return (lf_trend, mk_trend)
+    return f_img_coll(ndvi_1yr)
 
 
 def productivity_trajectory(
@@ -199,9 +179,6 @@ def productivity_trajectory(
 
         if climate_1yr == None:
             climate_1yr = precp_gpcc
-    elif method == 's_restrend':
-        #TODO: need to code this
-        raise GEEIOError("s_restrend method not yet supported")
     elif method == 'ue':
         lf_trend, mk_trend = ue_trend(
             year_initial, year_final, ndvi_dataset, climate_1yr, logger

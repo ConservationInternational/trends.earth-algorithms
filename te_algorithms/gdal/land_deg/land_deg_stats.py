@@ -39,33 +39,49 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
         config.LC_DEG_BAND_NAME,
         config.LC_DEG_COMPARISON_BAND_NAME,
     ]:
-        this_out["degraded_ha"] = np.sum((masked == -1) * cell_areas)
-        this_out["stable_ha"] = np.sum((masked == 0) * cell_areas)
-        this_out["improved_ha"] = np.sum((masked == 1) * cell_areas)
-        this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
+        this_out["degraded_pct"] = np.sum(
+            (masked == -1) * cell_areas
+        ) / this_out['area_ha'] * 100
+        this_out["stable_pct"] = np.sum(
+            (masked == 0) * cell_areas
+        ) / this_out['area_ha'] * 100
+        this_out["improved_pct"] = np.sum(
+            (masked == 1) * cell_areas
+        ) / this_out['area_ha'] * 100
+        this_out["nodata_pct"] = np.sum(
+            (masked == nodata) * cell_areas
+        ) / this_out['area_ha'] * 100
     elif band_name in [
         config.JRC_LPD_BAND_NAME,
         config.FAO_WOCAT_LPD_BAND_NAME,
         config.TE_LPD_BAND_NAME,
         config.PROD_DEG_COMPARISON_BAND_NAME,
     ]:
-        this_out["degraded_ha"] = np.sum(
-            np.sum(np.logical_or(masked == 1, masked == 2) * cell_areas)
-        )
-        this_out["stable_ha"] = np.sum(
-            np.sum(np.logical_or(masked == 3, masked == 4) * cell_areas)
-        )
-        this_out["improved_ha"] = np.sum((masked == 5) * cell_areas)
-        this_out["nodata"] = np.sum(
+        this_out["degraded_pct"] = np.sum(
+            np.logical_or(masked == 1, masked == 2) * cell_areas
+        ) / this_out['area_ha'] * 100
+        this_out["stable_pct"] = np.sum(
+            np.logical_or(masked == 3, masked == 4) * cell_areas
+        ) / this_out['area_ha'] * 100
+        this_out["improved_pct"] = np.sum(
+            (masked == 5) * cell_areas
+        ) / this_out['area_ha'] * 100
+        this_out["nodata_pct"] = np.sum(
             np.logical_or(masked == nodata, masked == 0) * cell_areas
-        )
+        ) / this_out['area_ha'] * 100
     elif band_name == config.SOC_DEG_BAND_NAME:
-        this_out["degraded_ha"] = np.sum(
+        this_out["degraded_pct"] = np.sum(
             np.logical_and(masked <= -10, masked >= -101) * cell_areas
-        )
-        this_out["stable_ha"] = np.sum((masked == 0) * cell_areas)
-        this_out["improved_ha"] = np.sum((masked >= 10) * cell_areas)
-        this_out["nodata"] = np.sum((masked == nodata) * cell_areas)
+        ) / this_out['area_ha'] * 100
+        this_out["stable_pct"] = np.sum(
+            (masked == 0) * cell_areas
+        ) / this_out['area_ha'] * 100
+        this_out["improved_pct"] = np.sum(
+            (masked >= 10) * cell_areas
+        ) / this_out['area_ha'] * 100
+        this_out["nodata_pct"] = np.sum(
+            (masked == nodata) * cell_areas
+        ) / this_out['area_ha'] * 100
 
     # Convert from numpy types so they can be serialized
     for key, value in this_out.items():
