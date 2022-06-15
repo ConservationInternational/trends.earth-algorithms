@@ -119,11 +119,11 @@ def p_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
 
 def ue_trend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     return linear_trend(
-        ue_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger)
+        ue(year_initial, year_final, ndvi_1yr, climate_1yr, logger)
     )
 
 
-def ue_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
+def ue(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     # Convert the climate layer to meters (for precip) so that RUE layer can be
     # scaled correctly
     # TODO: Need to handle scaling for ET for WUE
@@ -144,6 +144,31 @@ def ue_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     return f_img_coll(ndvi_1yr)
 
 
+def productivity_series(
+    year_initial, year_final, method, prod_asset, climate_asset, logger
+):
+    logger.debug("Entering productivity_trajectory function.")
+
+    if climate_asset:
+        climate_1yr = ee.Image(climate_asset)
+        climate_1yr = climate_1yr.where(climate_1yr.eq(9999), -32768)
+        climate_1yr = climate_1yr.updateMask(climate_1yr.neq(-32768))
+    elif method != 'ndvi_trend':
+        raise GEEIOError("Must specify a climate dataset")
+
+    ndvi_dataset = ee.Image(prod_asset)
+    ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
+    ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
+
+    if method == 'ndvi_trend':
+        return ndvi(year_initial, year_final, ndvi_dataset, logger)
+    elif method == 'p_restrend':
+        return p_residuals(year_initial, year_final, ndvi_dataset, climate_1yr, logger)
+    elif method == 'ue':
+        return ue(year_initial, year_final, ndvi_dataset, climate_1yr, logger)
+    else:
+        raise GEEIOError(f"Unrecognized method '{method}'")
+
 def productivity_trajectory(
     year_initial, year_final, method, prod_asset, climate_asset, logger
 ):
@@ -160,8 +185,6 @@ def productivity_trajectory(
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
 
-    # Run the selected algorithm
-
     if method == 'ndvi_trend':
         lf_trend, mk_trend = ndvi_trend(
             year_initial, year_final, ndvi_dataset, logger
@@ -171,8 +194,6 @@ def productivity_trajectory(
             year_initial, year_final, ndvi_dataset, climate_1yr, logger
         )
 
-        if climate_1yr == None:
-            climate_1yr = precp_gpcc
     elif method == 'ue':
         lf_trend, mk_trend = ue_trend(
             year_initial, year_final, ndvi_dataset, climate_1yr, logger
