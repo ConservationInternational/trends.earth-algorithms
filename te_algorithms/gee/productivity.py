@@ -119,7 +119,7 @@ def p_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
 
 def ue_trend(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     return linear_trend(
-        ue(year_initial, year_final, ndvi_1yr, climate_1yr, logger)
+        ue(year_initial, year_final, ndvi_1yr, climate_1yr, logger), logger
     )
 
 
