@@ -98,7 +98,7 @@ def _replace(file_path, regex, subst):
 
 @task(help={
     'v': 'Version to set',
-    't': 'Also set tag'
+    'tag': 'Also set tag'
 })
 def set_version(c, v=None, tag=False):
     # Validate the version matches the regex

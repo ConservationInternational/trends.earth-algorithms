@@ -19,7 +19,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='1.99.11',
+    version='2.0rc1',
     description=
     'A python package to facilitate analyzing remotely-sensed datasets from GEE in support of monitoring land degradation.',
     long_description=long_description,
@@ -80,7 +80,7 @@ setup(
         'backoff>=1.11.0',
         'marshmallow-dataclass[enum, union]>=8.5.3',
         'defusedxml>=0.7.1',
-        'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop',
+        'te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@v2.0rc1',
     ],
 
     # List additional groups of dependencies here (e.g. development
