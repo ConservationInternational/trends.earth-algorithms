@@ -99,7 +99,7 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     return this_out
 
 
-def get_stats_for_geom(raster_path, band_name, band, geom):
+def get_stats_for_geom(raster_path, band_name, band, geom, nodata_value=None):
     rds = gdal.Open(raster_path, gdal.GA_ReadOnly)
     if not rds:
         raise Exception("Failed to open raster.")
@@ -178,7 +178,9 @@ def get_stats_for_geom(raster_path, band_name, band, geom):
     cell_areas = np.repeat(cell_areas_raw, masked.shape[1], axis=1)
 
     logger.debug("Getting stats")
-    return _get_stats_for_band(band_name, masked, cell_areas, rb.GetNoDataValue())
+    if nodata_value is None:
+        nodata_Value = rb.GetNoDataValue()
+    return _get_stats_for_band(band_name, masked, cell_areas, nodata_value)
 
 
 def _calc_features_stats(geojson, raster_path, band_name, band: int):
