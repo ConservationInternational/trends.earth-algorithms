@@ -23,7 +23,9 @@ def trans_factors_for_custom_legend(
     transitions = []
     to_values = []
 
-    for n in range(0, len(trans_factors)):
+    assert len(trans_factors[0]) == len(trans_factors[1])
+
+    for n in range(0, len(trans_factors[0])):
         trans_code = trans_factors[0][n]
         value = trans_factors[1][n]
         ipcc_initial_class_code = int(trans_code / ipcc_nesting.get_multiplier())
