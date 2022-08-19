@@ -3,16 +3,17 @@ from __future__ import division
 from __future__ import print_function
 
 import ee
+from te_schemas.schemas import BandInfo
 
 from .util import TEImage
-from te_schemas.schemas import BandInfo
 
 
 def land_cover(
     year_initial,
     year_final,
     trans_matrix,
-    nesting,
+    esa_to_custom_nesting,
+    ipcc_nesting,
     additional_years,  # allows including years of lc outside of period
     logger
 ):
@@ -28,10 +29,10 @@ def land_cover(
 
     # Initial and final land cover map reclassified to IPCC classes
     lc_bl = lc.select('y{}'.format(year_initial)).remap(
-        nesting.get_list()[0], nesting.get_list()[1]
+        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
     )
     lc_tg = lc.select('y{}'.format(year_final)).remap(
-        nesting.get_list()[0], nesting.get_list()[1]
+        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
     )
 
     # compute transition map (first digit for baseline land cover, and second 
@@ -65,22 +66,28 @@ def land_cover(
                 metadata={'year_initial': year_initial,
                           'year_final': year_final,
                           'trans_matrix': trans_matrix.dumps(),
-                          'nesting': nesting.dumps()}
+                          'nesting': ipcc_nesting.dumps()}
             ),
             BandInfo(
                 "Land cover (ESA classes)",
-                metadata={'year': year_initial}
+                metadata={
+                    'year': year_initial,
+                    'nesting': esa_to_custom_nesting.dumps()
+                }
             ),
             BandInfo(
                 "Land cover (ESA classes)",
-                metadata={'year': year_final}
+                metadata={
+                    'year': year_final,
+                    'nesting': esa_to_custom_nesting.dumps()
+                }
             ),
             BandInfo(
                 "Land cover transitions",
                 add_to_map=True,
                 metadata={'year_initial': year_initial,
                           'year_final': year_final,
-                          'nesting': nesting.dumps()}
+                          'nesting': ipcc_nesting.dumps()}
                 )
         ]
     )
@@ -90,28 +97,28 @@ def land_cover(
     years = [*range(year_initial, year_final + 1)] + additional_years
     years = list(set(years))
     lc_remapped = lc.select('y{}'.format(years[0])).remap(
-        nesting.get_list()[0], nesting.get_list()[1]
+        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
     )
     d_lc = [BandInfo(
-        "Land cover (7 class)",
+        "Land cover",
         add_to_map=True,  # because this is initial year
         metadata={'year': years[0],
-                  'nesting': nesting.dumps()}
+                  'nesting': ipcc_nesting.dumps()}
     )]
     for year in years[1:]:
         lc_remapped = lc_remapped.addBands(
             lc.select('y{}'.format(year)).remap(
-                nesting.get_list()[0], nesting.get_list()[1]
+                esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
             )
         )
         if year == year_final:
             add_to_map = True
         else:
             add_to_map = False
-        d_lc.append(BandInfo("Land cover (7 class)",
+        d_lc.append(BandInfo("Land cover",
                     add_to_map=add_to_map,
                     metadata={'year': year,
-                              'nesting': nesting.dumps()}))
+                              'nesting': ipcc_nesting.dumps()}))
     lc_remapped = lc_remapped.rename([
         f'Land_cover_{year}' for year in years
     ])
