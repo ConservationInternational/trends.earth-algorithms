@@ -12,8 +12,8 @@ def land_cover(
     year_initial,
     year_final,
     trans_matrix,
-    esa_to_custom_nesting,
-    ipcc_nesting,
+    esa_to_custom_nesting, # defines how ESA nests to custom classes
+    ipcc_nesting, # defines how custom classes nest to IPCC
     additional_years,  # allows including years of lc outside of period
     logger
 ):

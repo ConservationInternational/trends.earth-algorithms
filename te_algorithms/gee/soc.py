@@ -42,7 +42,7 @@ def soc(
     year_final,
     fl,
     trans_matrix,
-    esa_nesting, # defines how ESA nests to custom classes
+    esa_to_custom_nesting, # defines how ESA nests to custom classes
     ipcc_nesting, # defines how custom classes nest to IPCC
     dl_annual_lc,
     logger
@@ -94,13 +94,13 @@ def soc(
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
         lc_t0 = lc.select(k).remap(
-            esa_nesting.get_list()[0],
-            esa_nesting.get_list()[1]
+            esa_to_custom_nesting.get_list()[0],
+            esa_to_custom_nesting.get_list()[1]
         )
 
         lc_t1 = lc.select(k + 1).remap(
-            esa_nesting.get_list()[0],
-            esa_nesting.get_list()[1]
+            esa_to_custom_nesting.get_list()[0],
+            esa_to_custom_nesting.get_list()[1]
         )
 
         if (k == 0):
