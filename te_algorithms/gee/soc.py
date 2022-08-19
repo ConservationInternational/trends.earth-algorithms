@@ -147,7 +147,7 @@ def soc(
         soc_change_factor_for_land_use = trans_factors_for_custom_legend(
             soc_change_factor_for_land_use, ipcc_nesting
         )
-        lc_tr_fl_0 = lc_tr.remap(soc_change_factor_for_land_use)
+        lc_tr_fl_0 = lc_tr.remap(*soc_change_factor_for_land_use)
 
         if fl == 'per pixel':
             lc_tr_fl = lc_tr_fl_0.where(lc_tr_fl_0.eq(99), clim_fl).where(
@@ -180,7 +180,7 @@ def soc(
         soc_change_factor_for_management = trans_factors_for_custom_legend(
             soc_change_factor_for_management, ipcc_nesting
         )
-        lc_tr_fm = lc_tr.remap(soc_change_factor_for_management)
+        lc_tr_fm = lc_tr.remap(*soc_change_factor_for_management)
 
         # stock change factor for input of organic matter
         soc_change_factor_for_organic_matter = (
@@ -202,7 +202,7 @@ def soc(
         soc_change_factor_for_organic_matter = trans_factors_for_custom_legend(
             soc_change_factor_for_organic_matter, ipcc_nesting
         )
-        lc_tr_fo = lc_tr.remap(soc_change_factor_for_organic_matter)
+        lc_tr_fo = lc_tr.remap(*soc_change_factor_for_organic_matter)
 
         if (k == 0):
             soc_chg = (
