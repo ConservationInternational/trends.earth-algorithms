@@ -831,7 +831,7 @@ def get_bands_by_name(
 # on metadata
 def get_band_by_name(
     job, band_name: str, filters: List[Dict] = None
-    ) -> typing.List[BandData]:
+) -> typing.List[BandData]:
 
     bands = job.results.get_bands()
 
@@ -840,12 +840,13 @@ def get_band_by_name(
             (band, index)
             for index, band in enumerate(bands, start=1)
             if (
-                band.name == band_name and
-                all([
-                    str(band.metadata[filter['field']]) ==
-                    str(filter['value'])
-                    for filter in filters
-                ])
+                band.name == band_name
+                and all(
+                    [
+                        str(band.metadata[filter["field"]]) == str(filter["value"])
+                        for filter in filters
+                    ]
+                )
             )
         ]
     else:

@@ -16,10 +16,13 @@ logger = logging.getLogger(__name__)
 
 class DegradationSummary:
     def __init__(
-        self, params: Union[models.DegradationSummaryParams,
-                            models.DegradationProgressSummaryParams,
-                            models.DegradationErrorRecodeSummaryParams],
-        processing_function
+        self,
+        params: Union[
+            models.DegradationSummaryParams,
+            models.DegradationProgressSummaryParams,
+            models.DegradationErrorRecodeSummaryParams,
+        ],
+        processing_function,
     ):
 
         self.params = params
@@ -29,8 +32,8 @@ class DegradationSummary:
         return False
 
     def emit_progress(self, *args, **kwargs):
-        '''Reimplement to display progress messages'''
-        util.log_progress(*args, message='Processing land degradation summary')
+        """Reimplement to display progress messages"""
+        util.log_progress(*args, message="Processing land degradation summary")
 
     def work(self):
         mask_ds = gdal.Open(self.params.mask_file)
@@ -55,7 +58,12 @@ class DegradationSummary:
             ysize,
             self.params.n_out_bands,
             gdal.GDT_Int16,
-            options=['COMPRESS=LZW', "BIGTIFF=YES", "NUM_THREADS=ALL_CPUS", "TILED=YES"]
+            options=[
+                "COMPRESS=LZW",
+                "BIGTIFF=YES",
+                "NUM_THREADS=ALL_CPUS",
+                "TILED=YES",
+            ],
         )
         src_gt = src_ds.GetGeoTransform()
         dst_ds_deg.SetGeoTransform(src_gt)
@@ -70,8 +78,9 @@ class DegradationSummary:
         # Width of cells in latitude
         pixel_height = src_gt[5]
 
-        n_blocks = len(np.arange(0, xsize, x_block_size)
-                       ) * len(np.arange(0, ysize, y_block_size))
+        n_blocks = len(np.arange(0, xsize, x_block_size)) * len(
+            np.arange(0, ysize, y_block_size)
+        )
 
         # pr = cProfile.Profile()
         # pr.enable()
@@ -84,14 +93,19 @@ class DegradationSummary:
             else:
                 win_ysize = ysize - y
 
-            cell_areas = np.array(
-                [
-                    calc_cell_area(
-                        lat + pixel_height * n, lat + pixel_height *
-                        (n + 1), long_width
-                    ) for n in range(win_ysize)
-                ]
-            ) * 1e-6  # 1e-6 is to convert from meters to kilometers
+            cell_areas = (
+                np.array(
+                    [
+                        calc_cell_area(
+                            lat + pixel_height * n,
+                            lat + pixel_height * (n + 1),
+                            long_width,
+                        )
+                        for n in range(win_ysize)
+                    ]
+                )
+                * 1e-6
+            )  # 1e-6 is to convert from meters to kilometers
             cell_areas.shape = (cell_areas.size, 1)
 
             for x in range(0, xsize, x_block_size):

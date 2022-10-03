@@ -4,6 +4,7 @@ from pathlib import Path
 def maybe_add_image_to_sheet(image_filename: str, sheet, place="H1"):
     try:
         from openpyxl.drawing.image import Image
+
         image_path = Path(__file__).parents[1] / "data" / image_filename
         logo = Image(image_path)
         sheet.add_image(logo, place)
@@ -12,6 +13,7 @@ def maybe_add_image_to_sheet(image_filename: str, sheet, place="H1"):
         # an issue on some Macs, likely others). it is only used here to add
         # our logo, so no big deal.
         pass
+
 
 def write_col_to_sheet(sheet, d, col, first_row):
     for row in range(d.size):

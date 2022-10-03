@@ -11,6 +11,7 @@ from te_schemas.datafile import DataFile
 
 from .. import util_numba
 
+
 @marshmallow_dataclass.dataclass
 class SummaryTableLD(SchemaBase):
     soc_by_lc_annual_totals: List[Dict[int, float]]
@@ -31,19 +32,29 @@ class SummaryTableLD(SchemaBase):
     def cast_to_cpython(self):
         # Numba compiled functions return numba types which won't pickle correctly
         # (which is needed for multiprocessing), so cast them to regular python types
-        self.soc_by_lc_annual_totals = [dict(item) for item in self.soc_by_lc_annual_totals]
+        self.soc_by_lc_annual_totals = [
+            dict(item) for item in self.soc_by_lc_annual_totals
+        ]
         self.lc_annual_totals = [dict(item) for item in self.lc_annual_totals]
         self.lc_trans_zonal_areas = [dict(item) for item in self.lc_trans_zonal_areas]
-        self.lc_trans_zonal_areas_periods = [dict(item) for item in self.lc_trans_zonal_areas_periods]
-        self.lc_trans_prod_bizonal = {tuple(key): value for key, value in self.lc_trans_prod_bizonal.items()}
+        self.lc_trans_zonal_areas_periods = [
+            dict(item) for item in self.lc_trans_zonal_areas_periods
+        ]
+        self.lc_trans_prod_bizonal = {
+            tuple(key): value for key, value in self.lc_trans_prod_bizonal.items()
+        }
         self.lc_trans_zonal_soc_initial = dict(self.lc_trans_zonal_soc_initial)
         self.lc_trans_zonal_soc_final = dict(self.lc_trans_zonal_soc_final)
         self.sdg_zonal_population_total = dict(self.sdg_zonal_population_total)
         self.sdg_zonal_population_male = dict(self.sdg_zonal_population_male)
         self.sdg_zonal_population_female = dict(self.sdg_zonal_population_female)
         self.sdg_summary = dict(self.sdg_summary)
-        self.prod_summary = {str(key): dict(value) for key, value in self.prod_summary.items()}
-        self.soc_summary = {str(key): dict(value) for key, value in self.soc_summary.items()}
+        self.prod_summary = {
+            str(key): dict(value) for key, value in self.prod_summary.items()
+        }
+        self.soc_summary = {
+            str(key): dict(value) for key, value in self.soc_summary.items()
+        }
         self.lc_summary = dict(self.lc_summary)
 
 

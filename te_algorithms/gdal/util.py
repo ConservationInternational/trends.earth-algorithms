@@ -26,9 +26,8 @@ class ImageInfo:
     pixel_height: float
 
     def get_n_blocks(self):
-        return (
-            len([*range(0, self.x_size, self.x_block_size)]) *
-            len([*range(0, self.y_size, self.y_block_size)])
+        return len([*range(0, self.x_size, self.x_block_size)]) * len(
+            [*range(0, self.y_size, self.y_block_size)]
         )
 
 
@@ -44,8 +43,7 @@ def get_image_info(path: pathlib.Path):
 
 
 def setup_output_image(
-    in_file: pathlib.Path, out_file: pathlib.Path, n_bands: int,
-    image_info: ImageInfo
+    in_file: pathlib.Path, out_file: pathlib.Path, n_bands: int, image_info: ImageInfo
 ):
     # Need two output bands for each four year period, plus one for the JRC
     # layer
@@ -58,7 +56,7 @@ def setup_output_image(
         image_info.y_size,
         n_bands,
         gdal.GDT_Int16,
-        options=['COMPRESS=LZW']
+        options=["COMPRESS=LZW"],
     )
     src_ds = gdal.Open(str(in_file))
     src_gt = src_ds.GetGeoTransform()
@@ -75,11 +73,11 @@ def get_sourcefiles_in_vrt(vrt):
     vrt_root = vrt_tree.getroot()
     filenames = []
 
-    for band in vrt_root.findall('VRTRasterBand'):
-        sources = band.findall('SimpleSource')
+    for band in vrt_root.findall("VRTRasterBand"):
+        sources = band.findall("SimpleSource")
 
         for source in sources:
-            filenames.append(source.find('SourceFilename').text)
+            filenames.append(source.find("SourceFilename").text)
 
     return list(set(filenames))
 
@@ -89,14 +87,14 @@ def combine_all_bands_into_vrt(
     out_file: pathlib.Path,
     is_relative=True,
     aws_access_key_id=None,
-    aws_secret_access_key=None
+    aws_secret_access_key=None,
 ):
-    '''creates a vrt file combining all bands of in_files
+    """creates a vrt file combining all bands of in_files
 
     All bands must have the same extent, resolution, and crs
-    '''
+    """
 
-    logger.debug('Making %s', out_file)
+    logger.debug("Making %s", out_file)
 
     if aws_access_key_id is not None:
         gdal.SetConfigOption("AWS_ACCESS_KEY_ID", aws_access_key_id)
@@ -104,15 +102,15 @@ def combine_all_bands_into_vrt(
     if aws_secret_access_key is not None:
         gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
 
-    simple_source_raw = '''    <SimpleSource>
+    simple_source_raw = """    <SimpleSource>
         <SourceFilename relativeToVRT="{is_relative}">{source_path}</SourceFilename>
         <SourceBand>{source_band_num}</SourceBand>
         <SrcRect xOff="0" yOff="0" xSize="{out_Xsize}" ySize="{out_Ysize}"/>
         <DstRect xOff="0" yOff="0" xSize="{out_Xsize}" ySize="{out_Ysize}"/>
-    </SimpleSource>'''
+    </SimpleSource>"""
 
     for file_num, in_file in enumerate(in_files):
-        logger.debug('Adding %s (file number %s)', in_file, file_num)
+        logger.debug("Adding %s (file number %s)", in_file, file_num)
         in_ds = gdal.Open(str(in_file))
         this_gt = in_ds.GetGeoTransform()
         this_proj = in_ds.GetProjectionRef()
@@ -121,9 +119,7 @@ def combine_all_bands_into_vrt(
             out_gt = this_gt
             out_proj = this_proj
         else:
-            assert [round(x, 8) for x in out_gt] == [
-                round(x, 8) for x in this_gt
-            ], (
+            assert [round(x, 8) for x in out_gt] == [round(x, 8) for x in this_gt], (
                 f"base file ({in_files[0]}) geotransform ({out_gt}) doesn't match "
                 f"geotransform in {in_file} ({this_gt})"
             )
@@ -163,14 +159,14 @@ def combine_all_bands_into_vrt(
             band = out_ds.GetRasterBand(out_ds.RasterCount)
 
             md = {}
-            md['source_0'] = simple_source_raw.format(
+            md["source_0"] = simple_source_raw.format(
                 is_relative=1 if is_relative else 0,
                 source_path=in_file,
                 source_band_num=band_num,
                 out_Xsize=out_Xsize,
-                out_Ysize=out_Ysize
+                out_Ysize=out_Ysize,
             )
-            band.SetMetadata(md, 'vrt_sources')
+            band.SetMetadata(md, "vrt_sources")
 
     out_ds = None
 
@@ -178,10 +174,10 @@ def combine_all_bands_into_vrt(
     # (have to include them when setting metadata or else GDAL throws an error)
     fh, new_file = tempfile.mkstemp()
     new_file = pathlib.Path(new_file)
-    with new_file.open('w') as fh_new:
+    with new_file.open("w") as fh_new:
         with out_file.open() as fh_old:
             for line in fh_old:
-                fh_new.write(line.replace(str(out_file.parents[0]) + '/', ''))
+                fh_new.write(line.replace(str(out_file.parents[0]) + "/", ""))
     out_file.unlink()
     shutil.copy(str(new_file), str(out_file))
 
@@ -191,17 +187,15 @@ def combine_all_bands_into_vrt(
 def save_vrt(source_path: pathlib.Path, source_band_index: int) -> str:
     temporary_file = tempfile.NamedTemporaryFile(suffix=".vrt", delete=False)
     temporary_file.close()
-    gdal.BuildVRT(
-        temporary_file.name, str(source_path), bandList=[source_band_index]
-    )
+    gdal.BuildVRT(temporary_file.name, str(source_path), bandList=[source_band_index])
 
     return temporary_file.name
 
 
 def wkt_geom_to_geojson_file_string(wkt):
-    out_file = tempfile.NamedTemporaryFile(suffix='.geojson').name
-    out_ds = ogr.GetDriverByName('GeoJSON').CreateDataSource(out_file)
-    out_layer = out_ds.CreateLayer('wkt_geom', geom_type=ogr.wkbPolygon)
+    out_file = tempfile.NamedTemporaryFile(suffix=".geojson").name
+    out_ds = ogr.GetDriverByName("GeoJSON").CreateDataSource(out_file)
+    out_layer = out_ds.CreateLayer("wkt_geom", geom_type=ogr.wkbPolygon)
     feature_def = out_layer.GetLayerDefn()
     out_feat = ogr.Feature(feature_def)
 
@@ -210,7 +204,7 @@ def wkt_geom_to_geojson_file_string(wkt):
     out_layer = None
     out_ds = None
 
-    with open(out_file, 'r') as f:
+    with open(out_file, "r") as f:
         return json.load(f)
 
 
@@ -229,4 +223,4 @@ def accumulate_dicts(z):
 
 
 def log_progress(fraction, message=None, data=None):
-    logger.info('%s - %.2f%%', message, 100 * fraction)
+    logger.info("%s - %.2f%%", message, 100 * fraction)

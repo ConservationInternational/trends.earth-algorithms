@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _accumulate_ld_progress_summary_tables(
-    tables: List[models.SummaryTableLDProgress]
+    tables: List[models.SummaryTableLDProgress],
 ) -> models.SummaryTableLDProgress:
 
     if len(tables) == 1:
@@ -36,26 +36,18 @@ def _accumulate_ld_progress_summary_tables(
         out = tables[0]
 
     for table in tables[1:]:
-        out.sdg_summary = util.accumulate_dicts(
-            [out.sdg_summary, table.sdg_summary]
-        )
+        out.sdg_summary = util.accumulate_dicts([out.sdg_summary, table.sdg_summary])
         assert set(out.prod_summary.keys()) == set(table.prod_summary.keys())
         out.prod_summary = {
-            key: util.accumulate_dicts(
-                [out.prod_summary[key], table.prod_summary[key]]
-            )
+            key: util.accumulate_dicts([out.prod_summary[key], table.prod_summary[key]])
             for key in out.prod_summary.keys()
         }
         assert set(out.soc_summary.keys()) == set(table.soc_summary.keys())
         out.soc_summary = {
-            key: util.accumulate_dicts(
-                [out.soc_summary[key], table.soc_summary[key]]
-            )
+            key: util.accumulate_dicts([out.soc_summary[key], table.soc_summary[key]])
             for key in out.soc_summary.keys()
         }
-        out.lc_summary = util.accumulate_dicts(
-            [out.lc_summary, table.lc_summary]
-        )
+        out.lc_summary = util.accumulate_dicts([out.lc_summary, table.lc_summary])
 
     return out
 
@@ -70,20 +62,18 @@ def compute_progress_summary(
     mask_worker_function: Callable = None,
     mask_worker_params: dict = None,
     progress_worker_function: Callable = None,
-    progress_worker_params: dict = None
+    progress_worker_params: dict = None,
 ):
     # Calculate progress summary
-    progress_vrt, progress_band_dict = _get_progress_summary_input_vrt(
-        df, prod_mode
-    )
+    progress_vrt, progress_band_dict = _get_progress_summary_input_vrt(df, prod_mode)
 
-    wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
+    wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     bbs = aoi.get_aligned_output_bounds(progress_vrt)
     assert len(wkt_aois) == len(bbs)
 
     progress_name_pattern = {
         1: f"{job_output_path.stem}" + "_progress.tif",
-        2: f"{job_output_path.stem}" + "_progress_{index}.tif"
+        2: f"{job_output_path.stem}" + "_progress_{index}.tif",
     }[len(wkt_aois)]
     mask_name_fragment = {
         1: "Generating mask for progress analysis",
@@ -97,28 +87,22 @@ def compute_progress_summary(
     for index, (wkt_aoi, this_bbs) in enumerate(zip(wkt_aois, bbs), start=1):
 
         cropped_progress_vrt = tempfile.NamedTemporaryFile(
-            suffix='_ld_progress_summary_inputs.vrt', delete=False
+            suffix="_ld_progress_summary_inputs.vrt", delete=False
         ).name
-        gdal.BuildVRT(
-            cropped_progress_vrt, progress_vrt, outputBounds=this_bbs
-        )
+        gdal.BuildVRT(cropped_progress_vrt, progress_vrt, outputBounds=this_bbs)
 
         mask_tif = tempfile.NamedTemporaryFile(
-            suffix='_ld_progress_mask.tif', delete=False
+            suffix="_ld_progress_mask.tif", delete=False
         ).name
-        logger.info(f'Saving mask to {mask_tif}')
+        logger.info(f"Saving mask to {mask_tif}")
         logger.info(
-            str(
-                job_output_path.parent /
-                mask_name_fragment.format(index=index)
-            )
+            str(job_output_path.parent / mask_name_fragment.format(index=index))
         )
         geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
 
         if mask_worker_function:
             mask_result = mask_worker_function(
-                mask_tif, geojson, str(cropped_progress_vrt),
-                **mask_worker_params
+                mask_tif, geojson, str(cropped_progress_vrt), **mask_worker_params
             )
         else:
             mask_worker = workers.Mask(
@@ -135,7 +119,7 @@ def compute_progress_summary(
             progress_paths.append(progress_out_path)
 
             logger.info(
-                f'Calculating progress summary table and saving layer to: {progress_out_path}'
+                f"Calculating progress summary table and saving layer to: {progress_out_path}"
             )
             progress_params = models.DegradationProgressSummaryParams(
                 prod_mode=prod_mode,
@@ -144,13 +128,12 @@ def compute_progress_summary(
                 band_dict=progress_band_dict,
                 model_band_number=1,
                 n_out_bands=4,
-                mask_file=mask_tif
+                mask_file=mask_tif,
             )
 
             if progress_worker_function:
                 result = progress_worker_function(
-                    progress_params, _process_block_progress,
-                    **progress_worker_params
+                    progress_params, _process_block_progress, **progress_worker_params
                 )
             else:
                 summarizer = worker.DegradationSummary(
@@ -191,48 +174,48 @@ def compute_progress_summary(
             name=config.SDG_STATUS_BAND_NAME,
             no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
-                'baseline_year_initial': baseline_period['year_initial'],
-                'baseline_year_final': baseline_period['year_final'],
-                'progress_year_initial': progress_period['year_initial'],
-                'progress_year_final': progress_period['year_final']
+                "baseline_year_initial": baseline_period["year_initial"],
+                "baseline_year_final": baseline_period["year_final"],
+                "progress_year_initial": progress_period["year_initial"],
+                "progress_year_final": progress_period["year_final"],
             },
             add_to_map=True,
-            activated=True
+            activated=True,
         ),
         Band(
             name=config.PROD_DEG_COMPARISON_BAND_NAME,
             no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
-                'baseline_year_initial': baseline_period['year_initial'],
-                'baseline_year_final': baseline_period['year_final'],
-                'progress_year_initial': progress_period['year_initial'],
-                'progress_year_final': progress_period['year_final']
+                "baseline_year_initial": baseline_period["year_initial"],
+                "baseline_year_final": baseline_period["year_final"],
+                "progress_year_initial": progress_period["year_initial"],
+                "progress_year_final": progress_period["year_final"],
             },
             add_to_map=True,
-            activated=True
+            activated=True,
         ),
         Band(
             name=config.SOC_DEG_BAND_NAME,
             no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
-                'year_initial': baseline_period['year_initial'],
-                'year_final': progress_period['year_final']
+                "year_initial": baseline_period["year_initial"],
+                "year_final": progress_period["year_final"],
             },
             add_to_map=True,
-            activated=True
+            activated=True,
         ),
         Band(
             name=config.LC_DEG_COMPARISON_BAND_NAME,
             no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
-                'baseline_year_initial': baseline_period['year_initial'],
-                'baseline_year_final': baseline_period['year_final'],
-                'progress_year_initial': progress_period['year_initial'],
-                'progress_year_final': progress_period['year_final']
+                "baseline_year_initial": baseline_period["year_initial"],
+                "baseline_year_final": baseline_period["year_final"],
+                "progress_year_initial": progress_period["year_initial"],
+                "progress_year_final": progress_period["year_final"],
             },
             add_to_map=True,
-            activated=True
-        )
+            activated=True,
+        ),
     ]
 
     return progress_summary_table, DataFile(progress_path, out_bands)
@@ -241,9 +224,10 @@ def compute_progress_summary(
 def _get_progress_summary_input_vrt(df, prod_mode):
     if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
         prod5_indices = [
-            (index, year) for index, year in zip(
+            (index, year)
+            for index, year in zip(
                 df.indices_for_name(config.TE_LPD_BAND_NAME),
-                df.metadata_for_name(config.TE_LPD_BAND_NAME, 'year_initial')
+                df.metadata_for_name(config.TE_LPD_BAND_NAME, "year_initial"),
             )
         ]
     else:
@@ -254,9 +238,10 @@ def _get_progress_summary_input_vrt(df, prod_mode):
         else:
             raise KeyError
         prod5_indices = [
-            (index, year) for index, year in zip(
+            (index, year)
+            for index, year in zip(
                 df.indices_for_name(lpd_layer_name),
-                df.metadata_for_name(lpd_layer_name, 'year_initial')
+                df.metadata_for_name(lpd_layer_name, "year_initial"),
             )
         ]
     assert len(prod5_indices) == 2
@@ -265,9 +250,10 @@ def _get_progress_summary_input_vrt(df, prod_mode):
     prod5_progress_index = prod5_indices[1][0]
 
     lc_deg_indices = [
-        (index, year) for index, year in zip(
+        (index, year)
+        for index, year in zip(
             df.indices_for_name(config.LC_DEG_BAND_NAME),
-            df.metadata_for_name(config.LC_DEG_BAND_NAME, 'year_initial')
+            df.metadata_for_name(config.LC_DEG_BAND_NAME, "year_initial"),
         )
     ]
     assert len(lc_deg_indices) == 2
@@ -276,9 +262,10 @@ def _get_progress_summary_input_vrt(df, prod_mode):
     lc_deg_progress_index = lc_deg_indices[1][0]
 
     lc_bands = [
-        (index, year) for index, year in zip(
+        (index, year)
+        for index, year in zip(
             df.indices_for_name(config.LC_BAND_NAME),
-            df.metadata_for_name(config.LC_BAND_NAME, 'year')
+            df.metadata_for_name(config.LC_BAND_NAME, "year"),
         )
     ]
     lc_baseline_index = [
@@ -286,9 +273,10 @@ def _get_progress_summary_input_vrt(df, prod_mode):
     ][0]
 
     soc_indices = [
-        (index, year) for index, year in zip(
+        (index, year)
+        for index, year in zip(
             df.indices_for_name(config.SOC_BAND_NAME),
-            df.metadata_for_name(config.SOC_BAND_NAME, 'year')
+            df.metadata_for_name(config.SOC_BAND_NAME, "year"),
         )
     ]
     soc_indices = sorted(soc_indices, key=lambda row: row[1])
@@ -296,77 +284,156 @@ def _get_progress_summary_input_vrt(df, prod_mode):
     soc_final_index = soc_indices[-1][0]
 
     df_band_list = [
-        ('prod5_baseline_bandnum', prod5_baseline_index),
-        ('prod5_progress_bandnum', prod5_progress_index),
-        ('lc_deg_baseline_bandnum', lc_deg_baseline_index),
-        ('lc_deg_progress_bandnum', lc_deg_progress_index),
-        ('lc_baseline_bandnum', lc_baseline_index),
-        ('soc_initial_bandnum', soc_initial_index),
-        ('soc_final_bandnum', soc_final_index)
+        ("prod5_baseline_bandnum", prod5_baseline_index),
+        ("prod5_progress_bandnum", prod5_progress_index),
+        ("lc_deg_baseline_bandnum", lc_deg_baseline_index),
+        ("lc_deg_progress_bandnum", lc_deg_progress_index),
+        ("lc_baseline_bandnum", lc_baseline_index),
+        ("soc_initial_bandnum", soc_initial_index),
+        ("soc_final_bandnum", soc_final_index),
     ]
 
     band_vrts = [
         util.save_vrt(df.path, band_num + 1) for name, band_num in df_band_list
     ]
     out_vrt = tempfile.NamedTemporaryFile(
-        suffix='_ld_progress_inputs.vrt', delete=False
+        suffix="_ld_progress_inputs.vrt", delete=False
     ).name
     gdal.BuildVRT(out_vrt, [vrt for vrt in band_vrts], separate=True)
-    vrt_band_dict = {
-        item[0]: index
-        for index, item in enumerate(df_band_list, start=1)
-    }
+    vrt_band_dict = {item[0]: index for index, item in enumerate(df_band_list, start=1)}
 
     return out_vrt, vrt_band_dict
 
 
 def _process_block_progress(
-    params: models.DegradationProgressSummaryParams, in_array, mask, xoff: int,
-    yoff: int, cell_areas_raw
+    params: models.DegradationProgressSummaryParams,
+    in_array,
+    mask,
+    xoff: int,
+    yoff: int,
+    cell_areas_raw,
 ) -> Tuple[models.SummaryTableLDProgress, Dict]:
 
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
     if params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
         trans_code = [
-            11, 12, 13, 14, 15,
-            21, 22, 23, 24, 25,
-            31, 32, 33, 34, 35,
-            41, 42, 43, 44, 45,
-            51, 52, 53, 54, 55
+            11,
+            12,
+            13,
+            14,
+            15,
+            21,
+            22,
+            23,
+            24,
+            25,
+            31,
+            32,
+            33,
+            34,
+            35,
+            41,
+            42,
+            43,
+            44,
+            45,
+            51,
+            52,
+            53,
+            54,
+            55,
         ]  # yapf: disable
 
         trans_meaning_sdg = [
-            -1, -1, -1, 0, 1,
-            -1, -1, -1, 0, 1,
-            -1, -1,  0, 0, 1,
-            -1, -1,  0, 0, 1,
-            -1, -1,  0, 0, 1
+            -1,
+            -1,
+            -1,
+            0,
+            1,
+            -1,
+            -1,
+            -1,
+            0,
+            1,
+            -1,
+            -1,
+            0,
+            0,
+            1,
+            -1,
+            -1,
+            0,
+            0,
+            1,
+            -1,
+            -1,
+            0,
+            0,
+            1,
         ]  # yapf: disable
     else:
         trans_code = [
-            11, 12, 13, 14, 15,
-            21, 22, 23, 24, 25,
-            31, 32, 33, 34, 35,
-            41, 42, 43, 44, 45,
-            51, 52, 53, 54, 55
+            11,
+            12,
+            13,
+            14,
+            15,
+            21,
+            22,
+            23,
+            24,
+            25,
+            31,
+            32,
+            33,
+            34,
+            35,
+            41,
+            42,
+            43,
+            44,
+            45,
+            51,
+            52,
+            53,
+            54,
+            55,
         ]  # yapf: disable
 
         trans_meaning_sdg = [
-            -1, -1, -1, 1, 1,
-            -1, -1, -1, 0, 1,
-            -1, -1,  0, 0, 1,
-            -1, -1,  0, 0, 1,
-            -1, -1,  0, 0, 1
+            -1,
+            -1,
+            -1,
+            1,
+            1,
+            -1,
+            -1,
+            -1,
+            0,
+            1,
+            -1,
+            -1,
+            0,
+            0,
+            1,
+            -1,
+            -1,
+            0,
+            0,
+            1,
+            -1,
+            -1,
+            0,
+            0,
+            1,
         ]  # yapf: disable
 
-    water = in_array[params.band_dict['lc_baseline_bandnum'] - 1, :, :] == 7
+    water = in_array[params.band_dict["lc_baseline_bandnum"] - 1, :, :] == 7
     water = water.astype(bool, copy=False)
 
-    prod5_baseline = in_array[params.band_dict['prod5_baseline_bandnum'] -
-                              1, :, :]
-    prod5_progress = in_array[params.band_dict['prod5_progress_bandnum'] -
-                              1, :, :]
+    prod5_baseline = in_array[params.band_dict["prod5_baseline_bandnum"] - 1, :, :]
+    prod5_progress = in_array[params.band_dict["prod5_progress_bandnum"] - 1, :, :]
     # TODO: recode zeros in prod5 to config.NODATA_VALUE as the JRC LPD on
     # trends.earth assets had 0 used instead of our standard nodata value
     prod5_baseline[prod5_baseline == 0] = config.NODATA_VALUE
@@ -385,27 +452,26 @@ def _process_block_progress(
     mask_plus_water[water] = True
 
     prod_summary = {
-        'all_cover_types': zonal_total(deg_prod_progress, cell_areas, mask),
-        'non_water':
-        zonal_total(deg_prod_progress, cell_areas, mask_plus_water)
+        "all_cover_types": zonal_total(deg_prod_progress, cell_areas, mask),
+        "non_water": zonal_total(deg_prod_progress, cell_areas, mask_plus_water),
     }
 
     # LC
     deg_lc = calc_progress_lc_deg(
-        in_array[params.band_dict['lc_deg_baseline_bandnum'] - 1, :, :],
-        in_array[params.band_dict['lc_deg_progress_bandnum'] - 1, :, :]
+        in_array[params.band_dict["lc_deg_baseline_bandnum"] - 1, :, :],
+        in_array[params.band_dict["lc_deg_progress_bandnum"] - 1, :, :],
     )
     lc_summary = zonal_total(deg_lc, cell_areas, mask)
 
     # SOC
     soc_pch = calc_soc_pch(
-        in_array[params.band_dict['soc_initial_bandnum'] - 1, :, :],
-        in_array[params.band_dict['soc_final_bandnum'] - 1, :, :]
+        in_array[params.band_dict["soc_initial_bandnum"] - 1, :, :],
+        in_array[params.band_dict["soc_final_bandnum"] - 1, :, :],
     )
     deg_soc = recode_deg_soc(soc_pch, water)
     soc_summary = {
-        'all_cover_types': zonal_total(deg_soc, cell_areas, mask),
-        'non_water': zonal_total(deg_soc, cell_areas, mask_plus_water)
+        "all_cover_types": zonal_total(deg_soc, cell_areas, mask),
+        "non_water": zonal_total(deg_soc, cell_areas, mask_plus_water),
     }
 
     # Summarize results
@@ -414,27 +480,15 @@ def _process_block_progress(
     sdg_summary = zonal_total(deg_sdg, cell_areas, mask)
 
     write_arrays = [
-        {
-            'array': deg_sdg,
-            'xoff': xoff,
-            'yoff': yoff
-        }, {
-            'array': deg_prod_progress,
-            'xoff': xoff,
-            'yoff': yoff
-        }, {
-            'array': soc_pch,
-            'xoff': xoff,
-            'yoff': yoff
-        }, {
-            'array': deg_lc,
-            'xoff': xoff,
-            'yoff': yoff
-        }
+        {"array": deg_sdg, "xoff": xoff, "yoff": yoff},
+        {"array": deg_prod_progress, "xoff": xoff, "yoff": yoff},
+        {"array": soc_pch, "xoff": xoff, "yoff": yoff},
+        {"array": deg_lc, "xoff": xoff, "yoff": yoff},
     ]
 
     return (
         models.SummaryTableLDProgress(
             sdg_summary, prod_summary, soc_summary, lc_summary
-        ), write_arrays
+        ),
+        write_arrays,
     )

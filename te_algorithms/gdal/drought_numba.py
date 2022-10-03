@@ -24,7 +24,7 @@ except ImportError:
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
 else:
-    cc = CC('drought_numba')
+    cc = CC("drought_numba")
 
 # Ensure mask and nodata values are saved as 16 bit integers to keep numba
 # happy
@@ -33,7 +33,7 @@ MASK_VALUE = np.array([-32767], dtype=np.int16)
 
 
 @numba.jit(nopython=True)
-@cc.export('drought_class', 'i2[:,:](i2[:,:])')
+@cc.export("drought_class", "i2[:,:](i2[:,:])")
 def drought_class(spi):
     # 0 - -1: mild drought (code as 1)
     # -1 - -1.5: moderate drought (code as 2)
@@ -56,7 +56,7 @@ def drought_class(spi):
 
 
 @numba.jit(nopython=True)
-@cc.export('jrc_sum_and_count', 'Tuple((f8, i8))(f8[:,:], i2[:,:])')
+@cc.export("jrc_sum_and_count", "Tuple((f8, i8))(f8[:,:], i2[:,:])")
 def jrc_sum_and_count(jrc, mask):
     temp = jrc.copy().ravel()
     mask = mask.ravel()
@@ -65,13 +65,13 @@ def jrc_sum_and_count(jrc, mask):
 
     return (
         temp[temp != NODATA_VALUE].sum() / 1000,  # Account for scaling
-        np.count_nonzero(temp != NODATA_VALUE)
+        np.count_nonzero(temp != NODATA_VALUE),
     )
 
 
 # Below not currently used, but saving for future use
 @numba.jit(nopython=True)
-@cc.export('jrc_dvi_class', 'i2[:,:](i2[:,:])')
+@cc.export("jrc_dvi_class", "i2[:,:](i2[:,:])")
 def jrc_dvi_class(jrc):
     # 0 - -1: mild drought (code as 1)
     # -1 - -1.5: moderate drought (code as 2)

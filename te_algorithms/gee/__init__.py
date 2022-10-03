@@ -1,5 +1,6 @@
 from .. import TEAlgorithmsError
 
+
 class GEEError(TEAlgorithmsError):
     """Error related to GEE"""
 
@@ -25,5 +26,5 @@ class GEETaskFailure(GEEError):
     """Error running task on GEE"""
 
     def __init__(self, task):
-        super(GEEError, self).__init__("Task {} failed".format(task.status().get('id')))
+        super(GEEError, self).__init__("Task {} failed".format(task.status().get("id")))
         self.task = task

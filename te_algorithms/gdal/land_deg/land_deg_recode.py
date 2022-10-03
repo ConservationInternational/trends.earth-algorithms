@@ -49,27 +49,33 @@ def rasterize_error_recode(
     recode_to_trans_code = geojson.recode_to_trans_code_dict
     error_recode_dict = ErrorRecodePolygons.Schema().dump(geojson)
 
-    for feat in error_recode_dict['features']:
-        feat['properties']['error_recode'] = recode_to_trans_code[(
-            feat['properties']['recode_deg_to'],
-            feat['properties']['recode_stable_to'],
-            feat['properties']['recode_imp_to']
-        )]
+    for feat in error_recode_dict["features"]:
+        feat["properties"]["error_recode"] = recode_to_trans_code[
+            (
+                feat["properties"]["recode_deg_to"],
+                feat["properties"]["recode_stable_to"],
+                feat["properties"]["recode_imp_to"],
+            )
+        ]
 
     # TODO: Assumes WGS84 for now
     rasterize_worker = workers.Rasterize(
-        str(out_file), str(model_file), error_recode_dict, 'error_recode'
+        str(out_file), str(model_file), error_recode_dict, "error_recode"
     )
     rasterize_worker.work()
 
 
 def _process_block(
-    params: DegradationErrorRecodeSummaryParams, in_array, mask, xoff: int,
-    yoff: int, cell_areas_raw
+    params: DegradationErrorRecodeSummaryParams,
+    in_array,
+    mask,
+    xoff: int,
+    yoff: int,
+    cell_areas_raw,
 ) -> Tuple[SummaryTableLDErrorRecode, Dict]:
 
-    sdg_array = in_array[params.band_dict['sdg_bandnum'] - 1, :, :]
-    recode_array = in_array[params.band_dict['recode_bandnum'] - 1, :, :]
+    sdg_array = in_array[params.band_dict["sdg_bandnum"] - 1, :, :]
+    recode_array = in_array[params.band_dict["recode_bandnum"] - 1, :, :]
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
     # below works on data in place
@@ -80,22 +86,15 @@ def _process_block(
     sdg_summary = zonal_total(sdg_array, cell_areas, mask)
 
     write_arrays = [
-        {
-            'array': sdg_array,
-            'xoff': xoff,
-            'yoff': yoff
-        }, {
-            'array': recode_array,
-            'xoff': xoff,
-            'yoff': yoff
-        }
+        {"array": sdg_array, "xoff": xoff, "yoff": yoff},
+        {"array": recode_array, "xoff": xoff, "yoff": yoff},
     ]
 
     return (SummaryTableLDErrorRecode(sdg_summary), write_arrays)
 
 
 def _accumulate_summary_tables(
-    tables: List[SummaryTableLDErrorRecode]
+    tables: List[SummaryTableLDErrorRecode],
 ) -> SummaryTableLDErrorRecode:
 
     if len(tables) == 1:
@@ -104,39 +103,30 @@ def _accumulate_summary_tables(
         out = tables[0]
 
         for table in tables[1:]:
-            out.sdg_summary = accumulate_dicts(
-                [out.sdg_summary, table.sdg_summary]
-            )
+            out.sdg_summary = accumulate_dicts([out.sdg_summary, table.sdg_summary])
 
         return out
 
 
 def _get_error_recode_input_vrt(sdg_df, error_df):
     df_band_list = [
-        ('sdg_bandnum', 1), # there is only 1 band in sdg_df
-        (
-            'recode_bandnum',
-            error_df.index_for_name(config.ERROR_RECODE_BAND_NAME)
-        ),
+        ("sdg_bandnum", 1),  # there is only 1 band in sdg_df
+        ("recode_bandnum", error_df.index_for_name(config.ERROR_RECODE_BAND_NAME)),
     ]
 
     band_vrts = [
-        save_vrt(sdg_df.path, 1), # there is only 1 band in sdg_df
+        save_vrt(sdg_df.path, 1),  # there is only 1 band in sdg_df
         save_vrt(
-            error_df.path,
-            error_df.index_for_name(config.ERROR_RECODE_BAND_NAME) + 1
-        )
+            error_df.path, error_df.index_for_name(config.ERROR_RECODE_BAND_NAME) + 1
+        ),
     ]
 
     out_vrt = tempfile.NamedTemporaryFile(
-        suffix='_error_recode_inputs.vrt', delete=False
+        suffix="_error_recode_inputs.vrt", delete=False
     ).name
     gdal.BuildVRT(out_vrt, [vrt for vrt in band_vrts], separate=True)
 
-    vrt_band_dict = {
-        item[0]: index
-        for index, item in enumerate(df_band_list, start=1)
-    }
+    vrt_band_dict = {item[0]: index for index, item in enumerate(df_band_list, start=1)}
 
     return out_vrt, vrt_band_dict
 
@@ -149,14 +139,14 @@ def _prepare_df(path, band_str, band_index) -> List[DataFile]:
 
 def get_serialized_results(st, layer_name):
     sdg_summary = reporting.AreaList(
-        'SDG Indicator 15.3.1', 'sq km', [
-            reporting.Area('Improved', st.sdg_summary.get(1, 0.)),
-            reporting.Area('Stable', st.sdg_summary.get(0, 0.)),
-            reporting.Area('Degraded', st.sdg_summary.get(-1, 0.)),
-            reporting.Area(
-                'No data', st.sdg_summary.get(int(config.NODATA_VALUE), 0)
-            )
-        ]
+        "SDG Indicator 15.3.1",
+        "sq km",
+        [
+            reporting.Area("Improved", st.sdg_summary.get(1, 0.0)),
+            reporting.Area("Stable", st.sdg_summary.get(0, 0.0)),
+            reporting.Area("Degraded", st.sdg_summary.get(-1, 0.0)),
+            reporting.Area("No data", st.sdg_summary.get(int(config.NODATA_VALUE), 0)),
+        ],
     )
     land_condition_report = reporting.LandConditionReport(
         sdg=reporting.SDG15Report(summary=sdg_summary)
@@ -166,93 +156,90 @@ def get_serialized_results(st, layer_name):
 
 
 def recode_errors(params) -> Job:
-    aoi = AOI.Schema().load(params['aoi'])
-    job_output_path = Path(params['output_path'])
+    aoi = AOI.Schema().load(params["aoi"])
+    job_output_path = Path(params["output_path"])
     sdg_df = _prepare_df(
-        params['layer_input_band_path'], params['layer_input_band'],
-        params['layer_input_band_index']
+        params["layer_input_band_path"],
+        params["layer_input_band"],
+        params["layer_input_band_index"],
     )
 
     error_recode_df = _prepare_df(
-        params['layer_error_recode_path'], params['layer_error_recode_band'],
-        params['layer_error_recode_band_index']
+        params["layer_error_recode_path"],
+        params["layer_error_recode_band"],
+        params["layer_error_recode_band_index"],
     )
-    error_polygons = ErrorRecodePolygons.Schema().load(
-        params['error_polygons']
-    )
+    error_polygons = ErrorRecodePolygons.Schema().load(params["error_polygons"])
 
-    input_band = Band.Schema().load(params['layer_input_band'])
+    input_band = Band.Schema().load(params["layer_input_band"])
 
     summary_table, error_recode_paths = _compute_error_recode(
         sdg_df=sdg_df,
         error_recode_df=error_recode_df,
         aoi=aoi,
         error_polygons=error_polygons,
-        job_output_path=job_output_path.parent /
-        f"{job_output_path.stem}.json",
+        job_output_path=job_output_path.parent / f"{job_output_path.stem}.json",
     )
 
-    if params['write_tifs']:
+    if params["write_tifs"]:
         out_bands = [
             Band(
                 name=input_band.name,
                 no_data_value=int(config.NODATA_VALUE),
-                metadata=params['metadata'],  # copy metadata from input job
+                metadata=params["metadata"],  # copy metadata from input job
                 add_to_map=True,
-                activated=True
+                activated=True,
             ),
             Band(
                 name=config.ERROR_RECODE_BAND_NAME,
                 no_data_value=int(config.NODATA_VALUE),
-                metadata=params['metadata'],  # copy metadata from input job
+                metadata=params["metadata"],  # copy metadata from input job
                 add_to_map=False,
-                activated=False
-            )
+                activated=False,
+            ),
         ]
 
         if len(error_recode_paths) > 1:
-            error_recode_vrt = job_output_path.parent / f"{job_output_path.stem}_error_recode.vrt"
-            gdal.BuildVRT(
-                str(error_recode_vrt), [str(p) for p in error_recode_paths]
+            error_recode_vrt = (
+                job_output_path.parent / f"{job_output_path.stem}_error_recode.vrt"
             )
+            gdal.BuildVRT(str(error_recode_vrt), [str(p) for p in error_recode_paths])
             rasters = {
                 DataType.INT16.value: TiledRaster(
-                    tile_uris=[
-                        URI(uri=p, type='local') for p in error_recode_paths
-                    ],
-                    uri=URI(uri=error_recode_vrt, type='local'),
+                    tile_uris=[URI(uri=p, type="local") for p in error_recode_paths],
+                    uri=URI(uri=error_recode_vrt, type="local"),
                     bands=out_bands,
                     datatype=DataType.INT16,
                     filetype=RasterFileType.COG,
                 )
             }
-            main_uri = URI(uri=error_recode_vrt, type='local')
+            main_uri = URI(uri=error_recode_vrt, type="local")
         else:
             rasters = {
                 DataType.INT16.value: Raster(
-                    uri=URI(uri=error_recode_paths[0], type='local'),
+                    uri=URI(uri=error_recode_paths[0], type="local"),
                     bands=out_bands,
                     datatype=DataType.INT16,
-                    filetype=RasterFileType.COG
+                    filetype=RasterFileType.COG,
                 )
             }
-            main_uri = URI(uri=error_recode_paths[0], type='local')
+            main_uri = URI(uri=error_recode_paths[0], type="local")
 
         results = RasterResults(
-            name=params['layer_input_band']['name'],
+            name=params["layer_input_band"]["name"],
             uri=main_uri,
             rasters=rasters,
             data=get_serialized_results(
-                summary_table, params['layer_input_band']['name'] + ' recode'
-            )
+                summary_table, params["layer_input_band"]["name"] + " recode"
+            ),
         )
 
     else:
         results = JsonResults(
-            name=params['layer_input_band']['name'],
+            name=params["layer_input_band"]["name"],
             data=get_serialized_results(
-                summary_table, params['layer_input_band']['name'] + ' recode'
-            )
+                summary_table, params["layer_input_band"]["name"] + " recode"
+            ),
         )
 
     return results
@@ -267,16 +254,16 @@ def _compute_error_recode(
     mask_worker_function: Callable = None,
     mask_worker_params: dict = None,
     error_recode_worker_function: Callable = None,
-    error_recode_worker_params: dict = None
+    error_recode_worker_params: dict = None,
 ):
     in_vrt, band_dict = _get_error_recode_input_vrt(sdg_df, error_recode_df)
 
-    wkt_aois = aoi.meridian_split(as_extent=False, out_format='wkt')
+    wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     bbs = aoi.get_aligned_output_bounds(sdg_df.path)
 
     error_recode_name_pattern = {
         1: f"{job_output_path.stem}" + "_error_recode.tif",
-        2: f"{job_output_path.stem}" + "_error_recode_{index}.tif"
+        2: f"{job_output_path.stem}" + "_error_recode_{index}.tif",
     }[len(bbs)]
     mask_name_fragment = {
         1: "Generating mask for error recoding",
@@ -289,19 +276,16 @@ def _compute_error_recode(
 
     for index, (wkt_aoi, this_bbs) in enumerate(zip(wkt_aois, bbs), start=1):
         cropped_in_vrt = tempfile.NamedTemporaryFile(
-            suffix='_ld_error_recode_inputs.vrt', delete=False
+            suffix="_ld_error_recode_inputs.vrt", delete=False
         ).name
         gdal.BuildVRT(cropped_in_vrt, in_vrt, outputBounds=this_bbs)
 
         mask_tif = tempfile.NamedTemporaryFile(
-            suffix='_ld_error_recode_mask.tif', delete=False
+            suffix="_ld_error_recode_mask.tif", delete=False
         ).name
-        logger.info(f'Saving mask to {mask_tif}')
+        logger.info(f"Saving mask to {mask_tif}")
         logger.info(
-            str(
-                job_output_path.parent /
-                mask_name_fragment.format(index=index)
-            )
+            str(job_output_path.parent / mask_name_fragment.format(index=index))
         )
         geojson = wkt_geom_to_geojson_file_string(wkt_aoi)
 
@@ -323,9 +307,7 @@ def _compute_error_recode(
             )
             error_recode_paths.append(out_path)
 
-            logger.info(
-                f'Calculating error recode and saving layer to: {out_path}'
-            )
+            logger.info(f"Calculating error recode and saving layer to: {out_path}")
             error_recode_params = DegradationErrorRecodeSummaryParams(
                 in_file=str(cropped_in_vrt),
                 out_file=str(out_path),
@@ -333,18 +315,15 @@ def _compute_error_recode(
                 model_band_number=1,
                 n_out_bands=2,
                 mask_file=mask_tif,
-                trans_code_lists=error_polygons.trans_code_lists
+                trans_code_lists=error_polygons.trans_code_lists,
             )
 
             if error_recode_worker_function:
                 result = error_recode_worker_function(
-                    error_recode_params, _process_block,
-                    **error_recode_worker_params
+                    error_recode_params, _process_block, **error_recode_worker_params
                 )
             else:
-                summarizer = DegradationSummary(
-                    error_recode_params, _process_block
-                )
+                summarizer = DegradationSummary(error_recode_params, _process_block)
                 result = summarizer.work()
 
             if not result:

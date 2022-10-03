@@ -24,7 +24,7 @@ except ImportError:
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
 else:
-    cc = CC('land_deg_numba')
+    cc = CC("land_deg_numba")
 
 # Ensure mask and nodata values are saved as 16 bit integers to keep numba
 # happy
@@ -36,9 +36,7 @@ MASK_VALUE = np.array([-32767], dtype=np.int16)
 # @cc.export(
 #     'recode_indicator_errors', '(i2[:,:], i2[:,:], i2[:], i2[:], i2[:], i2[:])'
 # )
-def recode_indicator_errors(
-    x, recode, codes, deg_to, stable_to, imp_to
-):
+def recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to):
     out = x.copy()
     for code, new_deg_value, new_stable_value, new_imp_value in zip(
         codes, deg_to, stable_to, imp_to
@@ -56,7 +54,7 @@ def recode_indicator_errors(
 
 
 @numba.jit(nopython=True)
-@cc.export('recode_traj', 'i2[:,:](i2[:,:])')
+@cc.export("recode_traj", "i2[:,:](i2[:,:])")
 def recode_traj(x):
     # Recode trajectory into deg, stable, imp. Capture trends that are at least
     # 95% significant.
@@ -80,7 +78,7 @@ def recode_traj(x):
 
 
 @numba.jit(nopython=True)
-@cc.export('recode_state', 'i2[:,:](i2[:,:])')
+@cc.export("recode_state", "i2[:,:](i2[:,:])")
 def recode_state(x):
     # Recode state into deg, stable, imp. Note the >= -10 is so no data
     # isn't coded as degradation. More than two changes in class is defined
@@ -95,7 +93,7 @@ def recode_state(x):
 
 
 @numba.jit(nopython=True)
-@cc.export('calc_progress_lc_deg', 'i2[:,:](i2[:,:], i2[:,:])')
+@cc.export("calc_progress_lc_deg", "i2[:,:](i2[:,:], i2[:,:])")
 def calc_progress_lc_deg(initial, final):
     # First need to calculate transitions, then recode them as deg, stable,
     # improved
@@ -117,7 +115,7 @@ def calc_progress_lc_deg(initial, final):
 
 
 @numba.jit(nopython=True)
-@cc.export('calc_prod5', 'i2[:,:](i2[:,:], i2[:,:], i2[:,:])')
+@cc.export("calc_prod5", "i2[:,:](i2[:,:], i2[:,:], i2[:,:])")
 def calc_prod5(traj, state, perf):
     # Coding of LPD (prod5)
     # 1: declining
@@ -152,14 +150,15 @@ def calc_prod5(traj, state, perf):
     x[(traj == 0) & (state == -1) & (perf == -1)] = 1
 
     # Ensure NAs carry over to productivity indicator layer
-    x[(traj == NODATA_VALUE) | (perf == NODATA_VALUE) |
-      (state == NODATA_VALUE)] = NODATA_VALUE
+    x[
+        (traj == NODATA_VALUE) | (perf == NODATA_VALUE) | (state == NODATA_VALUE)
+    ] = NODATA_VALUE
 
     return np.reshape(x, shp)
 
 
 @numba.jit(nopython=True)
-@cc.export('prod5_to_prod3', 'i2[:,:](i2[:,:])')
+@cc.export("prod5_to_prod3", "i2[:,:](i2[:,:])")
 def prod5_to_prod3(prod5):
     shp = prod5.shape
     prod5 = prod5.ravel()
@@ -172,7 +171,7 @@ def prod5_to_prod3(prod5):
 
 
 @numba.jit(nopython=True)
-@cc.export('calc_lc_trans', 'i4[:,:](i2[:,:], i2[:,:], i4)')
+@cc.export("calc_lc_trans", "i4[:,:](i2[:,:], i2[:,:], i4)")
 def calc_lc_trans(lc_bl, lc_tg, multiplier):
     shp = lc_bl.shape
     lc_bl = lc_bl.ravel()
@@ -184,9 +183,9 @@ def calc_lc_trans(lc_bl, lc_tg, multiplier):
 
 
 @numba.jit(nopython=True)
-@cc.export('recode_deg_soc', 'i2[:,:](i2[:,:], i2[:,:])')
+@cc.export("recode_deg_soc", "i2[:,:](i2[:,:], i2[:,:])")
 def recode_deg_soc(soc, water):
-    '''recode SOC change layer from percent change into a categorical map'''
+    """recode SOC change layer from percent change into a categorical map"""
     # Degradation in terms of SOC is defined as a decline of more
     # than 10% (and improving increase greater than 10%)
     shp = soc.shape
@@ -202,26 +201,24 @@ def recode_deg_soc(soc, water):
 
 
 @numba.jit(nopython=True)
-@cc.export('calc_soc_pch', 'i2[:,:](i2[:,:], i2[:,:])')
+@cc.export("calc_soc_pch", "i2[:,:](i2[:,:], i2[:,:])")
 def calc_soc_pch(soc_bl, soc_tg):
-    '''calculate percent change in SOC from initial and final SOC'''
+    """calculate percent change in SOC from initial and final SOC"""
     # Degradation in terms of SOC is defined as a decline of more
     # than 10% (and improving increase greater than 10%)
     shp = soc_bl.shape
     soc_bl = soc_bl.ravel()
     soc_tg = soc_tg.ravel()
-    soc_chg = (
-        (soc_tg - soc_bl).astype(np.float64) / soc_bl.astype(np.float64)
-    ) * 100.
+    soc_chg = ((soc_tg - soc_bl).astype(np.float64) / soc_bl.astype(np.float64)) * 100.0
     soc_chg[(soc_bl == NODATA_VALUE) | (soc_tg == NODATA_VALUE)] = NODATA_VALUE
 
     return np.reshape(soc_chg, shp)
 
 
 @numba.jit(nopython=True)
-@cc.export('calc_deg_soc', 'i2[:,:](i2[:,:], i2[:,:], i2[:,:])')
+@cc.export("calc_deg_soc", "i2[:,:](i2[:,:], i2[:,:], i2[:,:])")
 def calc_deg_soc(soc_bl, soc_tg, water):
-    '''calculate SOC degradation from initial and final SOC'''
+    """calculate SOC degradation from initial and final SOC"""
     # Degradation in terms of SOC is defined as a decline of more
     # than 10% (and improving increase greater than 10%)
     shp = soc_bl.shape
@@ -229,22 +226,20 @@ def calc_deg_soc(soc_bl, soc_tg, water):
     soc_tg = soc_tg.ravel()
     water = water.ravel()
     out = np.zeros(soc_bl.shape, dtype=np.int16)
-    soc_chg = (
-        (soc_tg - soc_bl).astype(np.float64) / soc_bl.astype(np.float64)
-    ) * 100.
+    soc_chg = ((soc_tg - soc_bl).astype(np.float64) / soc_bl.astype(np.float64)) * 100.0
     soc_chg[(soc_bl == NODATA_VALUE) | (soc_tg == NODATA_VALUE)] = NODATA_VALUE
-    out[(soc_chg >= -101.) & (soc_chg <= -10.)] = -1
-    out[(soc_chg > -10.) & (soc_chg < 10.)] = 0
-    out[soc_chg >= 10.] = 1
+    out[(soc_chg >= -101.0) & (soc_chg <= -10.0)] = -1
+    out[(soc_chg > -10.0) & (soc_chg < 10.0)] = 0
+    out[soc_chg >= 10.0] = 1
     out[water] = NODATA_VALUE  # don't count soc in water
 
     return np.reshape(out, shp)
 
 
 @numba.jit(nopython=True)
-@cc.export('calc_deg_lc', 'i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i4)')
+@cc.export("calc_deg_lc", "i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i4)")
 def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
-    '''calculate land cover degradation'''
+    """calculate land cover degradation"""
     shp = lc_bl.shape
     trans = calc_lc_trans(lc_bl, lc_tg, multiplier)
     trans = trans.ravel()
@@ -254,14 +249,13 @@ def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
 
     for code, meaning in zip(trans_code, trans_meaning):
         out[trans == code] = meaning
-    out[np.logical_or(lc_bl == NODATA_VALUE,
-                      lc_tg == NODATA_VALUE)] = NODATA_VALUE
+    out[np.logical_or(lc_bl == NODATA_VALUE, lc_tg == NODATA_VALUE)] = NODATA_VALUE
 
     return np.reshape(out, shp)
 
 
 @numba.jit(nopython=True)
-@cc.export('calc_deg_sdg', 'i2[:,:](i2[:,:], i2[:,:], i2[:,:])')
+@cc.export("calc_deg_sdg", "i2[:,:](i2[:,:], i2[:,:], i2[:,:])")
 def calc_deg_sdg(deg_prod3, deg_lc, deg_soc):
     shp = deg_prod3.shape
     deg_prod3 = deg_prod3.ravel()
@@ -279,7 +273,10 @@ def calc_deg_sdg(deg_prod3, deg_lc, deg_soc):
     # nodata masking was already done for prod3, but need to do it again in
     # case values from another layer overwrote those missing value
     # indicators. -32678 is missing
-    out[(deg_prod3 == NODATA_VALUE) | (deg_lc == NODATA_VALUE) |
-        (deg_soc == NODATA_VALUE)] = NODATA_VALUE
+    out[
+        (deg_prod3 == NODATA_VALUE)
+        | (deg_lc == NODATA_VALUE)
+        | (deg_soc == NODATA_VALUE)
+    ] = NODATA_VALUE
 
     return np.reshape(out, shp)

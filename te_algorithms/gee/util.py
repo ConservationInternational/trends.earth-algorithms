@@ -30,7 +30,7 @@ def get_region(geom):
     poly = get_coords(geom)
     ptype = get_type(geom)
 
-    if ptype.lower() == 'multipolygon':
+    if ptype.lower() == "multipolygon":
         region = ee.Geometry.MultiPolygon(poly)
     else:
         region = ee.Geometry.Polygon(poly)
@@ -41,27 +41,28 @@ def get_region(geom):
 def get_coords(geojson):
     """."""
 
-    if geojson.get('features') is not None:
-        return geojson.get('features')[0].get('geometry').get('coordinates')
-    elif geojson.get('geometry') is not None:
-        return geojson.get('geometry').get('coordinates')
+    if geojson.get("features") is not None:
+        return geojson.get("features")[0].get("geometry").get("coordinates")
+    elif geojson.get("geometry") is not None:
+        return geojson.get("geometry").get("coordinates")
     else:
-        return geojson.get('coordinates')
+        return geojson.get("coordinates")
 
 
 def get_type(geojson):
     """."""
 
-    if geojson.get('features') is not None:
-        return geojson.get('features')[0].get('geometry').get('type')
-    elif geojson.get('geometry') is not None:
-        return geojson.get('geometry').get('type')
+    if geojson.get("features") is not None:
+        return geojson.get("features")[0].get("geometry").get("type")
+    elif geojson.get("geometry") is not None:
+        return geojson.get("geometry").get("type")
     else:
-        return geojson.get('type')
+        return geojson.get("type")
 
 
 class gee_task(threading.Thread):
     """Run earth engine task against the trends.earth API"""
+
     def __init__(self, task, prefix, logger, metadata=None):
         threading.Thread.__init__(self)
         self.task = task
@@ -70,20 +71,19 @@ class gee_task(threading.Thread):
         # self.metadata is used only to facilitate saving the final JSON output
         # for Trends.Earth
         self.metadata = metadata
-        self.state = self.task.status().get('state')
+        self.state = self.task.status().get("state")
         self.start()
 
     def cancel_hdlr(self, details):
         self.logger.debug(
             "GEE task {} timed out after {} hours".format(
-                self.task.status().get('id'),
-                (time() - self.start_time) / (60 * 60)
+                self.task.status().get("id"), (time() - self.start_time) / (60 * 60)
             )
         )
-        ee.data.cancelTask(self.task.status().get('id'))
+        ee.data.cancelTask(self.task.status().get("id"))
 
     def on_backoff_hdlr(self, details):
-        details.update({'task_id': self.task.status().get('id')})
+        details.update({"task_id": self.task.status().get("id")})
         self.logger.debug(
             "Backing off {wait:0.1f} seconds after {tries} tries "
             "calling function {target} for task {task_id}".format(**details)
@@ -92,17 +92,17 @@ class gee_task(threading.Thread):
     def poll_for_completion(self):
         @backoff.on_predicate(
             backoff.expo,
-            lambda x: x in ['READY', 'RUNNING'],
+            lambda x: x in ["READY", "RUNNING"],
             on_backoff=self.on_backoff_hdlr,
             on_giveup=self.cancel_hdlr,
             max_time=TASK_TIMEOUT_MINUTES * 60,
             factor=3,
             base=1.4,
-            max_value=600
+            max_value=600,
         )
         def get_status(self):
-            self.logger.send_progress(self.task.status().get('progress', 0.0))
-            self.state = self.task.status().get('state')
+            self.logger.send_progress(self.task.status().get("progress", 0.0))
+            self.state = self.task.status().get("state")
 
             return self.state
 
@@ -111,31 +111,30 @@ class gee_task(threading.Thread):
     def run(self):
         self.task.start()
         self.start_time = time()
-        self.logger.debug(
-            "Starting GEE task {}.".format(self.task.status().get('id'))
-        )
+        self.logger.debug("Starting GEE task {}.".format(self.task.status().get("id")))
         self.poll_for_completion()
 
         if not self.state:
             raise GEETaskFailure(self.task)
 
-        if self.state == 'COMPLETED':
+        if self.state == "COMPLETED":
             self.logger.debug(
-                "GEE task {} completed.".format(self.task.status().get('id'))
+                "GEE task {} completed.".format(self.task.status().get("id"))
             )
-        elif self.state == 'FAILED':
+        elif self.state == "FAILED":
             self.logger.debug(
                 "GEE task {} failed: {}".format(
-                    self.task.status().get('id'),
-                    self.task.status().get('error_message')
+                    self.task.status().get("id"),
+                    self.task.status().get("error_message"),
                 )
             )
             raise GEETaskFailure(self.task)
         else:
             self.logger.debug(
                 "GEE task {} returned status {}: {}".format(
-                    self.task.status().get('id'), self.state,
-                    self.task.status().get('error_message')
+                    self.task.status().get("id"),
+                    self.state,
+                    self.task.status().get("error_message"),
                 )
             )
             raise GEETaskFailure(self.task)
@@ -148,31 +147,29 @@ class gee_task(threading.Thread):
             max_time=60,
             factor=3,
             base=1.4,
-            max_value=600
+            max_value=600,
         )
         def request_urls(self):
             return requests.get(
-                f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
+                f"https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}"
             )
 
         resp = request_urls(self)
 
         if not resp or resp.status_code != 200:
-            self.logger.debug(
-                f'Failed to list urls for results from {self.task}'
-            )
+            self.logger.debug(f"Failed to list urls for results from {self.task}")
             raise GEETaskFailure(self.task)
 
-        items = resp.json()['items']
+        items = resp.json()["items"]
 
         if len(items) < 1:
-            self.logger.debug('No urls were found for {}'.format(self.task))
+            self.logger.debug("No urls were found for {}".format(self.task))
             raise GEETaskFailure(self.task)
         else:
             urls = []
 
             for item in items:
-                urls.append(Url(item['mediaLink'], item['md5Hash']))
+                urls.append(Url(item["mediaLink"], item["md5Hash"]))
 
             return urls
 
@@ -184,25 +181,23 @@ class gee_task(threading.Thread):
             max_time=60,
             factor=3,
             base=1.4,
-            max_value=600
+            max_value=600,
         )
         def request_uris(self):
             return requests.get(
-                f'https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}'
+                f"https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}"
             )
 
         resp = request_uris(self)
 
-        if not resp or not resp.json().get('items'):
-            self.logger.debug(
-                f'Failed to list uris for results from {self.task}'
-            )
+        if not resp or not resp.json().get("items"):
+            self.logger.debug(f"Failed to list uris for results from {self.task}")
             raise GEETaskFailure(self.task)
 
-        items = resp.json()['items']
+        items = resp.json()["items"]
 
         if len(items) < 1:
-            self.logger.debug('No uris were found for {}'.format(self.task))
+            self.logger.debug("No uris were found for {}".format(self.task))
             raise GEETaskFailure(self.task)
         else:
             uris = []
@@ -210,12 +205,11 @@ class gee_task(threading.Thread):
             for item in items:
                 uris.append(
                     results.URI(
-                        type='cloud',
-                        uri=item['mediaLink'],
+                        type="cloud",
+                        uri=item["mediaLink"],
                         etag=results.Etag(
-                            hash=item['md5Hash'],
-                            type=results.EtagType.GCS_CRC32C
-                        )
+                            hash=item["md5Hash"], type=results.EtagType.GCS_CRC32C
+                        ),
                     )
                 )
 
@@ -233,9 +227,9 @@ class TEImage(object):
         self._check_validity()
 
     def _check_validity(self):
-        if len(self.band_info) != len(self.image.getInfo()['bands']):
+        if len(self.band_info) != len(self.image.getInfo()["bands"]):
             raise GEEImageError(
-                f'Band info length ({len(self.band_info)}) does not match '
+                f"Band info length ({len(self.band_info)}) does not match "
                 f'number of bands in image ({self.image.getInfo()["bands"]})'
             )
 
@@ -276,9 +270,7 @@ class TEImage(object):
             else:
                 self.band_info[i].add_to_map = False
 
-    def export(
-        self, geojsons, task_name, crs, logger, execution_id=None, proj=None
-    ):
+    def export(self, geojsons, task_name, crs, logger, execution_id=None, proj=None):
         "Export layers to cloud storage"
 
         if not execution_id:
@@ -294,27 +286,25 @@ class TEImage(object):
 
         for geojson in geojsons:
             if task_name:
-                out_name = '{}_{}_{}'.format(execution_id, task_name, n)
+                out_name = "{}_{}_{}".format(execution_id, task_name, n)
             else:
-                out_name = '{}_{}'.format(execution_id, n)
+                out_name = "{}_{}".format(execution_id, n)
 
             export = {
-                'image': self.image,
-                'description': out_name,
-                'fileNamePrefix': out_name,
-                'bucket': BUCKET,
-                'maxPixels': 1e13,
-                'crs': crs,
-                'scale': ee.Number(proj.nominalScale()).getInfo(),
-                'region': get_coords(geojson),
-                'formatOptions': {
-                    'cloudOptimized': True
-                }
+                "image": self.image,
+                "description": out_name,
+                "fileNamePrefix": out_name,
+                "bucket": BUCKET,
+                "maxPixels": 1e13,
+                "crs": crs,
+                "scale": ee.Number(proj.nominalScale()).getInfo(),
+                "region": get_coords(geojson),
+                "formatOptions": {"cloudOptimized": True},
             }
             t = gee_task(
                 task=ee.batch.Export.image.toCloudStorage(**export),
                 prefix=out_name,
-                logger=logger
+                logger=logger,
             )
             tasks.append(t)
             n += 1
@@ -333,12 +323,12 @@ class TEImage(object):
         return json_results
 
 
-class GEEImage():
+class GEEImage:
     def __init__(
         self,
         ee_image: ee.Image,
         bands: typing.List[results.Band],
-        datatype: results.DataType = results.DataType.INT16
+        datatype: results.DataType = results.DataType.INT16,
     ):
         self.ee_image = ee_image
         self.bands = bands
@@ -347,10 +337,10 @@ class GEEImage():
         self._check_validity()
 
     def _check_validity(self):
-        if len(self.bands) != len(self.ee_image.getInfo()['bands']):
+        if len(self.bands) != len(self.ee_image.getInfo()["bands"]):
             raise GEEImageError(
-                f'Band info length ({len(self.bands)}) '
-                'does not match number of bands in image '
+                f"Band info length ({len(self.bands)}) "
+                "does not match number of bands in image "
                 f'({self.ee_image.getInfo()["bands"]})'
             )
 
@@ -359,9 +349,9 @@ class GEEImage():
 
         if self.datatype != other.datatype:
             raise GEEImageError(
-                f'Attempted to merge {self.datatype} image with '
-                f'{other.datatype} image. Both images must have same '
-                'datatype.'
+                f"Attempted to merge {self.datatype} image with "
+                f"{other.datatype} image. Both images must have same "
+                "datatype."
             )
         self.ee_image = self.ee_image.addBands(other.ee_image)
         self.bands.extend(other.bands)
@@ -392,8 +382,8 @@ class GEEImage():
             self.ee_image = self.ee_image.double()
         else:
             raise GEEImageError(
-                f'Unknown datatype {self.datatype}. Datatype '
-                'must be supported by GDAL GeoTiff driver.'
+                f"Unknown datatype {self.datatype}. Datatype "
+                "must be supported by GDAL GeoTiff driver."
             )
 
 
@@ -414,7 +404,7 @@ def teimage_v1_to_teimage_v2(te_image):
 
 
 # Not using dataclass as not in python 3.6
-class TEImageV2():
+class TEImageV2:
     "A class to store GEE images and band info for export to cloud storage"
 
     def __init__(self, images: typing.Dict[str, GEEImage] = {}):
@@ -424,7 +414,7 @@ class TEImageV2():
         self,
         image: ee.Image,
         bands: typing.List[results.Band],
-        datatype: results.DataType = results.DataType.INT16
+        datatype: results.DataType = results.DataType.INT16,
     ):
         gee_image = GEEImage(image, bands, datatype)
 
@@ -474,7 +464,7 @@ class TEImageV2():
         logger,
         execution_id=None,
         proj=None,
-        filetype=results.RasterFileType.COG
+        filetype=results.RasterFileType.COG,
     ):
         "Export layers to cloud storage"
 
@@ -495,13 +485,11 @@ class TEImageV2():
 
             for geojson in geojsons:
                 if task_name:
-                    out_name = '{}_{}_{}_{}'.format(
+                    out_name = "{}_{}_{}_{}".format(
                         execution_id, task_name, datatype.value, n
                     )
                 else:
-                    out_name = '{}_{}_{}'.format(
-                        execution_id, datatype.value, n
-                    )
+                    out_name = "{}_{}_{}".format(execution_id, datatype.value, n)
 
                 if filetype == results.RasterFileType.COG:
                     as_COG = True
@@ -509,26 +497,21 @@ class TEImageV2():
                     as_COG = False
 
                 export = {
-                    'image': image.ee_image,
-                    'description': out_name,
-                    'fileNamePrefix': out_name,
-                    'bucket': BUCKET,
-                    'maxPixels': 1e13,
-                    'crs': crs,
-                    'scale': ee.Number(proj.nominalScale()).getInfo(),
-                    'region': get_coords(geojson),
-                    'formatOptions': {
-                        'cloudOptimized': as_COG
-                    }
+                    "image": image.ee_image,
+                    "description": out_name,
+                    "fileNamePrefix": out_name,
+                    "bucket": BUCKET,
+                    "maxPixels": 1e13,
+                    "crs": crs,
+                    "scale": ee.Number(proj.nominalScale()).getInfo(),
+                    "region": get_coords(geojson),
+                    "formatOptions": {"cloudOptimized": as_COG},
                 }
                 t = gee_task(
                     task=ee.batch.Export.image.toCloudStorage(**export),
                     prefix=out_name,
                     logger=logger,
-                    metadata={
-                        'datatype': datatype,
-                        'bands': image.bands
-                    }
+                    metadata={"datatype": datatype, "bands": image.bands},
                 )
                 tasks.append(t)
                 n += 1
@@ -540,45 +523,39 @@ class TEImageV2():
         for task in tasks:
             task.join()
 
-            if task.metadata['datatype'] in output:
-                output[task.metadata['datatype']]['uris'].extend(
-                    task.get_uris()
-                )
+            if task.metadata["datatype"] in output:
+                output[task.metadata["datatype"]]["uris"].extend(task.get_uris())
             else:
-                output[task.metadata['datatype']] = {
-                    'uris': task.get_uris(),
-                    'bands': task.metadata['bands']
+                output[task.metadata["datatype"]] = {
+                    "uris": task.get_uris(),
+                    "bands": task.metadata["bands"],
                 }
 
         rasters = {}
 
         for datatype, value in output.items():
-            uris = [results.URI.Schema().dump(uri) for uri in value['uris']]
-            bands = [
-                results.Band.Schema().dump(band) for band in value['bands']
-            ]
+            uris = [results.URI.Schema().dump(uri) for uri in value["uris"]]
+            bands = [results.Band.Schema().dump(band) for band in value["bands"]]
 
             if len(uris) > 1:
                 rasters[datatype.value] = TiledRaster.Schema().load(
                     {
-                        'tile_uris': uris,
-                        'bands': bands,
-                        'datatype': datatype,
-                        'filetype': filetype
+                        "tile_uris": uris,
+                        "bands": bands,
+                        "datatype": datatype,
+                        "filetype": filetype,
                     }
                 )
             else:
                 rasters[datatype.value] = Raster.Schema().load(
                     {
-                        'uri': uris[0],
-                        'bands': bands,
-                        'datatype': datatype,
-                        'filetype': filetype
+                        "uri": uris[0],
+                        "bands": bands,
+                        "datatype": datatype,
+                        "filetype": filetype,
                     }
                 )
 
-        gee_results = results.RasterResults(
-            name=task_name, rasters=rasters, data={}
-        )
+        gee_results = results.RasterResults(name=task_name, rasters=rasters, data={})
 
         return results.RasterResults.Schema().dump(gee_results)
