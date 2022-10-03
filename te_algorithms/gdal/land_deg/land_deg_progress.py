@@ -327,7 +327,7 @@ def _process_block_progress(
 
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
-    if params.prod_mode ==  ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
+    if params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
         trans_code = [
             11, 12, 13, 14, 15,
             21, 22, 23, 24, 25,
