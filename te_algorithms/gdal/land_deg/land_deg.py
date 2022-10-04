@@ -557,7 +557,7 @@ def _process_block_summary(
     a_lc_trans_lc_deg = calc_lc_trans(
         in_array[lc_deg_initial_cover_row, :, :],
         in_array[lc_deg_final_cover_row, :, :],
-        params.trans_matrix.get_multiplier(),
+        params.trans_matrix.legend.get_multiplier(),
     )
     lc_trans_arrays = [a_lc_trans_lc_deg]
     lc_trans_zonal_areas_periods = [lc_deg_band_period]
@@ -587,7 +587,7 @@ def _process_block_summary(
         a_lc_trans_prod_deg = calc_lc_trans(
             in_array[prod_deg_initial_cover_row, :, :],
             in_array[prod_deg_final_cover_row, :, :],
-            params.trans_matrix.get_multiplier(),
+            params.trans_matrix.legend.get_multiplier(),
         )
         lc_trans_arrays.append(a_lc_trans_prod_deg)
         lc_trans_zonal_areas_periods.append(prod_deg_band_period)
@@ -615,7 +615,7 @@ def _process_block_summary(
         a_lc_trans_soc_deg = calc_lc_trans(
             in_array[soc_deg_initial_cover_row, :, :],
             in_array[soc_deg_final_cover_row, :, :],
-            params.trans_matrix.get_multiplier(),
+            params.trans_matrix.legend.get_multiplier(),
         )
         lc_trans_arrays.append(a_lc_trans_soc_deg)
         lc_trans_zonal_areas_periods.append(soc_deg_band_period)

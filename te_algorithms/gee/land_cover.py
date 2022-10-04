@@ -37,7 +37,7 @@ def land_cover(
 
     # compute transition map (first digit for baseline land cover, and second
     # digit for target year land cover)
-    lc_tr = lc_bl.multiply(trans_matrix.get_multiplier()).add(lc_tg)
+    lc_tr = lc_bl.multiply(trans_matrix.legend.get_multiplier()).add(lc_tg)
 
     # definition of land cover transitions as degradation (-1), improvement
     # (1), or no relevant change (0)

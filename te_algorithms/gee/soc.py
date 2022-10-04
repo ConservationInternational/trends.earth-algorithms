@@ -106,7 +106,7 @@ def soc(
         if k == 0:
             # compute transition map (first digit for baseline land cover, and
             # second digit for target year land cover)
-            lc_tr = lc_t0.multiply(trans_matrix.get_multiplier()).add(lc_t1)
+            lc_tr = lc_t0.multiply(trans_matrix.legend.get_multiplier()).add(lc_t1)
 
             # compute raster to register years since transition
             tr_time = ee.Image(2).where(lc_t0.neq(lc_t1), 1)

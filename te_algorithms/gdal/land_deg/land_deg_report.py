@@ -651,7 +651,7 @@ def _get_prod_table(lc_trans_prod_bizonal, prod_code, lc_trans_matrix):
 
     for i, i_code in enumerate(lc_codes):
         for f, f_code in enumerate(lc_codes):
-            transition = i_code * lc_trans_matrix.get_multiplier() + f_code
+            transition = i_code * lc_trans_matrix.legend.get_multiplier() + f_code
             out[i, f] = lc_trans_prod_bizonal.get((transition, prod_code), 0.0)
 
     return out
@@ -685,7 +685,7 @@ def _write_soc_stock_change_table(
     for i, i_code in enumerate(lc_codes):
         for f, f_code in enumerate(lc_codes):
             cell = sheet.cell(row=i + first_row, column=f + first_col)
-            transition = i_code * lc_trans_matrix.get_multiplier() + f_code
+            transition = i_code * lc_trans_matrix.legend.get_multiplier() + f_code
             bl_soc = soc_bl_totals.get(transition, 0.0)
             final_soc = soc_final_totals.get(transition, 0.0)
             try:
@@ -702,7 +702,7 @@ def _get_lc_trans_table(lc_trans_totals, lc_trans_matrix, excluded_codes=[]):
 
     for i, i_code in enumerate(lc_codes):
         for f, f_code in enumerate(lc_codes):
-            transition = i_code * lc_trans_matrix.get_multiplier() + f_code
+            transition = i_code * lc_trans_matrix.legend.get_multiplier() + f_code
             out[i, f] = lc_trans_totals.get(transition, 0.0)
 
     return out
