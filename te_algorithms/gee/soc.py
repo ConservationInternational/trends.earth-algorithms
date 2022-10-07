@@ -26,8 +26,8 @@ def trans_factors_for_custom_legend(trans_factors, ipcc_nesting):
     for n in range(0, len(trans_factors[0])):
         trans_code = trans_factors[0][n]
         value = trans_factors[1][n]
-        ipcc_initial_class_code = int(trans_code / ipcc_nesting.get_multiplier())
-        ipcc_final_class_code = trans_code % ipcc_nesting.get_multiplier()
+        ipcc_initial_class_code = int(trans_code / 10)
+        ipcc_final_class_code = trans_code % 10
         custom_initial_codes = ipcc_nesting.nesting[ipcc_initial_class_code]
         custom_final_codes = ipcc_nesting.nesting[ipcc_final_class_code]
         for initial_code in custom_initial_codes:
