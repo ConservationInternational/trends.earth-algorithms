@@ -27,27 +27,27 @@ def land_cover(
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
-    # Initial and final land cover map reclassified to IPCC (or custom) classes
-    lc_bl = lc.select("y{}".format(year_initial)).remap(
-        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
-    )
-    lc_tg = lc.select("y{}".format(year_final)).remap(
-        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
-    )
-
     # Transition codes are based on the class code indices (i.e. their order when
     # sorted by class code) - not the class codes themselves. So need to reclass
     # the land cover used for the transition calculations from the raw class codes
-    # to the positional indices of those class codes.
+    # to the positional indices of those class codes. And before doing that, need to
+    # reclassified initial and final layers to the IPCC (or custom) classes.
     class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
     class_positions = [*range(len(class_codes))]
+    lc_bl = (
+        lc.select("y{}".format(year_initial))
+        .remap(esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1])
+        .remap(class_codes, class_positions)
+    )
+    lc_tg = (
+        lc.select("y{}".format(year_final))
+        .remap(esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1])
+        .remap(class_codes, class_positions)
+    )
+
     # compute transition map (first digit for baseline land cover, and second
     # digit for target year land cover)
-    lc_tr = (
-        lc_bl.remap(class_codes, class_positions)
-        .multiply(esa_to_custom_nesting.parent.get_multiplier())
-        .add(lc_tg.remap(class_codes, class_positions))
-    )
+    lc_tr = lc_bl.multiply(esa_to_custom_nesting.parent.get_multiplier()).add(lc_tg)
 
     # definition of land cover transitions as degradation (-1), improvement
     # (1), or no relevant change (0)
