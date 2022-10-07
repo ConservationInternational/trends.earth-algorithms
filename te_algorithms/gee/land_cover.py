@@ -33,7 +33,7 @@ def land_cover(
     # to the positional indices of those class codes. And before doing that, need to
     # reclassified initial and final layers to the IPCC (or custom) classes.
     class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
-    class_positions = [*range(len(class_codes))]
+    class_positions = [*range(1, len(class_codes) + 1)]
     lc_bl = (
         lc.select("y{}".format(year_initial))
         .remap(esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1])

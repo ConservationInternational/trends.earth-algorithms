@@ -30,9 +30,21 @@ def trans_factors_for_custom_legend(trans_factors, ipcc_nesting):
         ipcc_final_class_code = trans_code % ipcc_nesting.get_multiplier()
         custom_initial_codes = ipcc_nesting.nesting[ipcc_initial_class_code]
         custom_final_codes = ipcc_nesting.nesting[ipcc_final_class_code]
-        for initial in custom_initial_codes:
-            for final in custom_final_codes:
-                transitions.append(initial * ipcc_nesting.get_multiplier() + final)
+        for initial_code in custom_initial_codes:
+            # Convert from class code to index, as index is used in
+            # the transition map
+            initial_index = ipcc_nesting.child.class_index(
+                ipcc_nesting.child.class_by_code(initial_code)
+            )
+            for final_code in custom_final_codes:
+                # Convert from class code to index, as index is used in
+                # the transition map
+                final_index = ipcc_nesting.child.class_index(
+                    ipcc_nesting.child.class_by_code(final_code)
+                )
+                transitions.append(
+                    initial_index * ipcc_nesting.get_multiplier() + final_index
+                )
                 to_values.append(value)
 
     return [transitions, to_values]
@@ -92,21 +104,31 @@ def soc(
 
     # loop through all the years in the period of analysis to compute changes in SOC
 
+    class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
+    class_positions = [*range(1, len(class_codes) + 1)]
     for k in range(year_final - soc_t0_year):
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
-        lc_t0 = lc.select(k).remap(
-            esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
+        lc_t0 = (
+            lc.select(k)
+            .remap(
+                esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
+            )
+            .remap(class_codes, class_positions)
         )
 
-        lc_t1 = lc.select(k + 1).remap(
-            esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
+        lc_t1 = (
+            lc.select(k + 1)
+            .remap(
+                esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
+            )
+            .remap(class_codes, class_positions)
         )
 
         if k == 0:
             # compute transition map (first digit for baseline land cover, and
             # second digit for target year land cover)
-            lc_tr = lc_t0.multiply(trans_matrix.legend.get_multiplier()).add(lc_t1)
+            lc_tr = lc_t0.multiply(trans_matrix.get_multiplier()).add(lc_t1)
 
             # compute raster to register years since transition
             tr_time = ee.Image(2).where(lc_t0.neq(lc_t1), 1)
