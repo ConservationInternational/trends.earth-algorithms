@@ -73,7 +73,8 @@ def land_cover(
         lc_dg.addBands(lc_baseline_esa)
         .addBands(lc_target_esa)
         .addBands(lc_tr)
-        .addBands(lc_tr_pre_remap),[
+        .addBands(lc_tr_pre_remap),
+        [
             BandInfo(
                 "Land cover (degradation)",
                 add_to_map=True,
