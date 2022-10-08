@@ -109,21 +109,22 @@ def soc(
     for k in range(year_final - soc_t0_year):
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
-        lc_t0 = (
+        lc_t0_orig_coding  = (
             lc.select(k)
             .remap(
                 esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
             )
-            .remap(class_codes, class_positions)
+        
         )
+        lc_t0 = lc_t0_orig_coding.remap(class_codes, class_positions)
 
-        lc_t1 = (
+        lc_t1_orig_coding = (
             lc.select(k + 1)
             .remap(
                 esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
             )
-            .remap(class_codes, class_positions)
         )
+        lc_t1 = lc_t1_orig_coding.remap(class_codes, class_positions)
 
         if k == 0:
             # compute transition map (first digit for baseline land cover, and
@@ -498,7 +499,7 @@ def soc(
 
             # add to land cover and soc to stacks from both dates for the first
             # period
-            stack_lc = stack_lc.addBands(lc_t0).addBands(lc_t1)
+            stack_lc = stack_lc.addBands(lc_t0_orig_coding).addBands(lc_t1_orig_coding)
             stack_soc = stack_soc.addBands(soc_t0).addBands(soc_t1)
 
         else:
@@ -521,7 +522,7 @@ def soc(
 
             # add land cover and soc to stacks only for the last year in the
             # period
-            stack_lc = stack_lc.addBands(lc_t1)
+            stack_lc = stack_lc.addBands(lc_t1_orig_coding)
             stack_soc = stack_soc.addBands(socn)
 
     # compute soc percent change for the analysis period
