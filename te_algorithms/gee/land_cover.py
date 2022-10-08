@@ -47,8 +47,10 @@ def land_cover(
 
     # compute transition map (first digit for baseline land cover, and second
     # digit for target year land cover)
-    lc_tr = lc_bl.multiply(esa_to_custom_nesting.get_multiplier()).add(lc_tg)
-    lc_tr_pre_remap = lc_bl.multiply(esa_to_custom_nesting.get_multiplier()).add(lc_tg)
+    lc_tr = lc_bl.multiply(esa_to_custom_nesting.parent.get_multiplier()).add(lc_tg)
+    lc_tr_pre_remap = lc_bl.multiply(esa_to_custom_nesting.parent.get_multiplier()).add(
+        lc_tg
+    )
 
     # definition of land cover transitions as degradation (-1), improvement
     # (1), or no relevant change (0)
