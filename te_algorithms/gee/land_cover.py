@@ -74,9 +74,7 @@ def land_cover(
     out = TEImage(
         lc_dg.addBands(lc_baseline_esa)
         .addBands(lc_target_esa)
-        .addBands(lc_tr)
-        .addBands(lc_tr_pre_remap),
-        [
+        .addBands(lc_tr), [
             BandInfo(
                 "Land cover (degradation)",
                 add_to_map=True,
@@ -97,15 +95,6 @@ def land_cover(
             BandInfo(
                 "Land cover (ESA classes)",
                 metadata={"year": year_final, "nesting": esa_to_custom_nesting.dumps()},
-            ),
-            BandInfo(
-                "Land cover transitions",
-                add_to_map=True,
-                metadata={
-                    "year_initial": year_initial,
-                    "year_final": year_final,
-                    "nesting": ipcc_nesting.dumps(),
-                },
             ),
             BandInfo(
                 "Land cover transitions",
