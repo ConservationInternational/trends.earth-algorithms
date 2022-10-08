@@ -109,20 +109,13 @@ def soc(
     for k in range(year_final - soc_t0_year):
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
-        lc_t0_orig_coding  = (
-            lc.select(k)
-            .remap(
-                esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
-            )
-        
+        lc_t0_orig_coding = lc.select(k).remap(
+            esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
         )
         lc_t0 = lc_t0_orig_coding.remap(class_codes, class_positions)
 
-        lc_t1_orig_coding = (
-            lc.select(k + 1)
-            .remap(
-                esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
-            )
+        lc_t1_orig_coding = lc.select(k + 1).remap(
+            esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
         )
         lc_t1 = lc_t1_orig_coding.remap(class_codes, class_positions)
 
