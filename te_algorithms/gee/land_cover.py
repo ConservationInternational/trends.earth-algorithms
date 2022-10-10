@@ -72,9 +72,8 @@ def land_cover(
         f"Land_cover_{year_final}"
     )
     out = TEImage(
-        lc_dg.addBands(lc_baseline_esa)
-        .addBands(lc_target_esa)
-        .addBands(lc_tr), [
+        lc_dg.addBands(lc_baseline_esa).addBands(lc_target_esa).addBands(lc_tr),
+        [
             BandInfo(
                 "Land cover (degradation)",
                 add_to_map=True,
