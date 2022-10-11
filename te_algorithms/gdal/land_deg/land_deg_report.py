@@ -162,10 +162,10 @@ def save_reporting_json(
                 for transition, codes in lc_trans_dict.items():
                     initial_class = lc_trans_matrix.legend.classByCode(
                         codes["initial"]
-                    ).name_short
+                    ).get_name()
                     final_class = lc_trans_matrix.legend.classByCode(
                         codes["final"]
-                    ).name_short
+                    ).get_name()
                     crosstab_entries.append(
                         reporting.CrossTabEntry(
                             initial_class,
@@ -205,10 +205,10 @@ def save_reporting_json(
             for transition, codes in lc_trans_dict.items():
                 initial_class = lc_trans_matrix.legend.classByCode(
                     codes["initial"]
-                ).name_short
+                ).get_name()
                 final_class = lc_trans_matrix.legend.classByCode(
                     codes["final"]
-                ).name_short
+                ).get_name()
                 lc_by_transition_type.append(
                     reporting.CrossTabEntry(
                         initial_class,
@@ -247,11 +247,11 @@ def save_reporting_json(
 
             for lc_class in lc_trans_matrix.legend.key:
                 logging.debug(
-                    f"Total area of {lc_class.name_short} in {year}: {st.lc_annual_totals[year_num].get(lc_class.code, 0.)}"
+                    f"Total area of {lc_class.get_name()} in {year}: {st.lc_annual_totals[year_num].get(lc_class.code, 0.)}"
                 )
 
             lc_by_year[int(year)] = {
-                lc_class.name_short: st.lc_annual_totals[year_num].get(
+                lc_class.get_name(): st.lc_annual_totals[year_num].get(
                     lc_class.code, 0.0
                 )
                 for lc_class in lc_trans_matrix.legend.key
@@ -280,8 +280,8 @@ def save_reporting_json(
         for transition, codes in lc_trans_dict.items():
             initial_class = lc_trans_matrix.legend.classByCode(
                 codes["initial"]
-            ).name_short
-            final_class = lc_trans_matrix.legend.classByCode(codes["final"]).name_short
+            ).get_name()
+            final_class = lc_trans_matrix.legend.classByCode(codes["final"]).get_name()
             soc_by_transition.append(
                 reporting.CrossTabEntryInitialFinal(
                     initial_label=initial_class,
@@ -307,7 +307,7 @@ def save_reporting_json(
         for year_num, soc_by_lc_annual_total in enumerate(st.soc_by_lc_annual_totals):
             year = soil_organic_carbon_years[year_num]
             soc_by_year[int(year)] = {
-                lc_class.name_short: soc_by_lc_annual_total.get(lc_class.code, 0.0)
+                lc_class.get_name(): soc_by_lc_annual_total.get(lc_class.code, 0.0)
                 for lc_class in lc_trans_matrix.legend.key
                 + [lc_trans_matrix.legend.nodata]
             }

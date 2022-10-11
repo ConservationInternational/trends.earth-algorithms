@@ -390,16 +390,16 @@ def summarise_land_degradation(
         summary_table_output_path = (
             sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
         )
-        save_summary_table_excel(
-            summary_table_output_path,
-            summary_table,
-            period_params["periods"],
-            period_params["layer_lc_years"],
-            period_params["layer_soc_years"],
-            summary_table_stable_kwargs[period_name]["lc_legend_nesting"],
-            summary_table_stable_kwargs[period_name]["lc_trans_matrix"],
-            period_name,
-        )
+        # save_summary_table_excel(
+        #     summary_table_output_path,
+        #     summary_table,
+        #     period_params["periods"],
+        #     period_params["layer_lc_years"],
+        #     period_params["layer_soc_years"],
+        #     summary_table_stable_kwargs[period_name]["lc_legend_nesting"],
+        #     summary_table_stable_kwargs[period_name]["lc_trans_matrix"],
+        #     period_name,
+        # )
 
     if len(ldn_job.params.items()) == 2:
         # Make temporary combined VRT and DataFile just for the progress
@@ -476,6 +476,12 @@ def _process_block_summary(
     yoff: int,
     cell_areas_raw,
 ) -> Tuple[models.SummaryTableLD, Dict]:
+
+    # Create the key used to recode lc classes from raw codes to ordinal codes,
+    # needed for transition calculations
+    class_codes = sorted([c.code for c in params.nesting.child.key])
+    class_positions = [*range(1, len(class_codes) + 1)]
+    class_recode = (class_codes, class_positions)
 
     lc_band_years = params.in_df.metadata_for_name(config.LC_BAND_NAME, "year")
     lc_bands = [
@@ -558,6 +564,7 @@ def _process_block_summary(
         in_array[lc_deg_initial_cover_row, :, :],
         in_array[lc_deg_final_cover_row, :, :],
         params.trans_matrix.legend.get_multiplier(),
+        class_recode,
     )
     lc_trans_arrays = [a_lc_trans_lc_deg]
     lc_trans_zonal_areas_periods = [lc_deg_band_period]
@@ -588,6 +595,7 @@ def _process_block_summary(
             in_array[prod_deg_initial_cover_row, :, :],
             in_array[prod_deg_final_cover_row, :, :],
             params.trans_matrix.legend.get_multiplier(),
+            class_recode,
         )
         lc_trans_arrays.append(a_lc_trans_prod_deg)
         lc_trans_zonal_areas_periods.append(prod_deg_band_period)
@@ -616,6 +624,7 @@ def _process_block_summary(
             in_array[soc_deg_initial_cover_row, :, :],
             in_array[soc_deg_final_cover_row, :, :],
             params.trans_matrix.legend.get_multiplier(),
+            class_recode=None,
         )
         lc_trans_arrays.append(a_lc_trans_soc_deg)
         lc_trans_zonal_areas_periods.append(soc_deg_band_period)
