@@ -6,48 +6,7 @@ import ee
 from te_schemas.schemas import BandInfo
 
 from .util import TEImage
-
-
-def trans_factors_for_custom_legend(trans_factors, ipcc_nesting):
-    """
-    trans_factors is a list containing two lists, where each matched pair from
-    trans_factors[0] and trans_factors[1] is a transition code (in first list), and then
-    what that transition code should be recoded as (in second list)
-
-    this function takes in transition factors defined against the IPCC legend and spits
-    out transition factors tied to a child legend of the IPCC legend
-    """
-
-    transitions = []
-    to_values = []
-
-    assert len(trans_factors[0]) == len(trans_factors[1])
-
-    for n in range(0, len(trans_factors[0])):
-        trans_code = trans_factors[0][n]
-        value = trans_factors[1][n]
-        ipcc_initial_class_code = int(trans_code / 10)
-        ipcc_final_class_code = trans_code % 10
-        custom_initial_codes = ipcc_nesting.nesting[ipcc_initial_class_code]
-        custom_final_codes = ipcc_nesting.nesting[ipcc_final_class_code]
-        for initial_code in custom_initial_codes:
-            # Convert from class code to index, as index is used in
-            # the transition map
-            initial_index = ipcc_nesting.child.class_index(
-                ipcc_nesting.child.class_by_code(initial_code)
-            )
-            for final_code in custom_final_codes:
-                # Convert from class code to index, as index is used in
-                # the transition map
-                final_index = ipcc_nesting.child.class_index(
-                    ipcc_nesting.child.class_by_code(final_code)
-                )
-                transitions.append(
-                    initial_index * ipcc_nesting.get_multiplier() + final_index
-                )
-                to_values.append(value)
-
-    return [transitions, to_values]
+from ..util import trans_factors_for_custom_legend
 
 
 def soc(
@@ -143,110 +102,28 @@ def soc(
 
         # stock change factor for land use - note the 99 and -99 will be
         # recoded using the chosen Fl option
+        # fmt: off
         soc_change_factor_for_land_use = (
             [
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                17,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                41,
-                42,
-                43,
-                44,
-                45,
-                46,
-                47,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                61,
-                62,
-                63,
-                64,
-                65,
-                66,
-                67,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
+                11,12,13,14,15,16,17,
+                21,22,23,24,25,26,27,
+                31,32,33,34,35,36,37,
+                41,42,43,44,45,46,47,
+                51,52,53,54,55,56,57,
+                61,62,63,64,65,66,67,
+                71,72,73,74,75,76,77,
             ],
             [
-                1,
-                1,
-                99,
-                1,
-                0.1,
-                0.1,
-                1,
-                1,
-                1,
-                99,
-                1,
-                0.1,
-                0.1,
-                1,
-                -99,
-                -99,
-                1,
-                1 / 0.71,
-                0.1,
-                0.1,
-                1,
-                1,
-                1,
-                0.71,
-                1,
-                0.1,
-                0.1,
-                1,
-                2,
-                2,
-                2,
-                2,
-                1,
-                1,
-                1,
-                2,
-                2,
-                2,
-                2,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
+                1,1,99,1,0.1,0.1,1,
+                1,1,99,1,0.1,0.1,1,
+                -99,-99,1,1 / 0.71,0.1,0.1,1,
+                1,1,0.71,1,0.1,0.1,1,
+                2,2,2,2,1,1,1,
+                2,2,2,2,1,1,1,
+                1,1,1,1,1,1,1,
             ],
-        )  # yapf: disable
+        )
+        # fmt: on
         # Covnert lc_tr_fl_0 (defined against IPCC legend)
         soc_change_factor_for_land_use = trans_factors_for_custom_legend(
             soc_change_factor_for_land_use, ipcc_nesting
@@ -263,220 +140,56 @@ def soc(
             )
 
         # stock change factor for management regime
+        # fmt: off
         soc_change_factor_for_management = (
             [
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                17,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                41,
-                42,
-                43,
-                44,
-                45,
-                46,
-                47,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                61,
-                62,
-                63,
-                64,
-                65,
-                66,
-                67,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
+                11,12,13,14,15,16,17,
+                21,22,23,24,25,26,27,
+                31,32,33,34,35,36,37,
+                41,42,43,44,45,46,47,
+                51,52,53,54,55,56,57,
+                61,62,63,64,65,66,67,
+                71,72,73,74,75,76,77,
             ],
             [
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
             ],
-        )  # yapf: disable
+        )
+        # fmt: on
         soc_change_factor_for_management = trans_factors_for_custom_legend(
             soc_change_factor_for_management, ipcc_nesting
         )
         lc_tr_fm = lc_tr.remap(*soc_change_factor_for_management)
 
         # stock change factor for input of organic matter
+        # fmt: off
         soc_change_factor_for_organic_matter = (
             [
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                17,
-                21,
-                22,
-                23,
-                24,
-                25,
-                26,
-                27,
-                31,
-                32,
-                33,
-                34,
-                35,
-                36,
-                37,
-                41,
-                42,
-                43,
-                44,
-                45,
-                46,
-                47,
-                51,
-                52,
-                53,
-                54,
-                55,
-                56,
-                57,
-                61,
-                62,
-                63,
-                64,
-                65,
-                66,
-                67,
-                71,
-                72,
-                73,
-                74,
-                75,
-                76,
-                77,
+                11,12,13,14,15,16,17,
+                21,22,23,24,25,26,27,
+                31,32,33,34,35,36,37,
+                41,42,43,44,45,46,47,
+                51,52,53,54,55,56,57,
+                61,62,63,64,65,66,67,
+                71,72,73,74,75,76,77,
             ],
             [
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
-                1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
+                1,1,1,1,1,1,1,
             ],
-        )  # yapf: disable
+        )
+        # fmt: on
         soc_change_factor_for_organic_matter = trans_factors_for_custom_legend(
             soc_change_factor_for_organic_matter, ipcc_nesting
         )
