@@ -138,6 +138,8 @@ def combine_all_bands_into_vrt(
 
     logger.debug("Making %s", out_file)
 
+    logger.debug("In files: %s", in_files)
+
     if aws_access_key_id is not None:
         gdal.SetConfigOption("AWS_ACCESS_KEY_ID", aws_access_key_id)
 
@@ -155,15 +157,19 @@ def combine_all_bands_into_vrt(
         logger.debug("Adding %s (file number %s)", in_file, file_num)
         in_ds = gdal.Open(str(in_file))
         this_gt = in_ds.GetGeoTransform()
+        logger.debug("this_gt %s", this_gt)
         this_proj = in_ds.GetProjectionRef()
 
         if file_num == 0:
             out_gt = this_gt
             out_proj = this_proj
+            logger.debug("out_gt %s", out_gt)
         else:
-            assert [round(x, 8) for x in out_gt] == [round(x, 8) for x in this_gt], (
-                f"base file ({in_files[0]}) geotransform ({out_gt}) doesn't match "
-                f"geotransform in {in_file} ({this_gt})"
+            out_gt_rounded = [round(x, 6) for x in out_gt]
+            this_gt_rounded = [round(x, 6) for x in this_gt]
+            assert out_gt_rounded == this_gt_rounded, (
+                f"base file ({in_files[0]}) geotransform ({out_gt_rounded}) doesn't match "
+                f"geotransform in {in_file} ({this_gt_rounded})"
             )
             assert out_proj == this_proj
 

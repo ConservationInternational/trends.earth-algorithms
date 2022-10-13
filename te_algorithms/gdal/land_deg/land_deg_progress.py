@@ -8,6 +8,7 @@ from typing import Tuple
 import numpy as np
 from osgeo import gdal
 from te_schemas.datafile import DataFile
+from te_schemas.land_cover import LCLegendNesting
 from te_schemas.productivity import ProductivityMode
 from te_schemas.results import Band
 
@@ -57,8 +58,10 @@ def compute_progress_summary(
     prod_mode,
     job_output_path,
     aoi,
+    compute_bbs_from,
     baseline_period,
     progress_period,
+    nesting: LCLegendNesting,
     mask_worker_function: Callable = None,
     mask_worker_params: dict = None,
     progress_worker_function: Callable = None,
@@ -68,7 +71,7 @@ def compute_progress_summary(
     progress_vrt, progress_band_dict = _get_progress_summary_input_vrt(df, prod_mode)
 
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
-    bbs = aoi.get_aligned_output_bounds(progress_vrt)
+    bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
     assert len(wkt_aois) == len(bbs)
 
     progress_name_pattern = {
@@ -89,7 +92,13 @@ def compute_progress_summary(
         cropped_progress_vrt = tempfile.NamedTemporaryFile(
             suffix="_ld_progress_summary_inputs.vrt", delete=False
         ).name
-        gdal.BuildVRT(cropped_progress_vrt, progress_vrt, outputBounds=this_bbs)
+        gdal.BuildVRT(
+            cropped_progress_vrt,
+            progress_vrt,
+            outputBounds=this_bbs,
+            resolution="highest",
+            resampleAlg=gdal.GRA_NearestNeighbour,
+        )
 
         mask_tif = tempfile.NamedTemporaryFile(
             suffix="_ld_progress_mask.tif", delete=False
@@ -129,6 +138,7 @@ def compute_progress_summary(
                 model_band_number=1,
                 n_out_bands=4,
                 mask_file=mask_tif,
+                nesting=nesting,
             )
 
             if progress_worker_function:
@@ -318,118 +328,43 @@ def _process_block_progress(
 
     if params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
         trans_code = [
-            11,
-            12,
-            13,
-            14,
-            15,
-            21,
-            22,
-            23,
-            24,
-            25,
-            31,
-            32,
-            33,
-            34,
-            35,
-            41,
-            42,
-            43,
-            44,
-            45,
-            51,
-            52,
-            53,
-            54,
-            55,
-        ]  # yapf: disable
+            11, 12, 13, 14, 15,
+            21, 22, 23, 24, 25,
+            31, 32, 33, 34, 35,
+            41, 42, 43, 44, 45,
+            51, 52, 53, 54, 55,
+        ]  # fmt:skip
 
         trans_meaning_sdg = [
-            -1,
-            -1,
-            -1,
-            0,
-            1,
-            -1,
-            -1,
-            -1,
-            0,
-            1,
-            -1,
-            -1,
-            0,
-            0,
-            1,
-            -1,
-            -1,
-            0,
-            0,
-            1,
-            -1,
-            -1,
-            0,
-            0,
-            1,
-        ]  # yapf: disable
+            -1, -1, -1, 0, 1, 
+            -1, -1, -1, 0, 1, 
+            -1, -1, 0, 0, 1, 
+            -1, -1, 0, 0, 1, 
+            -1, -1, 0, 0, 1,
+        ]  # fmt:skip
     else:
         trans_code = [
-            11,
-            12,
-            13,
-            14,
-            15,
-            21,
-            22,
-            23,
-            24,
-            25,
-            31,
-            32,
-            33,
-            34,
-            35,
-            41,
-            42,
-            43,
-            44,
-            45,
-            51,
-            52,
-            53,
-            54,
-            55,
-        ]  # yapf: disable
+            11, 12, 13, 14, 15,
+            21, 22, 23, 24, 25,
+            31, 32, 33, 34, 35,
+            41, 42, 43, 44, 45,
+            51, 52, 53, 54, 55,
+        ]  # fmt:skip
 
         trans_meaning_sdg = [
-            -1,
-            -1,
-            -1,
-            1,
-            1,
-            -1,
-            -1,
-            -1,
-            0,
-            1,
-            -1,
-            -1,
-            0,
-            0,
-            1,
-            -1,
-            -1,
-            0,
-            0,
-            1,
-            -1,
-            -1,
-            0,
-            0,
-            1,
-        ]  # yapf: disable
+            -1, -1, -1, 1, 1,  
+            -1, -1, -1, 0, 1,
+            -1, -1, 0, 0, 1,
+            -1, -1, 0, 0, 1,
+            -1, -1, 0, 0, 1,
+        ]  # fmt:skip
 
-    water = in_array[params.band_dict["lc_baseline_bandnum"] - 1, :, :] == 7
+    # Derive a water mask from last lc year - handling fact that there could be
+    # multiple water codes if this is a custom legend. 7 is the IPCC water code.
+    water = np.isin(
+        in_array[params.band_dict["lc_baseline_bandnum"] - 1, :, :],
+        params.nesting.nesting[7],
+    )
     water = water.astype(bool, copy=False)
 
     prod5_baseline = in_array[params.band_dict["prod5_baseline_bandnum"] - 1, :, :]

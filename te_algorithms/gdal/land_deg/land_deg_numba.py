@@ -171,15 +171,17 @@ def prod5_to_prod3(prod5):
 
 
 @numba.jit(nopython=True)
-@cc.export("calc_lc_trans", "i4[:,:](i2[:,:], i2[:,:], i4)")
-def calc_lc_trans(lc_bl, lc_tg, multiplier, class_recode):
+@cc.export(
+    "calc_lc_trans", "i4[:,:](i2[:,:], i2[:,:], i4, optional(i2[:]), optional(i2[:]))"
+)
+def calc_lc_trans(lc_bl, lc_tg, multiplier, recode_from=None, recode_to=None):
     shp = lc_bl.shape
     lc_bl = lc_bl.ravel()
     lc_tg = lc_tg.ravel()
-    # Recode bands from raw codes to ordinal values prior to
-    # calculating transitions
-    if class_recode:
-        for value, replacement in zip(class_recode[0], class_recode[1]):
+    # Support recoding bands before calculation, used primarily to recode bands from
+    # raw integer codes to ordinal values prior to calculating transitions
+    if recode_from is not None and recode_to is not None:
+        for value, replacement in zip(recode_from, recode_to):
             lc_bl[lc_bl == int(value)] = int(replacement)
             lc_tg[lc_tg == int(value)] = int(replacement)
     a_trans_bl_tg = lc_bl * multiplier + lc_tg
@@ -243,7 +245,7 @@ def calc_deg_soc(soc_bl, soc_tg, water):
 
 
 @numba.jit(nopython=True)
-@cc.export("calc_deg_lc", "i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i4)")
+@cc.export("calc_deg_lc", "i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i4, i2[:], i2[:])")
 def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
     """calculate land cover degradation"""
     shp = lc_bl.shape

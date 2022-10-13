@@ -96,6 +96,7 @@ class DegradationProgressSummaryParams(SchemaBase):
     model_band_number: int
     n_out_bands: int
     mask_file: str
+    nesting: land_cover.LCLegendNesting
 
 
 @dataclasses.dataclass()

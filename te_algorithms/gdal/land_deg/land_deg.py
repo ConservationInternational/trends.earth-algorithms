@@ -13,11 +13,12 @@ from typing import Tuple
 
 import numpy as np
 from osgeo import gdal
-from te_schemas import land_cover
 from te_schemas.aoi import AOI
 from te_schemas.datafile import combine_data_files
 from te_schemas.datafile import DataFile
 from te_schemas.jobs import Job
+from te_schemas.land_cover import LCLegendNesting
+from te_schemas.land_cover import LCTransitionDefinitionDeg
 from te_schemas.productivity import ProductivityMode
 from te_schemas.results import Band
 from te_schemas.results import DataType
@@ -31,9 +32,6 @@ from . import models
 from . import worker
 from .. import util
 from .. import workers
-from .. import xl
-from ... import __release_date__
-from ... import __version__
 from ..util_numba import bizonal_total
 from ..util_numba import zonal_total
 from ..util_numba import zonal_total_weighted
@@ -234,8 +232,11 @@ def summarise_land_degradation(
     period_vrts = []
 
     for period_name, period_params in ldn_job.params.items():
+        logger.debug("preparing land cover dfs")
         lc_dfs = _prepare_land_cover_dfs(period_params)
+        logger.debug("preparing soil organic carbon dfs")
         soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
+        logger.debug("preparing population dfs")
         population_dfs = _prepare_population_dfs(period_params)
         logger.debug("len(population_dfs) %s", len(population_dfs))
         logger.debug("population_dfs %s", population_dfs)
@@ -274,20 +275,23 @@ def summarise_land_degradation(
         nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
 
         if nesting:
+            # TODO: Below can likely be removed - nesting is now always included,
+            # even for local dat imports
+
             # Nesting is included only to ensure it goes into output, so if
             # missing (as it might be for local data), it will be set to None
-            nesting = land_cover.LCLegendNesting.Schema().loads(nesting)
+            nesting = LCLegendNesting.Schema().loads(nesting)
         summary_table_stable_kwargs[period_name] = {
             "aoi": aoi,
             "lc_legend_nesting": nesting,
-            "lc_trans_matrix": land_cover.LCTransitionDefinitionDeg.Schema().loads(
+            "lc_trans_matrix": LCTransitionDefinitionDeg.Schema().loads(
                 period_params["layer_lc_deg_band"]["metadata"]["trans_matrix"],
             ),
             # "soc_legend_nesting":
-            # land_cover.LCLegendNesting.Schema().loads(
+            # LCLegendNesting.Schema().loads(
             #     period_params["layer_soc_deg_band"]["metadata"]['nesting'], ),
             # "soc_trans_matrix":
-            # land_cover.LCTransitionDefinitionDeg.Schema().loads(
+            # LCTransitionDefinitionDeg.Schema().loads(
             #     period_params["layer_soc_deg_band"]["metadata"]
             #     ['trans_matrix'], ),
             "output_job_path": sub_job_output_path,
@@ -412,19 +416,35 @@ def summarise_land_degradation(
         util.combine_all_bands_into_vrt(period_vrts, temp_overall_vrt)
         temp_df = combine_data_files(temp_overall_vrt, period_dfs)
 
+        # Ensure the same lc legend and nesting are used for both the
+        # baseline and progress periods (at least in terms of codes and their
+        # nesting)
+        baseline_nesting = LCLegendNesting.Schema().loads(
+            ldn_job.params["baseline"]["layer_lc_deg_band"]["metadata"].get("nesting")
+        )
+        progress_nesting = LCLegendNesting.Schema().loads(
+            ldn_job.params["progress"]["layer_lc_deg_band"]["metadata"].get("nesting")
+        )
+        assert baseline_nesting.nesting == progress_nesting.nesting
+
+        logger.debug("Computing progress summary")
+
         progress_summary_table, progress_df = compute_progress_summary(
             temp_df,
             prod_mode,
             job_output_path,
             aoi,
+            traj.path,
             ldn_job.params["baseline"]["period"],
             ldn_job.params["progress"]["period"],
+            baseline_nesting,
         )
         period_vrts.append(progress_df.path)
         period_dfs.append(progress_df)
     else:
         progress_summary_table = None
 
+    logger.debug("Finalizing layers")
     overall_vrt_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
     util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
     out_df = combine_data_files(overall_vrt_path, period_dfs)
@@ -481,7 +501,6 @@ def _process_block_summary(
     # needed for transition calculations
     class_codes = sorted([c.code for c in params.nesting.child.key])
     class_positions = [*range(1, len(class_codes) + 1)]
-    class_recode = (class_codes, class_positions)
 
     lc_band_years = params.in_df.metadata_for_name(config.LC_BAND_NAME, "year")
     lc_bands = [
@@ -564,7 +583,8 @@ def _process_block_summary(
         in_array[lc_deg_initial_cover_row, :, :],
         in_array[lc_deg_final_cover_row, :, :],
         params.trans_matrix.legend.get_multiplier(),
-        class_recode,
+        class_codes,
+        class_positions,
     )
     lc_trans_arrays = [a_lc_trans_lc_deg]
     lc_trans_zonal_areas_periods = [lc_deg_band_period]
@@ -595,7 +615,8 @@ def _process_block_summary(
             in_array[prod_deg_initial_cover_row, :, :],
             in_array[prod_deg_final_cover_row, :, :],
             params.trans_matrix.legend.get_multiplier(),
-            class_recode,
+            class_codes,
+            class_positions,
         )
         lc_trans_arrays.append(a_lc_trans_prod_deg)
         lc_trans_zonal_areas_periods.append(prod_deg_band_period)
@@ -624,7 +645,6 @@ def _process_block_summary(
             in_array[soc_deg_initial_cover_row, :, :],
             in_array[soc_deg_final_cover_row, :, :],
             params.trans_matrix.legend.get_multiplier(),
-            class_recode=None,
         )
         lc_trans_arrays.append(a_lc_trans_soc_deg)
         lc_trans_zonal_areas_periods.append(soc_deg_band_period)
@@ -727,8 +747,10 @@ def _process_block_summary(
 
     ################
     # Calculate SDG
-    # Derive a water mask from last lc year
-    water = in_array[lc_deg_initial_cover_row, :, :] == 7
+
+    # Derive a water mask from last lc year - handling fact that there could be
+    # multiple water codes if this is a custom legend. 7 is the IPCC water code.
+    water = np.isin(in_array[lc_deg_initial_cover_row, :, :], params.nesting.nesting[7])
     water = water.astype(bool, copy=False)
 
     deg_soc = in_array[params.in_df.index_for_name(config.SOC_DEG_BAND_NAME), :, :]
@@ -932,8 +954,8 @@ class SummarizeTileInputs:
     wkt_aoi: str
     in_dfs: List[DataFile]
     prod_mode: str
-    lc_legend_nesting: land_cover.LCLegendNesting
-    lc_trans_matrix: land_cover.LCTransitionDefinitionDeg
+    lc_legend_nesting: LCLegendNesting
+    lc_trans_matrix: LCTransitionDefinitionDeg
     period_name: str
     periods: dict
     mask_worker_function: Callable = None
@@ -1079,8 +1101,8 @@ def _process_region(
     in_dfs: List[DataFile],
     output_layers_path: Path,
     prod_mode: str,
-    lc_legend_nesting: land_cover.LCLegendNesting,
-    lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
+    lc_legend_nesting: LCLegendNesting,
+    lc_trans_matrix: LCTransitionDefinitionDeg,
     period_name: str,
     periods: dict,
     n_cpus: int,
@@ -1160,8 +1182,8 @@ def _compute_ld_summary_table(
     compute_bbs_from,
     prod_mode,
     output_job_path: Path,
-    lc_legend_nesting: land_cover.LCLegendNesting,
-    lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
+    lc_legend_nesting: LCLegendNesting,
+    lc_trans_matrix: LCTransitionDefinitionDeg,
     period_name: str,
     periods: dict,
     n_cpus: int,
