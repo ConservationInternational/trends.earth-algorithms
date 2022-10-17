@@ -13,8 +13,6 @@ from te_schemas.aoi import AOI
 
 from . import config
 from . import models
-from .. import util
-from .. import workers
 from .. import xl
 from ... import __release_date__
 from ... import __version__
