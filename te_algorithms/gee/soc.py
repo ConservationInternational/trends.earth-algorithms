@@ -6,7 +6,7 @@ import ee
 from te_schemas.schemas import BandInfo
 
 from .util import TEImage
-from ..util import trans_factors_for_custom_legend
+from ..gdal.util import trans_factors_for_custom_legend
 
 
 def soc(
