@@ -616,6 +616,10 @@ def _write_soc_sheet(
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 
+def write_crosstab_by_lc(sheet, array, ul_row, ul_col, headers=True, totals=False):
+    pass
+
+
 def _write_land_cover_sheet(
     sheet,
     st: models.SummaryTableLD,

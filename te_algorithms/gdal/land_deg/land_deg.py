@@ -10,13 +10,12 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
+from typing import TYPE_CHECKING
 
 import numpy as np
 from osgeo import gdal
-from te_schemas.aoi import AOI
 from te_schemas.datafile import combine_data_files
 from te_schemas.datafile import DataFile
-from te_schemas.jobs import Job
 from te_schemas.land_cover import LCLegendNesting
 from te_schemas.land_cover import LCTransitionDefinitionDeg
 from te_schemas.productivity import ProductivityMode
@@ -46,6 +45,10 @@ from .land_deg_numba import recode_traj
 from .land_deg_progress import compute_progress_summary
 from .land_deg_report import save_reporting_json
 from .land_deg_report import save_summary_table_excel
+
+if TYPE_CHECKING:
+    from te_schemas.aoi import AOI
+    from te_schemas.jobs import Job
 
 logger = logging.getLogger(__name__)
 
@@ -217,11 +220,11 @@ def _prepare_precalculated_lpd_df(params: Dict) -> DataFile:
 
 
 def summarise_land_degradation(
-    ldn_job: Job,
-    aoi: AOI,
+    ldn_job: "Job",
+    aoi: "AOI",
     job_output_path: Path,
     n_cpus: int = multiprocessing.cpu_count() - 1,
-) -> Job:
+) -> "Job":
     """Calculate final SDG 15.3.1 indicator and save to disk"""
     logger.debug("at top of compute_ldn")
 
@@ -394,16 +397,18 @@ def summarise_land_degradation(
         summary_table_output_path = (
             sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
         )
-        # save_summary_table_excel(
-        #     summary_table_output_path,
-        #     summary_table,
-        #     period_params["periods"],
-        #     period_params["layer_lc_years"],
-        #     period_params["layer_soc_years"],
-        #     summary_table_stable_kwargs[period_name]["lc_legend_nesting"],
-        #     summary_table_stable_kwargs[period_name]["lc_trans_matrix"],
-        #     period_name,
-        # )
+        # TODO: fix below so that it works on arbitrary legends
+        if len(nesting.child.key) == 7:
+            save_summary_table_excel(
+                summary_table_output_path,
+                summary_table,
+                period_params["periods"],
+                period_params["layer_lc_years"],
+                period_params["layer_soc_years"],
+                summary_table_stable_kwargs[period_name]["lc_legend_nesting"],
+                summary_table_stable_kwargs[period_name]["lc_trans_matrix"],
+                period_name,
+            )
 
     if len(ldn_job.params.items()) == 2:
         # Make temporary combined VRT and DataFile just for the progress
