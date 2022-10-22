@@ -3,19 +3,23 @@ import json
 import logging
 from pathlib import Path
 from typing import List
+from typing import TYPE_CHECKING
 
 import numpy as np
-import openpyxl
+from openpyxl import load_workbook
+from openpyxl.utils.cell import get_column_letter
 from te_schemas import land_cover
 from te_schemas import reporting
 from te_schemas import schemas
-from te_schemas.aoi import AOI
 
 from . import config
 from . import models
 from .. import xl
 from ... import __release_date__
 from ... import __version__
+
+if TYPE_CHECKING:
+    from te_schemas.aoi import AOI
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,7 @@ def save_summary_table_excel(
     template_summary_table_path = (
         Path(__file__).parents[2] / "data/summary_table_ld_sdg.xlsx"
     )
-    workbook = openpyxl.load_workbook(str(template_summary_table_path))
+    workbook = load_workbook(str(template_summary_table_path))
     _render_ld_workbook(
         workbook,
         summary_table,
@@ -79,7 +83,7 @@ def save_reporting_json(
     summary_table_progress: models.SummaryTableLDProgress,
     params: dict,
     task_name: str,
-    aoi: AOI,
+    aoi: "AOI",
     summary_table_kwargs: dict,
 ):
 
@@ -522,32 +526,58 @@ def _write_productivity_sheet(
     xl.write_col_to_sheet(
         sheet, _get_summary_array(st.prod_summary["all_cover_types"]), 6, 6
     )
+    classes = [c.get_name() for c in lc_trans_matrix.legend.key]
 
     if len([*st.lc_trans_prod_bizonal.keys()]) > 0:
         # If no land cover data was available for first year of productivity
         # data, then won't be able to output these tables
-        xl.write_table_to_sheet(
-            sheet, _get_prod_table(st.lc_trans_prod_bizonal, 5, lc_trans_matrix), 16, 3
+        if len(classes) > 7:
+            new_rows_per_table = len(classes) - 7
+        else:
+            new_rows_per_table = 0
+        write_crosstab_by_lc(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 5, lc_trans_matrix),
+            classes,
+            15,
+            2,
         )
-        xl.write_table_to_sheet(
-            sheet, _get_prod_table(st.lc_trans_prod_bizonal, 4, lc_trans_matrix), 28, 3
+        write_crosstab_by_lc(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 4, lc_trans_matrix),
+            classes,
+            27 + new_rows_per_table,
+            2,
         )
-        xl.write_table_to_sheet(
-            sheet, _get_prod_table(st.lc_trans_prod_bizonal, 3, lc_trans_matrix), 40, 3
+        write_crosstab_by_lc(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 3, lc_trans_matrix),
+            classes,
+            39 + new_rows_per_table * 2,
+            2,
         )
-        xl.write_table_to_sheet(
-            sheet, _get_prod_table(st.lc_trans_prod_bizonal, 2, lc_trans_matrix), 52, 3
+        write_crosstab_by_lc(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 2, lc_trans_matrix),
+            classes,
+            51 + new_rows_per_table * 3,
+            2,
         )
-        xl.write_table_to_sheet(
-            sheet, _get_prod_table(st.lc_trans_prod_bizonal, 1, lc_trans_matrix), 64, 3
+        write_crosstab_by_lc(
+            sheet,
+            _get_prod_table(st.lc_trans_prod_bizonal, 1, lc_trans_matrix),
+            classes,
+            63 + new_rows_per_table * 4,
+            2,
         )
-        xl.write_table_to_sheet(
+        write_crosstab_by_lc(
             sheet,
             _get_prod_table(
                 st.lc_trans_prod_bizonal, config.NODATA_VALUE, lc_trans_matrix
             ),
-            76,
-            3,
+            classes,
+            75 + new_rows_per_table * 5,
+            2,
         )
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
@@ -557,6 +587,17 @@ def _write_soc_sheet(
     st: models.SummaryTableLD,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
 ):
+    excluded_codes = [7]
+
+    classes = [
+        c.get_name() for c in lc_trans_matrix.legend.key if c.code not in excluded_codes
+    ]
+
+    if len(classes) > 6:
+        # SOC stock change table by default only has room for 6 classes. So need to
+        # add more columns/rows if there are more than 6 land cover classes
+        sheet.insert_rows(16 + 1, len(classes) - 6)
+
     xl.write_col_to_sheet(
         sheet, _get_summary_array(st.soc_summary["all_cover_types"]), 6, 6
     )
@@ -569,7 +610,7 @@ def _write_soc_sheet(
             _get_totals_by_lc_class_as_array(
                 st.soc_by_lc_annual_totals[0],
                 lc_trans_matrix,
-                excluded_codes=[6],  # exclude water
+                excluded_codes=excluded_codes,
             ),
             7,
             16,
@@ -580,7 +621,7 @@ def _write_soc_sheet(
             _get_totals_by_lc_class_as_array(
                 st.soc_by_lc_annual_totals[-1],
                 lc_trans_matrix,
-                excluded_codes=[6],  # exclude water
+                excluded_codes=excluded_codes,
             ),
             8,
             16,
@@ -589,14 +630,12 @@ def _write_soc_sheet(
     if st.lc_annual_totals != []:
         # Write table of baseline areas
         lc_bl_no_water = _get_totals_by_lc_class_as_array(
-            st.lc_annual_totals[0], lc_trans_matrix, excluded_codes=[6]  # exclude water
+            st.lc_annual_totals[0], lc_trans_matrix, excluded_codes=excluded_codes
         )
         xl.write_col_to_sheet(sheet, lc_bl_no_water, 5, 16)
         # Write table of final year areas
         lc_final_no_water = _get_totals_by_lc_class_as_array(
-            st.lc_annual_totals[-1],
-            lc_trans_matrix,
-            excluded_codes=[6],  # exclude water
+            st.lc_annual_totals[-1], lc_trans_matrix, excluded_codes=excluded_codes
         )
         xl.write_col_to_sheet(sheet, lc_final_no_water, 6, 16)
 
@@ -611,13 +650,50 @@ def _write_soc_sheet(
             st.lc_trans_zonal_soc_initial,
             st.lc_trans_zonal_soc_final,
             lc_trans_matrix,
-            excluded_codes=[6],  # exclude water
+            excluded_codes=excluded_codes,
         )
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 
-def write_crosstab_by_lc(sheet, array, ul_row, ul_col, headers=True, totals=False):
-    pass
+def write_crosstab_by_lc(
+    sheet, array, classes, ul_row, ul_col, headers=True, totals=True
+):
+
+    assert (len(classes) == array.shape[0]) and (len(classes) == array.shape[1])
+
+    if len(classes) > 7:
+        # Land cover tables by default only have room for 7 classes. So need to
+        # add more columns/rows if there are more than 7 land cover classes
+        sheet.insert_cols(ul_col + 1, len(classes) - 7)
+        sheet.insert_rows(ul_row + 1, len(classes) - 7)
+
+    if headers:
+        xl.write_col_to_sheet(sheet, classes, ul_col, ul_row + 1)
+        xl.write_row_to_sheet(sheet, classes, ul_row, ul_col + 1)
+
+    if totals:
+        first_data_col_letter = get_column_letter(ul_col + 1)
+        last_data_col_letter = get_column_letter(ul_col + len(classes))
+        for n in range(len(classes)):
+            # Write row total
+            row_total_cell = sheet.cell(
+                row=ul_row + 1 + n, column=ul_col + 1 + len(classes)
+            )
+            row_total_cell.value = f"=sum({first_data_col_letter}{ul_row + 1 + n}:{last_data_col_letter}{ul_row + 1 + n})"
+            # Write colum total
+            col_total_cell = sheet.cell(
+                row=ul_row + 1 + len(classes), column=ul_col + 1 + n
+            )
+            this_col_letter = get_column_letter(ul_col + 1 + n)
+            col_total_cell.value = f"=sum({this_col_letter}{ul_row + 1}:{this_col_letter}{ul_row + len(classes)})"
+
+        # Add bottom right corner total
+        far_right_cell = sheet.cell(
+            row=ul_row + len(classes), column=ul_col + len(classes)
+        )
+        far_right_cell.value = f"=sum({first_data_col_letter}{ul_row + len(classes)}:{last_data_col_letter}{ul_row + len(classes)})"
+
+    xl.write_table_to_sheet(sheet, array, ul_row + 1, ul_col + 1)
 
 
 def _write_land_cover_sheet(
@@ -632,9 +708,17 @@ def _write_land_cover_sheet(
         if p == period
     ][0]
 
+    classes = [c.get_name() for c in lc_trans_matrix.legend.key]
+    if len(classes) > 7:
+        sheet.insert_rows(14 + 1, len(classes) - 7)
+
     xl.write_col_to_sheet(sheet, _get_summary_array(st.lc_summary), 6, 6)
-    xl.write_table_to_sheet(
-        sheet, _get_lc_trans_table(lc_trans_zonal_areas, lc_trans_matrix), 26, 3
+    write_crosstab_by_lc(
+        sheet,
+        _get_lc_trans_table(lc_trans_zonal_areas, lc_trans_matrix),
+        classes,
+        25,
+        2,
     )
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
@@ -680,6 +764,16 @@ def _write_soc_stock_change_table(
     lc_trans_matrix,
     excluded_codes=[],  # to exclude water
 ):
+    classes = [
+        c.get_name() for c in lc_trans_matrix.legend.key if c.code not in excluded_codes
+    ]
+
+    if len(classes) > 6:
+        # SOC stock change table by default only has room for 6 classes. So need to
+        # add more columns/rows if there are more than 6 land cover classes
+        sheet.insert_cols(first_col + 1, len(classes) - 6)
+        sheet.insert_rows(first_row + 1, len(classes) - 6)
+
     lc_codes = sorted(
         [c.code for c in lc_trans_matrix.legend.key if c.code not in excluded_codes]
     )
