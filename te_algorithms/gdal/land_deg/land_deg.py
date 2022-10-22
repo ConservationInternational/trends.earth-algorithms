@@ -279,7 +279,7 @@ def summarise_land_degradation(
 
         if nesting:
             # TODO: Below can likely be removed - nesting is now always included,
-            # even for local dat imports
+            # even for local data imports
 
             # Nesting is included only to ensure it goes into output, so if
             # missing (as it might be for local data), it will be set to None
@@ -305,11 +305,12 @@ def summarise_land_degradation(
 
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
+            compute_bbs_from = traj.path
             in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
             summary_table, output_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
                 prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
-                compute_bbs_from=traj.path,
+                compute_bbs_from=compute_bbs_from,
                 **summary_table_stable_kwargs[period_name],
             )
         elif prod_mode in (
@@ -317,11 +318,12 @@ def summarise_land_degradation(
             ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
         ):
             lpd_df = _prepare_precalculated_lpd_df(period_params)
+            compute_bbs_from = lpd_df.path
             in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
             summary_table, output_path, reproj_path = _compute_ld_summary_table(
                 in_dfs=in_dfs,
                 prod_mode=prod_mode,
-                compute_bbs_from=lpd_df.path,
+                compute_bbs_from=compute_bbs_from,
                 **summary_table_stable_kwargs[period_name],
             )
         else:
@@ -439,7 +441,7 @@ def summarise_land_degradation(
             prod_mode,
             job_output_path,
             aoi,
-            traj.path,
+            compute_bbs_from,
             ldn_job.params["baseline"]["period"],
             ldn_job.params["progress"]["period"],
             baseline_nesting,
