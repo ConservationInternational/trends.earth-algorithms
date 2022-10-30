@@ -399,18 +399,16 @@ def summarise_land_degradation(
         summary_table_output_path = (
             sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
         )
-        # TODO: fix below so that it works on arbitrary legends
-        if len(nesting.child.key) == 7:
-            save_summary_table_excel(
-                summary_table_output_path,
-                summary_table,
-                period_params["periods"],
-                period_params["layer_lc_years"],
-                period_params["layer_soc_years"],
-                summary_table_stable_kwargs[period_name]["lc_legend_nesting"],
-                summary_table_stable_kwargs[period_name]["lc_trans_matrix"],
-                period_name,
-            )
+        save_summary_table_excel(
+            summary_table_output_path,
+            summary_table,
+            period_params["periods"],
+            period_params["layer_lc_years"],
+            period_params["layer_soc_years"],
+            summary_table_stable_kwargs[period_name]["lc_legend_nesting"],
+            summary_table_stable_kwargs[period_name]["lc_trans_matrix"],
+            period_name,
+        )
 
     if len(ldn_job.params.items()) == 2:
         # Make temporary combined VRT and DataFile just for the progress

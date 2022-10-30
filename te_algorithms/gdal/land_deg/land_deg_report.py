@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment
+from openpyxl.styles import Font
+from openpyxl.styles import numbers
 from openpyxl.utils.cell import get_column_letter
 from te_schemas import land_cover
 from te_schemas import reporting
@@ -528,47 +531,52 @@ def _write_productivity_sheet(
     )
     classes = [c.get_name() for c in lc_trans_matrix.legend.key]
 
+    if len(classes) > 7:
+        # Land cover tables by default only have room for 7 classes. So need to
+        # add more columns/rows if there are more than 7 land cover classes
+        sheet.insert_cols(7, len(classes) - 7)
+
     if len([*st.lc_trans_prod_bizonal.keys()]) > 0:
         # If no land cover data was available for first year of productivity
         # data, then won't be able to output these tables
         if len(classes) > 7:
-            new_rows_per_table = len(classes) - 7
+            n_new_rows_per_table = len(classes) - 7
         else:
-            new_rows_per_table = 0
+            n_new_rows_per_table = 0
         write_crosstab_by_lc(
             sheet,
             _get_prod_table(st.lc_trans_prod_bizonal, 5, lc_trans_matrix),
             classes,
-            15,
-            2,
+            13,
+            1,
         )
         write_crosstab_by_lc(
             sheet,
             _get_prod_table(st.lc_trans_prod_bizonal, 4, lc_trans_matrix),
             classes,
-            27 + new_rows_per_table,
-            2,
+            25 + n_new_rows_per_table,
+            1,
         )
         write_crosstab_by_lc(
             sheet,
             _get_prod_table(st.lc_trans_prod_bizonal, 3, lc_trans_matrix),
             classes,
-            39 + new_rows_per_table * 2,
-            2,
+            37 + n_new_rows_per_table * 2,
+            1,
         )
         write_crosstab_by_lc(
             sheet,
             _get_prod_table(st.lc_trans_prod_bizonal, 2, lc_trans_matrix),
             classes,
-            51 + new_rows_per_table * 3,
-            2,
+            49 + n_new_rows_per_table * 3,
+            1,
         )
         write_crosstab_by_lc(
             sheet,
             _get_prod_table(st.lc_trans_prod_bizonal, 1, lc_trans_matrix),
             classes,
-            63 + new_rows_per_table * 4,
-            2,
+            61 + n_new_rows_per_table * 4,
+            1,
         )
         write_crosstab_by_lc(
             sheet,
@@ -576,10 +584,18 @@ def _write_productivity_sheet(
                 st.lc_trans_prod_bizonal, config.NODATA_VALUE, lc_trans_matrix
             ),
             classes,
-            75 + new_rows_per_table * 5,
-            2,
+            73 + n_new_rows_per_table * 5,
+            1,
         )
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
+
+
+def _add_header_cell(sheet, row, col, value):
+    cell = sheet.cell(row=row, column=col)
+    cell.value = value
+    cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    cell.border = xl.thin_border
+    cell.font = Font(bold=True)
 
 
 def _write_soc_sheet(
@@ -597,13 +613,24 @@ def _write_soc_sheet(
         # SOC stock change table by default only has room for 6 classes. So need to
         # add more columns/rows if there are more than 6 land cover classes
         sheet.insert_rows(16 + 1, len(classes) - 6)
+        n_new_rows_per_table = len(classes) - 6
+    else:
+        n_new_rows_per_table = 0
 
     xl.write_col_to_sheet(
         sheet, _get_summary_array(st.soc_summary["all_cover_types"]), 6, 6
     )
 
-    # First write baseline
+    if len(classes) > 6:
+        # SOC stock change by land cover table by default only has room for 6
+        # classes. So need to add more columns if there are more than 6 land
+        # cover classes. More rows will be added in the setup_crosstab_by_lc
+        # function. Add the extra columns now so that the tables at the top of
+        # the sheet don't get messed up.
+        sheet.insert_cols(8, len(classes) - 6)
 
+    first_data_row = 16
+    last_data_row = first_data_row + len(classes) - 1
     if st.soc_by_lc_annual_totals != []:
         xl.write_col_to_sheet(
             sheet,
@@ -613,7 +640,9 @@ def _write_soc_sheet(
                 excluded_codes=excluded_codes,
             ),
             7,
-            16,
+            first_data_row,
+            border=True,
+            number_format="#,##0",
         )
         # Now write target
         xl.write_col_to_sheet(
@@ -624,29 +653,110 @@ def _write_soc_sheet(
                 excluded_codes=excluded_codes,
             ),
             8,
-            16,
+            first_data_row,
+            border=True,
+            number_format="#,##0",
         )
+    _add_header_cell(sheet, first_data_row - 1, 8, "Final soil organic carbon (tonnes)")
+    final_soc_total_cell = sheet.cell(row=last_data_row + 1, column=8)
+    final_soc_total_cell.value = (
+        f"=sum({get_column_letter(8)}{first_data_row}"
+        + f":{get_column_letter(8)}{last_data_row})"
+    )
+    final_soc_total_cell.font = Font(italic=True)
+    final_soc_total_cell.alignment = Alignment(horizontal="center")
+
+    xl.write_col_to_sheet(
+        sheet, classes, 2, first_data_row, header=True, border=True, wrap=True
+    )
 
     if st.lc_annual_totals != []:
         # Write table of baseline areas
         lc_bl_no_water = _get_totals_by_lc_class_as_array(
             st.lc_annual_totals[0], lc_trans_matrix, excluded_codes=excluded_codes
         )
-        xl.write_col_to_sheet(sheet, lc_bl_no_water, 5, 16)
+        xl.write_col_to_sheet(
+            sheet, lc_bl_no_water, 5, 16, border=True, number_format="#,##0"
+        )
         # Write table of final year areas
         lc_final_no_water = _get_totals_by_lc_class_as_array(
             st.lc_annual_totals[-1], lc_trans_matrix, excluded_codes=excluded_codes
         )
-        xl.write_col_to_sheet(sheet, lc_final_no_water, 6, 16)
+        xl.write_col_to_sheet(
+            sheet, lc_final_no_water, 6, 16, border=True, number_format="#,##0"
+        )
 
+    # Add initial/final SOC in tonnes/ha
+    for row in sheet.iter_rows(
+        min_row=first_data_row, max_row=last_data_row, min_col=3, max_col=4
+    ):
+        for cell in row:
+            cell.value = (
+                f"={cell.offset(column=4).column_letter}{cell.row}/"
+                + f"({cell.offset(column=2).column_letter}{cell.row}*100)"
+            )
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = xl.thin_border
+            cell.number_format = "#,##0.00"
+
+    # Merge table header for SOC change table
+    sheet.merge_cells(
+        start_row=first_data_row - 3,
+        start_column=1,
+        end_row=first_data_row - 3,
+        end_column=11,
+    )
+
+    # Add SOC change in tonnes
+    _add_header_cell(
+        sheet, first_data_row - 1, 9, "Change in soil organic carbon (tonnes)"
+    )
+    for row in sheet.iter_rows(
+        min_row=first_data_row, max_row=last_data_row, min_col=9, max_col=9
+    ):
+        for cell in row:
+            cell.value = (
+                f"={cell.offset(column=-1).column_letter}{cell.row} -"
+                + f"{cell.offset(column=-2).column_letter}{cell.row}"
+            )
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = xl.thin_border
+            cell.number_format = "#,##0.00"
+    soc_change_total_cell = sheet.cell(row=last_data_row + 1, column=9)
+    soc_change_total_cell.value = (
+        f"=sum({get_column_letter(9)}{first_data_row}"
+        + f":{get_column_letter(9)}{last_data_row})"
+    )
+    soc_change_total_cell.font = Font(italic=True)
+    soc_change_total_cell.alignment = Alignment(horizontal="center")
+
+    # Add SOC change in percent
+    _add_header_cell(
+        sheet, first_data_row - 1, 10, "Change in soil organic carbon (percent)"
+    )
+    for row in sheet.iter_rows(
+        min_row=first_data_row, max_row=last_data_row, min_col=10, max_col=10
+    ):
+        for cell in row:
+            cell.value = (
+                f"={cell.offset(column=-1).column_letter}{cell.row} /"
+                + f"{cell.offset(column=-3).column_letter}{cell.row}"
+            )
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = xl.thin_border
+            cell.number_format = numbers.FORMAT_PERCENTAGE
+
+    setup_crosstab_by_lc(
+        sheet, classes, 24 + n_new_rows_per_table, 1, n_classes_in_template=6
+    )
     if st.lc_trans_zonal_soc_initial != {} and st.lc_trans_zonal_soc_final != {}:
         # write_soc_stock_change_table has its own writing function as it needs
         # to write a
         # mix of numbers and strings
         _write_soc_stock_change_table(
             sheet,
-            27,
-            3,
+            24 + n_new_rows_per_table,
+            1,
             st.lc_trans_zonal_soc_initial,
             st.lc_trans_zonal_soc_final,
             lc_trans_matrix,
@@ -654,46 +764,93 @@ def _write_soc_sheet(
         )
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
+    # Merge note row at end of table
+    note_row = 34 + n_new_rows_per_table * 2
+    sheet.merge_cells(
+        start_row=note_row, start_column=1, end_row=note_row, end_column=10
+    )
+
 
 def write_crosstab_by_lc(
-    sheet, array, classes, ul_row, ul_col, headers=True, totals=True
+    sheet,
+    array,
+    classes,
+    ul_row,
+    ul_col,
 ):
+    setup_crosstab_by_lc(sheet, classes, ul_row, ul_col)
 
-    assert (len(classes) == array.shape[0]) and (len(classes) == array.shape[1])
+    xl.write_table_to_sheet(sheet, array, ul_row + 3, ul_col + 2)
 
-    if len(classes) > 7:
-        # Land cover tables by default only have room for 7 classes. So need to
-        # add more columns/rows if there are more than 7 land cover classes
-        sheet.insert_cols(ul_col + 1, len(classes) - 7)
-        sheet.insert_rows(ul_row + 1, len(classes) - 7)
 
-    if headers:
-        xl.write_col_to_sheet(sheet, classes, ul_col, ul_row + 1)
-        xl.write_row_to_sheet(sheet, classes, ul_row, ul_col + 1)
-
-    if totals:
-        first_data_col_letter = get_column_letter(ul_col + 1)
-        last_data_col_letter = get_column_letter(ul_col + len(classes))
-        for n in range(len(classes)):
-            # Write row total
-            row_total_cell = sheet.cell(
-                row=ul_row + 1 + n, column=ul_col + 1 + len(classes)
-            )
-            row_total_cell.value = f"=sum({first_data_col_letter}{ul_row + 1 + n}:{last_data_col_letter}{ul_row + 1 + n})"
-            # Write colum total
-            col_total_cell = sheet.cell(
-                row=ul_row + 1 + len(classes), column=ul_col + 1 + n
-            )
-            this_col_letter = get_column_letter(ul_col + 1 + n)
-            col_total_cell.value = f"=sum({this_col_letter}{ul_row + 1}:{this_col_letter}{ul_row + len(classes)})"
-
-        # Add bottom right corner total
-        far_right_cell = sheet.cell(
-            row=ul_row + len(classes), column=ul_col + len(classes)
+def setup_crosstab_by_lc(sheet, classes, ul_row, ul_col, n_classes_in_template=7):
+    if len(classes) > n_classes_in_template:
+        # Tables in the excel sheet by default only have room for a certain
+        # number of classes. So need to add more columns/rows if there are more
+        # than n_classes_in_template land cover classes. Insert
+        # them starting from the second to last row of the table.
+        sheet.insert_rows(
+            ul_row + n_classes_in_template, len(classes) - n_classes_in_template
         )
-        far_right_cell.value = f"=sum({first_data_col_letter}{ul_row + len(classes)}:{last_data_col_letter}{ul_row + len(classes)})"
 
-    xl.write_table_to_sheet(sheet, array, ul_row + 1, ul_col + 1)
+    # Write headers
+    xl.write_col_to_sheet(
+        sheet, classes, ul_col + 1, ul_row + 3, header=True, wrap=True
+    )
+    xl.write_row_to_sheet(
+        sheet, classes, ul_row + 2, ul_col + 2, header=True, wrap=True
+    )
+
+    # Write totals
+    first_data_col = ul_col + 2
+    last_data_col = first_data_col + len(classes) - 1
+    first_data_col_letter = get_column_letter(first_data_col)
+    last_data_col_letter = get_column_letter(last_data_col)
+    first_data_row = ul_row + 3
+    last_data_row = first_data_row + len(classes) - 1
+    for n in range(len(classes)):
+        # Write row total
+        row_total_cell = sheet.cell(row=first_data_row + n, column=last_data_col + 1)
+        row_total_cell.value = (
+            f"=sum({first_data_col_letter}{first_data_row + n}"
+            + f":{last_data_col_letter}{first_data_row + n})"
+        )
+        row_total_cell.font = Font(italic=True)
+        row_total_cell.alignment = Alignment(horizontal="center")
+        # Write colum total
+        col_total_cell = sheet.cell(row=last_data_row + 1, column=first_data_col + n)
+        col_total_cell.value = (
+            f"=sum({get_column_letter(first_data_col + n)}{first_data_row}"
+            + f":{get_column_letter(first_data_col + n)}{last_data_row})"
+        )
+        col_total_cell.font = Font(italic=True)
+        col_total_cell.alignment = Alignment(horizontal="center")
+
+    # Add bottom right corner total
+    far_right_cell = sheet.cell(row=last_data_row + 1, column=last_data_col + 1)
+    far_right_cell.value = (
+        f"=sum({first_data_col_letter}{last_data_row + 1}"
+        + ":{last_data_col_letter}{last_data_row + 1})"
+    )
+    far_right_cell.font = Font(italic=True, bold=True)
+
+    # Merge main header
+    sheet.merge_cells(
+        start_row=ul_row, start_column=1, end_row=ul_row, end_column=last_data_col + 1
+    )
+    # Merge table row/column headers
+    sheet.merge_cells(
+        start_row=ul_row + 1,
+        start_column=first_data_col,
+        end_row=ul_row + 1,
+        end_column=last_data_col,
+    )
+    sheet.merge_cells(
+        start_row=first_data_row,
+        start_column=ul_col,
+        end_row=last_data_row,
+        end_column=ul_col,
+    )
 
 
 def _write_land_cover_sheet(
@@ -710,15 +867,18 @@ def _write_land_cover_sheet(
 
     classes = [c.get_name() for c in lc_trans_matrix.legend.key]
     if len(classes) > 7:
-        sheet.insert_rows(14 + 1, len(classes) - 7)
+        sheet.insert_rows(19 + 1, len(classes) - 7)
+        n_new_rows_per_table = len(classes) - 7
+    else:
+        n_new_rows_per_table = 0
 
     xl.write_col_to_sheet(sheet, _get_summary_array(st.lc_summary), 6, 6)
     write_crosstab_by_lc(
         sheet,
         _get_lc_trans_table(lc_trans_zonal_areas, lc_trans_matrix),
         classes,
-        25,
-        2,
+        23 + n_new_rows_per_table,
+        1,
     )
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
@@ -757,22 +917,15 @@ def _get_totals_by_lc_class_as_array(
 
 def _write_soc_stock_change_table(
     sheet,
-    first_row,
-    first_col,
+    ul_row,
+    ul_col,
     soc_bl_totals,
     soc_final_totals,
     lc_trans_matrix,
     excluded_codes=[],  # to exclude water
 ):
-    classes = [
-        c.get_name() for c in lc_trans_matrix.legend.key if c.code not in excluded_codes
-    ]
-
-    if len(classes) > 6:
-        # SOC stock change table by default only has room for 6 classes. So need to
-        # add more columns/rows if there are more than 6 land cover classes
-        sheet.insert_cols(first_col + 1, len(classes) - 6)
-        sheet.insert_rows(first_row + 1, len(classes) - 6)
+    first_row = ul_row + 3
+    first_col = ul_col + 2
 
     lc_codes = sorted(
         [c.code for c in lc_trans_matrix.legend.key if c.code not in excluded_codes]
@@ -784,8 +937,11 @@ def _write_soc_stock_change_table(
             transition = i_code * lc_trans_matrix.legend.get_multiplier() + f_code
             bl_soc = soc_bl_totals.get(transition, 0.0)
             final_soc = soc_final_totals.get(transition, 0.0)
+            cell.border = xl.thin_border
+            cell.alignment = Alignment(horizontal="center")
             try:
                 cell.value = (final_soc - bl_soc) / bl_soc
+                cell.number_format = "#,##0.00"
             except ZeroDivisionError:
                 cell.value = ""
 
