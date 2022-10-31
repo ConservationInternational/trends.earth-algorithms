@@ -658,15 +658,6 @@ def _write_soc_sheet(
             border=True,
             number_format="#,##0",
         )
-    _add_header_cell(sheet, first_data_row - 1, 8, "Final soil organic carbon (tonnes)")
-    final_soc_total_cell = sheet.cell(row=last_data_row + 1, column=8)
-    final_soc_total_cell.value = (
-        f"=sum({get_column_letter(8)}{first_data_row}"
-        + f":{get_column_letter(8)}{last_data_row})"
-    )
-    final_soc_total_cell.font = Font(italic=True)
-    final_soc_total_cell.alignment = Alignment(horizontal="center")
-    final_soc_total_cell.number_format = "#,##0.00"
 
     xl.write_col_to_sheet(
         sheet, classes, 2, first_data_row, header=True, border=True, wrap=True
@@ -710,6 +701,7 @@ def _write_soc_sheet(
     )
 
     # Add SOC change in tonnes
+    _add_header_cell(sheet, first_data_row - 1, 8, "Final soil organic carbon (tonnes)")
     _add_header_cell(
         sheet, first_data_row - 1, 9, "Change in soil organic carbon (tonnes)"
     )
@@ -724,14 +716,18 @@ def _write_soc_sheet(
             cell.alignment = Alignment(horizontal="center")
             cell.border = xl.thin_border
             cell.number_format = "#,##0.00"
-    soc_change_total_cell = sheet.cell(row=last_data_row + 1, column=9)
-    soc_change_total_cell.value = (
-        f"=sum({get_column_letter(9)}{first_data_row}"
-        + f":{get_column_letter(9)}{last_data_row})"
-    )
-    soc_change_total_cell.font = Font(italic=True)
-    soc_change_total_cell.alignment = Alignment(horizontal="center")
-    soc_change_total_cell.number_format = "#,##0.00"
+
+    for row in sheet.iter_rows(
+        min_row=last_data_row + 1, max_row=last_data_row + 1, min_col=5, max_col=9
+    ):
+        for cell in row:
+            cell.value = (
+                f"=sum({cell.column_letter}{first_data_row}"
+                + f":{cell.column_letter}{last_data_row})"
+            )
+            cell.font = Font(italic=True)
+            cell.alignment = Alignment(horizontal="center")
+            cell.number_format = "#,##0.00"
 
     # Add SOC change in percent
     _add_header_cell(
@@ -980,9 +976,10 @@ def _get_totals_by_lc_class_as_array(
     lc_trans_matrix,
     excluded_codes=[],  # to exclude water when used on SOC table
 ):
-    lc_codes = sorted(
-        [c.code for c in lc_trans_matrix.legend.key if c.code not in excluded_codes]
-    )
+    lc_codes = [
+        lc_trans_matrix.legend.class_index(c)
+        for c in sorted(lc_trans_matrix.legend.key, key=lambda i: i.code)
+    ]
 
     return np.array([annual_totals.get(lc_code, 0.0) for lc_code in lc_codes])
 
