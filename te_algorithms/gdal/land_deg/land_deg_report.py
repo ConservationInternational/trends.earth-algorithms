@@ -274,8 +274,6 @@ def save_reporting_json(
         # SOC by transition type (initial and final stock for each transition
         # type)
         soc_by_transition = []
-        # Note that the last element is skipped, as it is water, and don't want
-        # to count water in SOC totals
 
         # TODO: Right now the below is produced even if the initial and final years of
         # the SOC data don't match those of the LC data. Does this make sense? That
@@ -606,7 +604,9 @@ def _write_soc_sheet(
     lc_legend_nesting: land_cover.LCLegendNesting,
 ):
     # Exclude any codes that are nested under IPCC class 7 (water)
-    excluded_codes = [lc_legend_nesting.nesting[7]]
+    excluded_codes = lc_legend_nesting.nesting[7]
+
+    logger.info("Excluding land cover codes nested under water (%s)", excluded_codes)
 
     classes = [
         c.get_name() for c in lc_trans_matrix.legend.key if c.code not in excluded_codes
@@ -620,9 +620,7 @@ def _write_soc_sheet(
     else:
         n_new_rows_per_table = 0
 
-    xl.write_col_to_sheet(
-        sheet, _get_summary_array(st.soc_summary["all_cover_types"]), 6, 6
-    )
+    xl.write_col_to_sheet(sheet, _get_summary_array(st.soc_summary["non_water"]), 6, 6)
 
     if len(classes) > 6:
         # SOC stock change by land cover table by default only has room for 6
@@ -924,6 +922,19 @@ def _write_land_cover_sheet(
                 cell.number_format = numbers.FORMAT_PERCENTAGE
             cell.alignment = Alignment(horizontal="center")
             cell.border = xl.thin_border
+
+    # Add total rows
+    for row in sheet.iter_rows(
+        min_row=last_data_row + 1, max_row=last_data_row + 1, min_col=3, max_col=4
+    ):
+        for cell in row:
+            cell.value = (
+                f"=sum({cell.column_letter}{first_data_row}"
+                + f":{cell.column_letter}{last_data_row})"
+            )
+            cell.font = Font(italic=True)
+            cell.alignment = Alignment(horizontal="center")
+            cell.number_format = "#,##0.00"
 
     lc_trans_zonal_areas = [
         x
