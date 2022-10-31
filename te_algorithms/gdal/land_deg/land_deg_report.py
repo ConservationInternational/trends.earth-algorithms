@@ -875,12 +875,6 @@ def _write_land_cover_sheet(
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
     period,
 ):
-    lc_trans_zonal_areas = [
-        x
-        for x, p in zip(st.lc_trans_zonal_areas, st.lc_trans_zonal_areas_periods)
-        if p == period
-    ][0]
-
     classes = [c.get_name() for c in lc_trans_matrix.legend.key]
     if len(classes) > 7:
         sheet.insert_rows(19 + 1, len(classes) - 7)
@@ -930,6 +924,12 @@ def _write_land_cover_sheet(
                 cell.number_format = numbers.FORMAT_PERCENTAGE
             cell.alignment = Alignment(horizontal="center")
             cell.border = xl.thin_border
+
+    lc_trans_zonal_areas = [
+        x
+        for x, p in zip(st.lc_trans_zonal_areas, st.lc_trans_zonal_areas_periods)
+        if p == period
+    ][0]
 
     write_crosstab_by_lc(
         sheet,
