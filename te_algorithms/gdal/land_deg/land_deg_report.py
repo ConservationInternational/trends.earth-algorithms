@@ -979,6 +979,7 @@ def _get_totals_by_lc_class_as_array(
     lc_codes = [
         lc_trans_matrix.legend.class_index(c)
         for c in sorted(lc_trans_matrix.legend.key, key=lambda i: i.code)
+        if c.code not in excluded_codes
     ]
 
     return np.array([annual_totals.get(lc_code, 0.0) for lc_code in lc_codes])
