@@ -535,7 +535,7 @@ def _write_productivity_sheet(
     if len(classes) > 7:
         # Land cover tables by default only have room for 7 classes. So need to
         # add more columns/rows if there are more than 7 land cover classes
-        sheet.insert_cols(7, len(classes) - 7)
+        sheet.insert_cols(8, len(classes) - 7)
 
     if len([*st.lc_trans_prod_bizonal.keys()]) > 0:
         # If no land cover data was available for first year of productivity
@@ -841,14 +841,14 @@ def setup_crosstab_by_lc(sheet, classes, ul_row, ul_col, n_classes_in_template=7
         col_total_cell.number_format = "#,##0.00"
 
     # Add bottom right corner total
-    far_right_cell = sheet.cell(row=last_data_row + 1, column=last_data_col + 1)
-    far_right_cell.value = (
+    br_cell = sheet.cell(row=last_data_row + 1, column=last_data_col + 1)
+    br_cell.value = (
         f"=sum({first_data_col_letter}{last_data_row + 1}"
-        + ":{last_data_col_letter}{last_data_row + 1})"
+        + f":{last_data_col_letter}{last_data_row + 1})"
     )
-    far_right_cell.font = Font(italic=True, bold=True)
-    far_right_cell.alignment = Alignment(horizontal="center")
-    far_right_cell.number_format = "#,##0.00"
+    br_cell.font = Font(italic=True, bold=True)
+    br_cell.alignment = Alignment(horizontal="center")
+    br_cell.number_format = "#,##0.00"
 
     # Merge main header
     sheet.merge_cells(
@@ -954,10 +954,12 @@ def _get_prod_table(lc_trans_prod_bizonal, prod_code, lc_trans_matrix):
     lc_codes = sorted([c.code for c in lc_trans_matrix.legend.key])
     out = np.zeros((len(lc_codes), len(lc_codes)))
 
+    transition_key = lc_trans_matrix.get_transition_initial_final_key()
+
     for i, i_code in enumerate(lc_codes):
         for f, f_code in enumerate(lc_codes):
-            transition = i_code * lc_trans_matrix.legend.get_multiplier() + f_code
-            out[i, f] = lc_trans_prod_bizonal.get((transition, prod_code), 0.0)
+            transition_code = transition_key[i_code][f_code]
+            out[i, f] = lc_trans_prod_bizonal.get((transition_code, prod_code), 0.0)
 
     return out
 
@@ -990,12 +992,14 @@ def _write_soc_stock_change_table(
         [c.code for c in lc_trans_matrix.legend.key if c.code not in excluded_codes]
     )
 
+    transition_key = lc_trans_matrix.get_transition_initial_final_key()
+
     for i, i_code in enumerate(lc_codes):
         for f, f_code in enumerate(lc_codes):
             cell = sheet.cell(row=i + first_row, column=f + first_col)
-            transition = i_code * lc_trans_matrix.legend.get_multiplier() + f_code
-            bl_soc = soc_bl_totals.get(transition, 0.0)
-            final_soc = soc_final_totals.get(transition, 0.0)
+            transition_code = transition_key[i_code][f_code]
+            bl_soc = soc_bl_totals.get(transition_code, 0.0)
+            final_soc = soc_final_totals.get(transition_code, 0.0)
             cell.border = xl.thin_border
             cell.alignment = Alignment(horizontal="center")
             try:
@@ -1011,10 +1015,12 @@ def _get_lc_trans_table(lc_trans_totals, lc_trans_matrix, excluded_codes=[]):
     )
     out = np.zeros((len(lc_codes), len(lc_codes)))
 
+    transition_key = lc_trans_matrix.get_transition_initial_final_key()
+
     for i, i_code in enumerate(lc_codes):
         for f, f_code in enumerate(lc_codes):
-            transition = i_code * lc_trans_matrix.legend.get_multiplier() + f_code
-            out[i, f] = lc_trans_totals.get(transition, 0.0)
+            transition_code = transition_key[i_code][f_code]
+            out[i, f] = lc_trans_totals.get(transition_code, 0.0)
 
     return out
 
