@@ -498,6 +498,7 @@ def _render_ld_workbook(
         template_workbook["Soil organic carbon"],
         summary_table,
         lc_trans_matrix,
+        lc_legend_nesting,
     )
     _write_land_cover_sheet(
         template_workbook["Land cover"],
@@ -602,8 +603,10 @@ def _write_soc_sheet(
     sheet,
     st: models.SummaryTableLD,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
+    lc_legend_nesting: land_cover.LCLegendNesting,
 ):
-    excluded_codes = [7]
+    # Exclude any codes that are nested under IPCC class 7 (water)
+    excluded_codes = [lc_legend_nesting.nesting[7]]
 
     classes = [
         c.get_name() for c in lc_trans_matrix.legend.key if c.code not in excluded_codes
@@ -665,6 +668,7 @@ def _write_soc_sheet(
     )
     final_soc_total_cell.font = Font(italic=True)
     final_soc_total_cell.alignment = Alignment(horizontal="center")
+    final_soc_total_cell.number_format = "#,##0.00"
 
     xl.write_col_to_sheet(
         sheet, classes, 2, first_data_row, header=True, border=True, wrap=True
@@ -729,6 +733,7 @@ def _write_soc_sheet(
     )
     soc_change_total_cell.font = Font(italic=True)
     soc_change_total_cell.alignment = Alignment(horizontal="center")
+    soc_change_total_cell.number_format = "#,##0.00"
 
     # Add SOC change in percent
     _add_header_cell(
@@ -762,13 +767,20 @@ def _write_soc_sheet(
             lc_trans_matrix,
             excluded_codes=excluded_codes,
         )
-    xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
+
+    # Set value for cell showing percent change in SOC
+    sheet["G11"].value = (
+        f"=(H{22 + n_new_rows_per_table} - G{22 + n_new_rows_per_table})"
+        f"/G{22 + n_new_rows_per_table}"
+    )
 
     # Merge note row at end of table
     note_row = 34 + n_new_rows_per_table * 2
     sheet.merge_cells(
         start_row=note_row, start_column=1, end_row=note_row, end_column=10
     )
+
+    xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 
 def write_crosstab_by_lc(
@@ -817,6 +829,7 @@ def setup_crosstab_by_lc(sheet, classes, ul_row, ul_col, n_classes_in_template=7
         )
         row_total_cell.font = Font(italic=True)
         row_total_cell.alignment = Alignment(horizontal="center")
+        row_total_cell.number_format = "#,##0.00"
         # Write colum total
         col_total_cell = sheet.cell(row=last_data_row + 1, column=first_data_col + n)
         col_total_cell.value = (
@@ -825,6 +838,7 @@ def setup_crosstab_by_lc(sheet, classes, ul_row, ul_col, n_classes_in_template=7
         )
         col_total_cell.font = Font(italic=True)
         col_total_cell.alignment = Alignment(horizontal="center")
+        col_total_cell.number_format = "#,##0.00"
 
     # Add bottom right corner total
     far_right_cell = sheet.cell(row=last_data_row + 1, column=last_data_col + 1)
@@ -833,6 +847,8 @@ def setup_crosstab_by_lc(sheet, classes, ul_row, ul_col, n_classes_in_template=7
         + ":{last_data_col_letter}{last_data_row + 1})"
     )
     far_right_cell.font = Font(italic=True, bold=True)
+    far_right_cell.alignment = Alignment(horizontal="center")
+    far_right_cell.number_format = "#,##0.00"
 
     # Merge main header
     sheet.merge_cells(
@@ -873,6 +889,48 @@ def _write_land_cover_sheet(
         n_new_rows_per_table = 0
 
     xl.write_col_to_sheet(sheet, _get_summary_array(st.lc_summary), 6, 6)
+
+    # Write land cover change by class table
+    first_data_row = 14
+    last_data_row = first_data_row + len(classes) - 1
+    xl.write_col_to_sheet(
+        sheet, classes, 2, first_data_row, header=True, border=True, wrap=True
+    )
+    for row in sheet.iter_rows(
+        min_row=first_data_row, max_row=last_data_row, min_col=3, max_col=6
+    ):
+        for cell in row:
+            if cell.column == 3:
+                # Initial area column
+                cell.value = (
+                    f"={get_column_letter(cell.column+len(classes))}"
+                    + f"{cell.offset(row=12 + n_new_rows_per_table).row}"
+                )
+                cell.number_format = "#,##0.00"
+            elif cell.column == 4:
+                # Final area column
+                col_letter = cell.offset(
+                    column=cell.row - first_data_row - 1
+                ).column_letter
+                cell.value = f"={col_letter}{33 + n_new_rows_per_table*2}"
+                cell.number_format = "#,##0.00"
+            elif cell.column == 5:
+                # Change in area column
+                cell.value = (
+                    f"={cell.offset(column=-1).column_letter}{cell.row} - "
+                    + f"{cell.offset(column=-2).column_letter}{cell.row}"
+                )
+                cell.number_format = "#,##0.00"
+            elif cell.column == 6:
+                # Percent change in area column
+                cell.value = (
+                    f"={cell.offset(column=-1).column_letter}{cell.row} / "
+                    + f"{cell.offset(column=-3).column_letter}{cell.row}"
+                )
+                cell.number_format = numbers.FORMAT_PERCENTAGE
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = xl.thin_border
+
     write_crosstab_by_lc(
         sheet,
         _get_lc_trans_table(lc_trans_zonal_areas, lc_trans_matrix),
@@ -880,6 +938,7 @@ def _write_land_cover_sheet(
         23 + n_new_rows_per_table,
         1,
     )
+
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
 
 

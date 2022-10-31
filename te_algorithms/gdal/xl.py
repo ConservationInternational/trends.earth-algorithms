@@ -51,7 +51,7 @@ def write_col_to_sheet(
         if border:
             cell.border = thin_border
         cell.alignment = Alignment(horizontal="center", wrap_text=wrap)
-    cell.number_format = number_format
+        cell.number_format = number_format
 
 
 def write_row_to_sheet(
@@ -81,10 +81,11 @@ def write_row_to_sheet(
         cell.number_format = number_format
 
 
-def write_table_to_sheet(sheet, d, first_row, first_col):
+def write_table_to_sheet(sheet, d, first_row, first_col, number_format="#,##0.00"):
     for row in range(d.shape[0]):
         for col in range(d.shape[1]):
             cell = sheet.cell(row=row + first_row, column=col + first_col)
             cell.value = d[row, col]
             cell.border = thin_border
             cell.alignment = Alignment(horizontal="center")
+            cell.number_format = number_format
