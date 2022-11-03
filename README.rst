@@ -1,30 +1,31 @@
-landdegradation
-===============
+trends.earth-algorithms
+=======================
 
-.. image:: https://travis-ci.org/ConservationInternational/landdegradation.svg?branch=master
-    :target: https://travis-ci.org/ConservationInternational/landdegradation
-    :alt: Build Status 
-
-``landdegradation`` is a python package to facilitate analyzing remotely-sensed
-datasets in support of monitoring land degradation. This project contains 
-common code used by the scripts in the `trends.earth.gee 
+``trends.earth-algorithms`` is a python package to facilitate analyzing
+remotely-sensed datasets in support of monitoring land degradation. This
+project contains common code used by the scripts in the `trends.earth.gee
 <https://github.com/ConservationInternational/trends.earth.gee>`_ repository.
 
-This package was produced as an output of the Global Environment Facility
-(GEF)-funded project “Enabling the use of global data sources to assess and
-monitor land degradation at multiple scales”. The project aims to provide
-guidance on robust methods and a toolbox for assessing, monitoring status, and
-estimating trends in land degradation using remote sensing technology. For
-additional information on the project see http://vitalsigns.org/gef-ldmp.
+`Trends.Earth` is a free and open source tool to understand land change: the how and why
+behind changes on the ground. Trends.Earth allows users to draw on the best available
+information from across a range of sources - from globally available data to customized
+local maps. A broad range of users are applying Trends.Earth for projects ranging from
+planning and monitoring restoration efforts, to tracking urbanization, to developing
+official national reports for submission to the United Nations Convention to Combat
+Desertification (UNCCD).
 
-The Land Degradation Monitoring Project is a collaboration of Conservation
-International, the National Aeronautics and Space Administration (NASA), and
-Lund University.
+`Trends.Earth` was produced by a partnership of Conservation International, Lund
+University, and the National Aeronautics and Space Administration (NASA), with
+the support of the Global Environment Facility (GEF). It was further developed
+through a partnership with Conservation International, University of Bern,
+University of Colorado in partnership with USDA and USAID, University of California -
+Santa Barbara in partnership with University of North Carolina - Wilmington and Brown
+University with additional funding from the Global Environment Facility (GEF).
 
 License
 -------
 
-``landdegradation`` is free and open-source. It is released under the
+``trends.earth-algorithms`` is free and open-source. It is released under the
 following (MIT) license:
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -49,7 +50,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-``landdegradation`` is part of trends.earth
+``trends.earth-algorithms`` is part of trends.earth
 
 .. image:: 
     https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_print_400width.png
