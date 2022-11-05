@@ -1040,7 +1040,7 @@ def save_summary_table_excel(
         workbook.save(output_path)
         logger.info("Indicator table saved to {}".format(output_path))
 
-    except IOError:
+    except OSError:
         error_message = (
             f"Error saving output table - check that {output_path!r} is accessible "
             f"and not already open."
@@ -1180,7 +1180,7 @@ def save_reporting_json(
 
         return te_summary_json
 
-    except IOError:
+    except OSError:
         logger.error("Error saving {output_path}")
         error_message = (
             "Error saving indicator table JSON - check that "

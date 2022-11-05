@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import json
 import os
 import re
@@ -47,7 +46,7 @@ def query_yes_no(question, default="yes"):
 
 
 def get_version(c):
-    with open(c.version_file_raw, "r") as f:
+    with open(c.version_file_raw) as f:
         return f.readline().strip()
 
 
@@ -139,7 +138,7 @@ def set_version(c, v=None, tag=False):
         # Set in setup.py
         print("Setting version to {} in setup.py".format(v))
         setup_regex = re.compile("^([ ]*version=[ ]*')[0-9]+([.][0-9]+)+(rc[0-9]*)?")
-        _replace("setup.py", setup_regex, "\g<1>" + v)
+        _replace("setup.py", setup_regex, r"\g<1>" + v)
 
         setup_install_requires_schemas_regex = re.compile(
             "(trends.earth-schemas.git@)([.0-9a-z]*)"
@@ -148,11 +147,11 @@ def set_version(c, v=None, tag=False):
             # Last number in version string is even (or this is a release
             # candidate), so use a tagged version of schemas matching this
             # version
-            _replace("setup.py", setup_install_requires_schemas_regex, "\g<1>v" + v)
+            _replace("setup.py", setup_install_requires_schemas_regex, r"\g<1>v" + v)
         else:
             # Last number in version string is odd, so this is a development
             # version, so use development version of schemas
-            _replace("setup.py", setup_install_requires_schemas_regex, "\g<1>develop")
+            _replace("setup.py", setup_install_requires_schemas_regex, r"\g<1>develop")
 
     if tag:
         set_tag(c)

@@ -1,12 +1,8 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import ee
 from te_schemas.schemas import BandInfo
 
-from .util import TEImage
 from ..gdal.util import trans_factors_for_custom_legend
+from .util import TEImage
 
 
 def soc(
@@ -198,7 +194,7 @@ def soc(
         if k == 0:
             soc_chg = (
                 soc_t0.subtract(
-                    (soc_t0.multiply(lc_tr_fl).multiply(lc_tr_fm).multiply(lc_tr_fo))
+                    soc_t0.multiply(lc_tr_fl).multiply(lc_tr_fm).multiply(lc_tr_fo)
                 )
             ).divide(20)
 

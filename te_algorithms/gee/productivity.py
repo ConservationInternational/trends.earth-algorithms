@@ -1,7 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import ee
 from te_schemas.schemas import BandInfo
 
@@ -80,7 +76,7 @@ def p_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     def f_ndvi_clim_p(image, list):
         ndvi = (
             lf_clim_ndvi.select("offset")
-            .add((lf_clim_ndvi.select("scale").multiply(image)))
+            .add(lf_clim_ndvi.select("scale").multiply(image))
             .set({"year": image.get("year")})
         )
 

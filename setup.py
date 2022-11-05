@@ -1,5 +1,4 @@
 # Always prefer setuptools over distutils
-
 from codecs import open
 from os import path
 

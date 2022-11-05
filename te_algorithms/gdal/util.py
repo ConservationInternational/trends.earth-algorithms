@@ -252,7 +252,7 @@ def wkt_geom_to_geojson_file_string(wkt):
     out_layer = None
     out_ds = None
 
-    with open(out_file, "r") as f:
+    with open(out_file) as f:
         return json.load(f)
 
 

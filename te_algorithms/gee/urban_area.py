@@ -1,11 +1,7 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import ee
+from te_schemas.schemas import BandInfo
 
 from .util import TEImage
-from te_schemas.schemas import BandInfo
 
 
 def urban_area(geojson, un_adju, EXECUTION_ID, logger):

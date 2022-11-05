@@ -8,7 +8,7 @@ try:
 
 except ImportError:
     # Will use these as regular Python functions if numba is not present.
-    class DecoratorSubstitute(object):
+    class DecoratorSubstitute:
         # Make a cc.export that doesn't do anything
         def export(*args, **kwargs):
             def wrapper(func):

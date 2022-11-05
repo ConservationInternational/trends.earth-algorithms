@@ -217,7 +217,7 @@ class gee_task(threading.Thread):
 
 
 # Not using dataclass as not in python 3.6
-class TEImage(object):
+class TEImage:
     "A class to store GEE images and band info for export to cloud storage"
 
     def __init__(self, image, band_info):

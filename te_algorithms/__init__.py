@@ -1,6 +1,6 @@
+import json
 import os
 import re
-import json
 
 plugin_dir = os.path.dirname(os.path.realpath(__file__))
 with open(os.path.join(plugin_dir, "version.json")) as f:
@@ -16,4 +16,4 @@ class TEAlgorithmsError(Exception):
     def __init__(self, msg=None):
         if msg is None:
             msg = "An error occurred in the te_algorithms module"
-        super(TEAlgorithmsError, self).__init__(msg)
+        super().__init__(msg)

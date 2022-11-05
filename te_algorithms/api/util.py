@@ -26,9 +26,10 @@ from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
 from osgeo import gdal
 from osgeo import ogr
-from te_algorithms.gdal.util import combine_all_bands_into_vrt
 from te_schemas import jobs
 from te_schemas import results
+
+from te_algorithms.gdal.util import combine_all_bands_into_vrt
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def get_s3_client(access_key_id=None, secret_access_key=None, no_sign=False):
             aws_secret_access_key=secret_access_key,
             config=config,
         )
-    except IOError:
+    except OSError:
         logger.warning(
             "AWS credentials file not found. Credentials must be in "
             "environment variable in default AWS credentials location, "
@@ -246,7 +247,7 @@ def get_job_json_from_s3(
         logger.debug(f"found objects post-grep: {[o['Key'] for o in objects]}")
     jobfile = tempfile.NamedTemporaryFile(suffix=".json").name
     client.download_file(s3_bucket, objects[0]["Key"], jobfile)
-    with open(jobfile, "r") as f:
+    with open(jobfile) as f:
         job_json = json.load(f)
 
     return jobs.Job.Schema().load(job_json)
