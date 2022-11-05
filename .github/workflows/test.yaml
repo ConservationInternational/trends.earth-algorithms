@@ -17,7 +17,6 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -41,4 +40,5 @@ jobs:
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
       - name: Test with pytest
         run: |
+          pip install -e .
           pytest
