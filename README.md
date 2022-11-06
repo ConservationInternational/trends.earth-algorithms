@@ -1,10 +1,8 @@
-trends.earth-algorithms
-=======================
+# trends.earth-algorithms
 
-``trends.earth-algorithms`` is a python package to facilitate analyzing
+`trends.earth-algorithms` is a python package to facilitate analyzing
 remotely-sensed datasets in support of monitoring land degradation. This
-project contains common code used by the scripts in the `trends.earth.gee
-<https://github.com/ConservationInternational/trends.earth.gee>`_ repository.
+project contains common code used by the scripts in [trends.earth](http://github.com/ConservationInternational/trends.earth).
 
 `Trends.Earth` is a free and open source tool to understand land change: the how and why
 behind changes on the ground. Trends.Earth allows users to draw on the best available
@@ -22,10 +20,9 @@ University of Colorado in partnership with USDA and USAID, University of Califor
 Santa Barbara in partnership with University of North Carolina - Wilmington and Brown
 University with additional funding from the Global Environment Facility (GEF).
 
-License
--------
+# License
 
-``trends.earth-algorithms`` is free and open-source. It is released under the
+`trends.earth-algorithms` is free and open-source. It is released under the
 following (MIT) license:
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -50,9 +47,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-``trends.earth-algorithms`` is part of trends.earth
+`trends.earth-algorithms` is part of trends.earth
 
-.. image:: 
-    https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_print_400width.png
-    :target: https://trends.earth
-    :alt: Part of trends.earth
+[![Part of Trends.Earth](https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_600width.png)](http://trends.earth)
