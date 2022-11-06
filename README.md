@@ -1,5 +1,8 @@
 # trends.earth-algorithms
 
+[![Style](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/black.yaml/badge.svg)](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/black.yaml)
+[![Test](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/test.yaml/badge.svg)](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/test.yaml)
+
 `trends.earth-algorithms` is a python package to facilitate analyzing
 remotely-sensed datasets in support of monitoring land degradation. This
 project contains common code used by the scripts in [trends.earth](http://github.com/ConservationInternational/trends.earth).
