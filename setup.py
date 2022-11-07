@@ -39,7 +39,6 @@ setup(
     install_requires=[
         "openpyxl>=3.0.9",
         "backoff>=1.11.0",
-        "typing-inspect==0.7.1",
         "marshmallow>=3.18.0",
         "marshmallow-dataclass[enum, union]==8.5.9",
         "defusedxml>=0.7.1",
