@@ -13,6 +13,7 @@ from te_schemas.results import Url
 from te_schemas.schemas import BandInfoSchema
 from te_schemas.schemas import CloudResults
 from te_schemas.schemas import CloudResultsSchema
+from te_schemas.schemas import Url as UrlDeprecated
 
 from . import GEEImageError
 from . import GEETaskFailure
@@ -169,7 +170,7 @@ class gee_task(threading.Thread):
             urls = []
 
             for item in items:
-                urls.append(Url(item["mediaLink"], item["md5Hash"]))
+                urls.append(UrlDeprecated(item["mediaLink"], item["md5Hash"]))
 
             return urls
 
@@ -206,7 +207,7 @@ class gee_task(threading.Thread):
                 uris.append(
                     results.URI(
                         type="cloud",
-                        uri=item["mediaLink"],
+                        uri=Url(item["mediaLink"]),
                         etag=results.Etag(
                             hash=item["md5Hash"], type=results.EtagType.GCS_CRC32C
                         ),

@@ -16,6 +16,7 @@ from te_schemas.jobs import Job
 from te_schemas.results import Band
 from te_schemas.results import CloudResults
 from te_schemas.results import DataType
+from te_schemas.results import FilePath
 from te_schemas.results import JsonResults
 from te_schemas.results import Raster
 from te_schemas.results import RasterFileType
@@ -206,24 +207,26 @@ def recode_errors(params) -> Job:
             gdal.BuildVRT(str(error_recode_vrt), [str(p) for p in error_recode_paths])
             rasters = {
                 DataType.INT16.value: TiledRaster(
-                    tile_uris=[URI(uri=p, type="local") for p in error_recode_paths],
-                    uri=URI(uri=error_recode_vrt, type="local"),
+                    tile_uris=[
+                        URI(uri=FilePath(p), type="local") for p in error_recode_paths
+                    ],
+                    uri=URI(uri=FilePath(error_recode_vrt), type="local"),
                     bands=out_bands,
                     datatype=DataType.INT16,
                     filetype=RasterFileType.COG,
                 )
             }
-            main_uri = URI(uri=error_recode_vrt, type="local")
+            main_uri = URI(uri=FilePath(error_recode_vrt), type="local")
         else:
             rasters = {
                 DataType.INT16.value: Raster(
-                    uri=URI(uri=error_recode_paths[0], type="local"),
+                    uri=URI(uri=FilePath(error_recode_paths)[0], type="local"),
                     bands=out_bands,
                     datatype=DataType.INT16,
                     filetype=RasterFileType.COG,
                 )
             }
-            main_uri = URI(uri=error_recode_paths[0], type="local")
+            main_uri = URI(uri=FilePath(error_recode_paths)[0], type="local")
 
         results = RasterResults(
             name=params["layer_input_band"]["name"],
