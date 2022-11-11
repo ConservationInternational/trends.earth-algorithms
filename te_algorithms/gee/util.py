@@ -9,7 +9,6 @@ import requests
 from te_schemas import results
 from te_schemas.results import Raster
 from te_schemas.results import TiledRaster
-from te_schemas.results import Url
 from te_schemas.schemas import BandInfoSchema
 from te_schemas.schemas import CloudResults
 from te_schemas.schemas import CloudResultsSchema
@@ -206,8 +205,7 @@ class gee_task(threading.Thread):
             for item in items:
                 uris.append(
                     results.URI(
-                        type="cloud",
-                        uri=Url(item["mediaLink"]),
+                        uri=item["mediaLink"],
                         etag=results.Etag(
                             hash=item["md5Hash"], type=results.EtagType.GCS_CRC32C
                         ),
