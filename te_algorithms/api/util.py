@@ -28,7 +28,6 @@ from osgeo import gdal
 from osgeo import ogr
 from te_schemas import jobs
 from te_schemas import results
-from te_schemas.results import FilePath
 
 from te_algorithms.gdal.util import combine_all_bands_into_vrt
 
@@ -395,7 +394,7 @@ def _get_main_raster_uri(raster, aws_access_key_id=None, aws_secret_access_key=N
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
         )
-        raster.uri = results.URI(uri=FilePath(vrt_file), type="local")
+        raster.uri = results.URI(uri=vrt_file)
     elif raster.type == results.RasterType.ONE_FILE_RASTER:
         pass
     else:
@@ -460,17 +459,13 @@ def write_results_to_s3_cog(
                     s3_extra_args=s3_extra_args,
                 )
                 raster.uri = results.URI(
-                    uri=FilePath(get_vsis3_path(vrt_file, s3_prefix, s3_bucket)),
-                    type="cloud",
+                    uri=get_vsis3_path(vrt_file, s3_prefix, s3_bucket),
                 )
             else:
                 raster.uri = results.URI(
-                    uri=FilePath(
-                        get_vsis3_path(
-                            cog_vsi_base.with_suffix(".tif").name, s3_prefix, s3_bucket
-                        )
-                    ),
-                    type="cloud",
+                    uri=get_vsis3_path(
+                        cog_vsi_base.with_suffix(".tif").name, s3_prefix, s3_bucket
+                    )
                 )
 
             # All COG outputs are single tile rasters UNLESS there are multiple
@@ -480,8 +475,7 @@ def write_results_to_s3_cog(
 
             out_uris = [
                 results.URI(
-                    uri=FilePath(cog_vsi_path),
-                    type="cloud",
+                    uri=cog_vsi_path,
                     etag=get_etag(
                         f"{s3_prefix}/{cog_vsi_path.name}",
                         s3_bucket,
@@ -499,7 +493,7 @@ def write_results_to_s3_cog(
                     bands=raster.bands,
                     datatype=raster.datatype,
                     filetype=raster.filetype,
-                    uri=results.URI(uri=FilePath(vrt_file_vsi_path), type="cloud"),
+                    uri=results.URI(uri=vrt_file_vsi_path),
                 )
 
             else:
@@ -529,8 +523,7 @@ def write_results_to_s3_cog(
                 s3_extra_args=s3_extra_args,
             )
             res.uri = results.URI(
-                uri=FilePath(get_vsis3_path(main_vrt_file.name, s3_prefix, s3_bucket)),
-                type="cloud",
+                uri=get_vsis3_path(main_vrt_file.name, s3_prefix, s3_bucket),
                 etag=get_etag(
                     f"{s3_prefix}/{main_vrt_file.name}",
                     s3_bucket,
@@ -732,7 +725,7 @@ def download_cloud_results(
                     aws_access_key_id=aws_access_key_id,
                     aws_secret_access_key=aws_secret_access_key,
                 )
-                tile_uris.append(results.URI(uri=FilePath(out_file), type="cloud"))
+                tile_uris.append(results.URI(uri=out_file))
 
             raster.tile_uris = tile_uris
 
@@ -750,7 +743,7 @@ def download_cloud_results(
                     bands=raster.bands,
                     datatype=raster.datatype,
                     filetype=raster.filetype,
-                    uri=results.URI(uri=FilePath(vrt_file), type="local"),
+                    uri=results.URI(uri=vrt_file),
                     type=results.RasterType.TILED_RASTER,
                 )
             )
@@ -762,7 +755,7 @@ def download_cloud_results(
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key,
             )
-            raster_uri = results.URI(uri=FilePath(out_file), type="local")
+            raster_uri = (results.URI(uri=out_file),)
             raster.uri = raster_uri
             out_rasters.append(
                 results.Raster(
@@ -785,7 +778,7 @@ def download_cloud_results(
         logger.info("Saving vrt file to %s", vrt_file)
         main_raster_file_paths = [raster.uri.uri for raster in out_rasters]
         combine_all_bands_into_vrt(main_raster_file_paths, vrt_file)
-        job.results.uri = results.URI(uri=FilePath(vrt_file), type="local")
+        job.results.uri = results.URI(uri=vrt_file)
     else:
         job.results.uri = job.results.rasters[0].uri
 

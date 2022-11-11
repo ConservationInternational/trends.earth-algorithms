@@ -21,7 +21,6 @@ from te_schemas.land_cover import LCTransitionDefinitionDeg
 from te_schemas.productivity import ProductivityMode
 from te_schemas.results import Band
 from te_schemas.results import DataType
-from te_schemas.results import FilePath
 from te_schemas.results import Raster
 from te_schemas.results import RasterFileType
 from te_schemas.results import RasterResults
@@ -476,10 +475,10 @@ def summarise_land_degradation(
 
     results = RasterResults(
         name="land_condition_summary",
-        uri=URI(uri=FilePath(overall_vrt_path), type="local"),
+        uri=URI(uri=overall_vrt_path),
         rasters={
             DataType.INT16.value: Raster(
-                uri=URI(uri=FilePath(overall_vrt_path), type="local"),
+                uri=URI(uri=overall_vrt_path),
                 bands=out_df.bands,
                 datatype=DataType.INT16,
                 filetype=RasterFileType.COG,
