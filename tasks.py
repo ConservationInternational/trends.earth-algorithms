@@ -163,6 +163,10 @@ def set_version(c, v=None, tag=False):
 ###############################################################################
 
 
+def not_comments(lines, s, e):
+    return [line for line in lines[s:e] if line[0] != "#"]
+
+
 def read_requirements():
     """Return a list of runtime and list of test requirements"""
     with open("requirements.txt") as f:
@@ -175,8 +179,7 @@ def read_requirements():
     except ValueError:
         raise Exception('Expected to find "{}" in requirements.txt'.format(divider))
 
-    not_comments = lambda s, e: [line for line in lines[s:e] if line[0] != "#"]
-    return not_comments(0, idx), not_comments(idx + 1, None)
+    return not_comments(lines, 0, idx), not_comments(lines, idx + 1, None)
 
 
 @task()
