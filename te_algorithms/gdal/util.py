@@ -222,7 +222,7 @@ def combine_all_bands_into_vrt(
     # (have to include them when setting metadata or else GDAL throws an error)
     fh, new_file = tempfile.mkstemp()
     new_file = pathlib.Path(new_file)
-    with new_file.open("w") as fh_new:
+    with new_file.open("w", encoding="utf-8") as fh_new:
         with out_file.open() as fh_old:
             for line in fh_old:
                 fh_new.write(line.replace(str(out_file.parents[0]) + "/", ""))
