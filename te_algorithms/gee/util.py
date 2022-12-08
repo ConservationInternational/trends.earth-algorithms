@@ -233,7 +233,7 @@ class TEImage:
             )
 
     def merge(self, other):
-        "Merge with another TEImage object"
+        "Merge with another TEImage by adding data from other TEImage as new bands"
         self.image = self.image.addBands(other.image)
         self.band_info.extend(other.band_info)
 
