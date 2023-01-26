@@ -25,7 +25,7 @@ def _get_raster_bounds(rds):
             {ul_x} {ul_y},
             {lr_x} {ul_y},
             {lr_x} {lr_y},
-            {ul_x} {lr_y}, 
+            {ul_x} {lr_y},
             {ul_x} {ul_y}
         ))"""
     )
@@ -179,7 +179,7 @@ def get_stats_for_geom(raster_path, band_name, band, geom, nodata_value=None):
 
     logger.debug("Getting stats")
     if nodata_value is None:
-        nodata_Value = rb.GetNoDataValue()
+        nodata_value = rb.GetNoDataValue()
     return _get_stats_for_band(band_name, masked, cell_areas, nodata_value)
 
 
