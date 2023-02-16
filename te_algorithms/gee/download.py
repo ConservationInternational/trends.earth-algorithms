@@ -54,7 +54,7 @@ def _download_worldpop(
 
 def _get_population(year, asset, add_to_map=False):
     """Return WorldPop population data for a given year"""
-    wp = ee.ImageCollection(asset).filterDate(f"{year}-01-01", f"{year + 1}-01-01")
+    wp = ee.ImageCollection(asset).filterDate(f"{year}-01-01", f"{int(year) + 1}-01-01")
 
     wp = (
         wp.select("male")
