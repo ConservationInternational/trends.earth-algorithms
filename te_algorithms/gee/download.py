@@ -43,7 +43,11 @@ def _download_worldpop(asset, name, temporal_resolution, year_initial, year_fina
     if not year_final:
         year_final = 2020
     out = TEImageV2(
-        {"Float32": GEEImage(**_get_population(year_initial, asset, add_to_map=True))}
+        {
+            DataType.FLOAT32: GEEImage(
+                **_get_population(year_initial, asset, add_to_map=True)
+            )
+        }
     )
     for year in range(year_initial + 1, year_final + 1):
         # Be inclusive of final year (+1) above, and recognize that initial
