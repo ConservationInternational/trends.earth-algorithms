@@ -325,22 +325,22 @@ class TEImage:
 class GEEImage:
     def __init__(
         self,
-        ee_image: ee.Image,
+        image: ee.Image,
         bands: typing.List[results.Band],
         datatype: results.DataType = results.DataType.INT16,
     ):
-        self.ee_image = ee_image
+        self.image = image
         self.bands = bands
         self.datatype = datatype
 
         self._check_validity()
 
     def _check_validity(self):
-        if len(self.bands) != len(self.ee_image.getInfo()["bands"]):
+        if len(self.bands) != len(self.image.getInfo()["bands"]):
             raise GEEImageError(
                 f"Band info length ({len(self.bands)}) "
                 "does not match number of bands in image "
-                f'({self.ee_image.getInfo()["bands"]})'
+                f'({self.image.getInfo()["bands"]})'
             )
 
     def merge(self, other):
@@ -352,33 +352,33 @@ class GEEImage:
                 f"{other.datatype} image. Both images must have same "
                 "datatype."
             )
-        self.ee_image = self.ee_image.addBands(other.ee_image)
+        self.image = self.image.addBands(other.image)
         self.bands.extend(other.bands)
 
         self._check_validity()
 
-    def addBands(self, ee_image, bands):
+    def addBands(self, image, bands):
         "Add new bands to the image"
-        self.ee_image = self.ee_image.addBands(ee_image)
+        self.image = self.image.addBands(image)
         self.bands.extend(bands)
 
         self._check_validity()
 
     def cast(self):
         if self.datatype == results.DataType.BYTE:
-            self.ee_image = self.ee_image.byte()
+            self.image = self.image.byte()
         elif self.datatype == results.DataType.UINT16:
-            self.ee_image = self.ee_image.uint16()
+            self.image = self.image.uint16()
         elif self.datatype == results.DataType.INT16:
-            self.ee_image = self.ee_image.int16()
+            self.image = self.image.int16()
         elif self.datatype == results.DataType.UINT32:
-            self.ee_image = self.ee_image.uint32()
+            self.image = self.image.uint32()
         elif self.datatype == results.DataType.INT32:
-            self.ee_image = self.ee_image.int32()
+            self.image = self.image.int32()
         elif self.datatype == results.DataType.FLOAT32:
-            self.ee_image = self.ee_image.float()
+            self.image = self.image.float()
         elif self.datatype == results.DataType.FLOAT64:
-            self.ee_image = self.ee_image.double()
+            self.image = self.image.double()
         else:
             raise GEEImageError(
                 f"Unknown datatype {self.datatype}. Datatype "
@@ -443,7 +443,7 @@ class TEImageV2:
                 raise GEEImageError(f'Band(s) "{band_names}" not in image')
 
             image.bands = [image.bands[i] for i in band_indices]
-            image.ee_image = image.ee_image.select(band_indices)
+            image.image = image.image.select(band_indices)
 
     def setAddToMap(self, band_names=[]):
         "Set the layers that will be added to the map by default"
@@ -476,7 +476,7 @@ class TEImageV2:
 
         for datatype, image in self.images.items():
             if not proj:
-                proj = image.ee_image.projection()
+                proj = image.image.projection()
 
             image.cast()
 
@@ -496,7 +496,7 @@ class TEImageV2:
                     as_COG = False
 
                 export = {
-                    "image": image.ee_image,
+                    "image": image.image,
                     "description": out_name,
                     "fileNamePrefix": out_name,
                     "bucket": BUCKET,
