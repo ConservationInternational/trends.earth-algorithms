@@ -36,10 +36,12 @@ def _download_default(
     return teimage_v1_to_teimage_v2(TEImage(out, band_info))
 
 
-def _download_worldpop(
-    asset, name, temporal_resolution, year_initial=2000, year_final=2020
-):
+def _download_worldpop(asset, name, temporal_resolution, year_initial, year_final):
     """Download WorldPop data"""
+    if not year_initial:
+        year_initial = 2000
+    if not year_final:
+        year_final = 2020
     out = TEImageV2(
         {"Float32": GEEImage(**_get_population(year_initial, asset, add_to_map=True))}
     )
