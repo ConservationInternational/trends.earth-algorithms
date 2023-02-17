@@ -38,9 +38,9 @@ def _download_default(
 
 def _download_worldpop(asset, name, temporal_resolution, year_initial, year_final):
     """Download WorldPop data"""
-    if not year_initial:
+    if year_initial is None:
         year_initial = 2000
-    if not year_final:
+    if year_final is None:
         year_final = 2020
     out = TEImageV2(
         {
