@@ -448,7 +448,7 @@ class TEImageV2:
     def setAddToMap(self, band_names=[]):
         "Set the layers that will be added to the map by default"
 
-        for image in self.images:
+        for datatype, image in self.images.items():
             for i in range(len(image.bands)):
                 if image.bands[i].name in band_names:
                     image.bands[i].add_to_map = True
