@@ -84,7 +84,6 @@ def put_to_s3(
     aws_access_key_id=None,
     aws_secret_access_key=None,
 ):
-
     client = get_s3_client(
         access_key_id=aws_access_key_id, secret_access_key=aws_secret_access_key
     )
@@ -293,7 +292,6 @@ def _write_subregion_cogs(
 
 
 def get_vsis3_path(filename, s3_prefix, s3_bucket):
-
     return Path(f"/vsis3/{s3_bucket}/{s3_prefix}/{filename}")
 
 
@@ -633,7 +631,6 @@ def _download_file(url, out_file):
 def _get_raster_tile(
     uri: results.URI, out_file: Path, aws_access_key_id=None, aws_secret_access_key=None
 ) -> typing.Optional[Path]:
-
     path_exists = out_file.is_file()
     hash_matches = etag_compare(out_file, uri.etag.hash)
 
@@ -809,7 +806,6 @@ class BandData:
 def get_bands_by_name(
     job, band_name: str, sort_property: str = "year"
 ) -> typing.List[BandData]:
-
     bands = job.results.get_bands()
 
     bands_and_indices = [
@@ -830,7 +826,6 @@ def get_bands_by_name(
 def get_band_by_name(
     job, band_name: str, filters: List[Dict] = None
 ) -> typing.List[BandData]:
-
     bands = job.results.get_bands()
 
     if filters:

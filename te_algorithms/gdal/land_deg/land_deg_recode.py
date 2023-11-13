@@ -42,7 +42,6 @@ def rasterize_error_recode(
     model_file: Path,
     geojson: ErrorRecodePolygons,
 ) -> None:
-
     # Convert layer into an integer code so that all three recode_deg_to
     # options can be encoded within a single tiff
 
@@ -73,7 +72,6 @@ def _process_block(
     yoff: int,
     cell_areas_raw,
 ) -> Tuple[SummaryTableLDErrorRecode, Dict]:
-
     sdg_array = in_array[params.band_dict["sdg_bandnum"] - 1, :, :]
     recode_array = in_array[params.band_dict["recode_bandnum"] - 1, :, :]
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
@@ -96,7 +94,6 @@ def _process_block(
 def _accumulate_summary_tables(
     tables: List[SummaryTableLDErrorRecode],
 ) -> SummaryTableLDErrorRecode:
-
     if len(tables) == 1:
         return tables[0]
     else:

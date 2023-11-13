@@ -89,7 +89,6 @@ def save_reporting_json(
     aoi: "AOI",
     summary_table_kwargs: dict,
 ):
-
     land_condition_reports = {}
     affected_pop_reports = {}
 
@@ -950,7 +949,6 @@ def _write_land_cover_sheet(
 
 
 def _write_population_sheet(sheet, st: models.SummaryTableLD):
-
     xl.write_col_to_sheet(
         sheet, _get_summary_array(st.sdg_zonal_population_total), 6, 6
     )
