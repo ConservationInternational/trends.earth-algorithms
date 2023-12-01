@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 def _accumulate_ld_progress_summary_tables(
     tables: List[models.SummaryTableLDProgress],
 ) -> models.SummaryTableLDProgress:
-
     if len(tables) == 1:
         return tables[0]
     else:
@@ -88,7 +87,6 @@ def compute_progress_summary(
     error_message = None
 
     for index, (wkt_aoi, this_bbs) in enumerate(zip(wkt_aois, bbs), start=1):
-
         cropped_progress_vrt = tempfile.NamedTemporaryFile(
             suffix="_ld_progress_summary_inputs.vrt", delete=False
         ).name
@@ -323,7 +321,6 @@ def _process_block_progress(
     yoff: int,
     cell_areas_raw,
 ) -> Tuple[models.SummaryTableLDProgress, Dict]:
-
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
     if params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:

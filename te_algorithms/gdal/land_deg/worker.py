@@ -24,7 +24,6 @@ class DegradationSummary:
         ],
         processing_function,
     ):
-
         self.params = params
         self.processing_function = processing_function
 

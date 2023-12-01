@@ -256,7 +256,6 @@ def _process_block(
     first_rows = [*range(0, len(spi_rows), params.drought_period)]
 
     for period_number, first_row in enumerate(first_rows):
-
         if (first_row + params.drought_period - 1) > len(spi_rows):
             last_row = len(spi_rows)
         else:
@@ -420,7 +419,6 @@ def _get_cell_areas(y, lat, win_y_size, image_info):
 
 
 def _process_line(line_params: LineParams):
-
     mask_ds = gdal.Open(line_params.params.mask_file)
     mask_band = mask_ds.GetRasterBand(1)
     src_ds = gdal.Open(str(line_params.params.in_df.path))
@@ -1077,14 +1075,12 @@ def _get_population_list_by_drought_class(pop_by_drought, pop_type):
 def save_reporting_json(
     output_path: Path, st: SummaryTableDrought, params: dict, task_name: str, aoi: AOI
 ):
-
     drought_tier_one = {}
     drought_tier_two = {}
 
     for n, year in enumerate(
         range(int(params["layer_spi_years"][0]), int(params["layer_spi_years"][-1]) + 1)
     ):
-
         total_land_area = sum(
             [
                 value
@@ -1218,7 +1214,6 @@ def _get_col_for_drought_class(annual_values_by_drought, drought_code):
 
 
 def _write_dvi_sheet(sheet, st: SummaryTableDrought, years):
-
     # Make this more informative when fuller DVI calculations are available...
     cell = sheet.cell(6, 2)
     cell.value = 2018
