@@ -56,7 +56,6 @@ logger = logging.getLogger(__name__)
 def _accumulate_ld_summary_tables(
     tables: List[models.SummaryTableLD],
 ) -> models.SummaryTableLD:
-
     if len(tables) == 1:
         return tables[0]
 
@@ -501,7 +500,6 @@ def _process_block_summary(
     yoff: int,
     cell_areas_raw,
 ) -> Tuple[models.SummaryTableLD, Dict]:
-
     # Create the key used to recode lc classes from raw codes to ordinal codes,
     # needed for transition calculations
     class_codes = sorted([c.code for c in params.nesting.child.key])
@@ -970,7 +968,6 @@ class SummarizeTileInputs:
 
 
 def _summarize_tile(inputs: SummarizeTileInputs):
-
     error_message = None
     logger.info("Processing tile %s", inputs.in_file)
 
