@@ -150,9 +150,9 @@ def calc_prod5(traj, state, perf):
     x[(traj == 0) & (state == -1) & (perf == -1)] = 1
 
     # Ensure NAs carry over to productivity indicator layer
-    x[
-        (traj == NODATA_VALUE) | (perf == NODATA_VALUE) | (state == NODATA_VALUE)
-    ] = NODATA_VALUE
+    x[(traj == NODATA_VALUE) | (perf == NODATA_VALUE) | (state == NODATA_VALUE)] = (
+        NODATA_VALUE
+    )
 
     return np.reshape(x, shp)
 
