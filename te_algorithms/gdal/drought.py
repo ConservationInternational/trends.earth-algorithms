@@ -1122,17 +1122,17 @@ def save_reporting_json(
         }
 
         if len(st.annual_population_by_drought_class_male) > 0:
-            drought_tier_two[year][
-                "Male population"
-            ] = _get_population_list_by_drought_class(
-                st.annual_population_by_drought_class_male[n], "Male population"
+            drought_tier_two[year]["Male population"] = (
+                _get_population_list_by_drought_class(
+                    st.annual_population_by_drought_class_male[n], "Male population"
+                )
             )
 
         if len(st.annual_population_by_drought_class_female) > 0:
-            drought_tier_two[year][
-                "Female population"
-            ] = _get_population_list_by_drought_class(
-                st.annual_population_by_drought_class_female[n], "Female population"
+            drought_tier_two[year]["Female population"] = (
+                _get_population_list_by_drought_class(
+                    st.annual_population_by_drought_class_female[n], "Female population"
+                )
             )
 
     if st.dvi_value_sum_and_count[1] == 0:

@@ -351,17 +351,17 @@ def save_reporting_json(
         }
 
         if len(st.sdg_zonal_population_female) > 0:
-            affected_by_deg_summary[
-                "Female population"
-            ] = _get_population_list_by_degradation_class(
-                st.sdg_zonal_population_female, "Female population"
+            affected_by_deg_summary["Female population"] = (
+                _get_population_list_by_degradation_class(
+                    st.sdg_zonal_population_female, "Female population"
+                )
             )
 
         if len(st.sdg_zonal_population_male) > 0:
-            affected_by_deg_summary[
-                "Male population"
-            ] = _get_population_list_by_degradation_class(
-                st.sdg_zonal_population_male, "Male population"
+            affected_by_deg_summary["Male population"] = (
+                _get_population_list_by_degradation_class(
+                    st.sdg_zonal_population_male, "Male population"
+                )
             )
 
         affected_pop_reports[period_name] = reporting.AffectedPopulationReport(
