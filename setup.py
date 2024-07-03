@@ -7,7 +7,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setup(
     name="te_algorithms",
-    version="2.0.1",
+    version="2.1.15",
     description="Library supporting analysis of land degradation.",
     long_description=long_description,
     url="https://github.com/ConservationInternational/trends.earth-algorithms",
@@ -37,12 +37,12 @@ setup(
     package_data={"te_algorithms": ["version.json", "data/*"]},
     include_package_data=True,
     install_requires=[
-        "openpyxl>=3.0.10",
+        "openpyxl>=3.1.3",
         "backoff>=2.1.0",
-        "marshmallow>=3.18.0",
-        "marshmallow-dataclass[enum, union]==8.5.10",
+        "marshmallow>=3.21.3",
+        "marshmallow-dataclass[enum, union]==8.7.0",
         "defusedxml>=0.7.1",
-        "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@v2.1.14",
+        "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop",
     ],
     extras_require={
         "api": ["boto3>=1.16", "GDAL>=3.0.0"],

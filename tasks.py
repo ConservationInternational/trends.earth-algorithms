@@ -138,7 +138,9 @@ def set_version(c, v=None, tag=False):
 
         # Set in setup.py
         print("Setting version to {} in setup.py".format(v))
-        setup_regex = re.compile("^([ ]*version=[ ]*')[0-9]+([.][0-9]+)+(rc[0-9]*)?")
+        setup_regex = re.compile(
+            "^([ ]*version=[ ]*['\"])[0-9]+([.][0-9]+)+(rc[0-9]*)?"
+        )
         _replace("setup.py", setup_regex, r"\g<1>" + v)
 
         setup_install_requires_schemas_regex = re.compile(
