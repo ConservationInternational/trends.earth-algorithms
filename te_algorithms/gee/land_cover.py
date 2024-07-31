@@ -19,7 +19,7 @@ def land_cover(
     logger.debug("Entering land_cover function.")
 
     # Land cover
-    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2020")
+    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
@@ -44,9 +44,6 @@ def land_cover(
     # compute transition map (first digit for baseline land cover, and second
     # digit for target year land cover)
     lc_tr = lc_bl.multiply(esa_to_custom_nesting.parent.get_multiplier()).add(lc_tg)
-    lc_tr_pre_remap = lc_bl.multiply(esa_to_custom_nesting.parent.get_multiplier()).add(
-        lc_tg
-    )
 
     # definition of land cover transitions as degradation (-1), improvement
     # (1), or no relevant change (0)

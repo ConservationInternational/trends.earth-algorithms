@@ -185,7 +185,7 @@ def productivity_trajectory(
     climate_1yr = climate_1yr.where(climate_1yr.eq(9999), -32768)
     climate_1yr = climate_1yr.updateMask(climate_1yr.neq(-32768))
 
-    if climate_asset == None and method != "ndvi_trend":
+    if climate_asset is None and method != "ndvi_trend":
         raise GEEIOError("Must specify a climate dataset")
 
     ndvi_dataset = ee.Image(prod_asset)
@@ -371,7 +371,7 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
 
     # define modis projection attributes
     modis_proj = ee.Image(
-        "users/geflanddegradation/toolbox_datasets/ndvi_modis_2001_2020"
+        "users/geflanddegradation/toolbox_datasets/ndvi_modis_2001_2023"
     ).projection()
 
     # reproject land cover, soil_tax_usda and avhrr to modis resolution
