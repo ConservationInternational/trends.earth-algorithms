@@ -257,7 +257,7 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
     ndvi_1yr = ndvi_1yr.updateMask(ndvi_1yr.neq(-32768))
 
     # land cover data from esa cci
-    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2020")
+    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
