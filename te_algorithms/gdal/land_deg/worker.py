@@ -3,13 +3,11 @@ import os
 from typing import Union
 
 import numpy as np
-from osgeo import gdal
-from osgeo import osr
+from osgeo import gdal, osr
 
-from . import config
-from . import models
 from .. import util
 from ..util_numba import calc_cell_area
+from . import config, models
 
 logger = logging.getLogger(__name__)
 

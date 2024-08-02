@@ -3,13 +3,12 @@ import logging
 from typing import Dict
 
 import numpy as np
-from osgeo import gdal
-from osgeo import ogr
+from osgeo import gdal, ogr
 from te_schemas.jobs import Job
 from te_schemas.results import JsonResults
 
-from . import config
 from ..util_numba import calc_cell_area
+from . import config
 
 logger = logging.getLogger(__name__)
 

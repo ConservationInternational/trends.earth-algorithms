@@ -1,9 +1,6 @@
 import logging
 import tempfile
-from typing import Callable
-from typing import Dict
-from typing import List
-from typing import Tuple
+from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 from osgeo import gdal
@@ -12,17 +9,16 @@ from te_schemas.land_cover import LCLegendNesting
 from te_schemas.productivity import ProductivityMode
 from te_schemas.results import Band
 
-from . import config
-from . import models
-from . import worker
-from .. import util
-from .. import workers
+from .. import util, workers
 from ..util_numba import zonal_total
-from .land_deg_numba import calc_deg_lc
-from .land_deg_numba import calc_deg_sdg
-from .land_deg_numba import calc_progress_lc_deg
-from .land_deg_numba import calc_soc_pch
-from .land_deg_numba import recode_deg_soc
+from . import config, models, worker
+from .land_deg_numba import (
+    calc_deg_lc,
+    calc_deg_sdg,
+    calc_progress_lc_deg,
+    calc_soc_pch,
+    recode_deg_soc,
+)
 
 logger = logging.getLogger(__name__)
 

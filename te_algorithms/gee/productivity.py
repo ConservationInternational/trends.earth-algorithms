@@ -1,8 +1,7 @@
 import ee
 from te_schemas.schemas import BandInfo
 
-from . import GEEIOError
-from . import stats
+from . import GEEIOError, stats
 from .util import TEImage
 
 

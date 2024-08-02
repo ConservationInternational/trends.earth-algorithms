@@ -1,12 +1,10 @@
 import ee
-from te_schemas.results import Band
-from te_schemas.results import DataType
+from te_schemas.results import Band, DataType
 from te_schemas.schemas import BandInfo
 
-from .util import GEEImage
-from .util import TEImage
-from .util import TEImageV2
 from te_algorithms.gee.util import teimage_v1_to_teimage_v2
+
+from .util import GEEImage, TEImage, TEImageV2
 
 
 def _download_default(

@@ -12,22 +12,17 @@ import typing
 import unicodedata
 import uuid
 from copy import deepcopy
-from pathlib import Path
-from pathlib import PurePosixPath
-from typing import Dict
-from typing import List
-from urllib.parse import unquote
-from urllib.parse import urlparse
+from pathlib import Path, PurePosixPath
+from typing import Dict, List
+from urllib.parse import unquote, urlparse
 
 import boto3
 import botocore
 import requests
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
-from osgeo import gdal
-from osgeo import ogr
-from te_schemas import jobs
-from te_schemas import results
+from osgeo import gdal, ogr
+from te_schemas import jobs, results
 
 from te_algorithms.gdal.util import combine_all_bands_into_vrt
 

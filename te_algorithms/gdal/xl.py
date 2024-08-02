@@ -1,10 +1,8 @@
 from pathlib import Path
 
 from numpy import ndarray
-from openpyxl.styles import Alignment
-from openpyxl.styles import Font
-from openpyxl.styles.borders import Border
-from openpyxl.styles.borders import Side
+from openpyxl.styles import Alignment, Font
+from openpyxl.styles.borders import Border, Side
 
 
 def maybe_add_image_to_sheet(image_filename: str, sheet, place="H1"):

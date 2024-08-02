@@ -2,24 +2,17 @@ import datetime as dt
 import json
 import logging
 from pathlib import Path
-from typing import List
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 import numpy as np
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment
-from openpyxl.styles import Font
-from openpyxl.styles import numbers
+from openpyxl.styles import Alignment, Font, numbers
 from openpyxl.utils.cell import get_column_letter
-from te_schemas import land_cover
-from te_schemas import reporting
-from te_schemas import schemas
+from te_schemas import land_cover, reporting, schemas
 
-from . import config
-from . import models
+from ... import __release_date__, __version__
 from .. import xl
-from ... import __release_date__
-from ... import __version__
+from . import config, models
 
 if TYPE_CHECKING:
     from te_schemas.aoi import AOI

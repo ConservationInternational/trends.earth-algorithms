@@ -5,12 +5,10 @@ import shutil
 import stat
 import subprocess
 import sys
-from datetime import datetime
-from datetime import timezone
+from datetime import datetime, timezone
 from tempfile import mkstemp
 
-from invoke import Collection
-from invoke import task
+from invoke import Collection, task
 
 
 def query_yes_no(question, default="yes"):
