@@ -7,9 +7,7 @@ from typing import List
 
 import marshmallow_dataclass
 from defusedxml.ElementTree import parse
-from osgeo import gdal
-from osgeo import ogr
-from osgeo import osr
+from osgeo import gdal, ogr, osr
 
 from .util_numba import _accumulate_dicts
 
@@ -260,7 +258,7 @@ def accumulate_dicts(z):
     # allow to handle items that may be None (comes up with
     # lc_trans_prod_bizonal for example, when initial year of cover is not
     # available to match with productivity data)
-    z = [item for item in z if (item is not None and item is not {})]
+    z = [item for item in z if (item is not None and item != {})]
 
     if len(z) == 0:
         return {}

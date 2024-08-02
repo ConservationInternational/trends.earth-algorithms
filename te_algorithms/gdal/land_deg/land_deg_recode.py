@@ -1,10 +1,7 @@
 import logging
 import tempfile
 from pathlib import Path
-from typing import Callable
-from typing import Dict
-from typing import List
-from typing import Tuple
+from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 from osgeo import gdal
@@ -13,25 +10,23 @@ from te_schemas.aoi import AOI
 from te_schemas.datafile import DataFile
 from te_schemas.error_recode import ErrorRecodePolygons
 from te_schemas.jobs import Job
-from te_schemas.results import Band
-from te_schemas.results import CloudResults
-from te_schemas.results import DataType
-from te_schemas.results import JsonResults
-from te_schemas.results import Raster
-from te_schemas.results import RasterFileType
-from te_schemas.results import RasterResults
-from te_schemas.results import TiledRaster
-from te_schemas.results import URI
+from te_schemas.results import (
+    URI,
+    Band,
+    DataType,
+    JsonResults,
+    Raster,
+    RasterFileType,
+    RasterResults,
+    TiledRaster,
+)
 
-from . import config
 from .. import workers
-from ..util import accumulate_dicts
-from ..util import save_vrt
-from ..util import wkt_geom_to_geojson_file_string
+from ..util import accumulate_dicts, save_vrt, wkt_geom_to_geojson_file_string
 from ..util_numba import zonal_total
+from . import config
 from .land_deg_numba import recode_indicator_errors
-from .models import DegradationErrorRecodeSummaryParams
-from .models import SummaryTableLDErrorRecode
+from .models import DegradationErrorRecodeSummaryParams, SummaryTableLDErrorRecode
 from .worker import DegradationSummary
 
 logger = logging.getLogger(__name__)

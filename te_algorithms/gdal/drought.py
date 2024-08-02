@@ -7,36 +7,29 @@ import multiprocessing
 import tempfile
 from copy import deepcopy
 from pathlib import Path
-from typing import Callable
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import marshmallow_dataclass
 import numpy as np
 import openpyxl
+from drought_numba import drought_class, jrc_sum_and_count
 from osgeo import gdal
-from te_schemas import reporting
-from te_schemas import SchemaBase
-from te_schemas import schemas
+from te_schemas import SchemaBase, reporting, schemas
 from te_schemas.aoi import AOI
 from te_schemas.datafile import DataFile
 from te_schemas.jobs import Job
-from te_schemas.results import Band
-from te_schemas.results import DataType
-from te_schemas.results import Raster
-from te_schemas.results import RasterFileType
-from te_schemas.results import RasterResults
-from te_schemas.results import URI
+from te_schemas.results import (
+    URI,
+    Band,
+    DataType,
+    Raster,
+    RasterFileType,
+    RasterResults,
+)
+from util_numba import calc_cell_area, cast_numba_int_dict_list_to_cpython, zonal_total
 
-from . import util
-from . import workers
-from . import xl
-from .. import __release_date__
-from .. import __version__
-from .drought_numba import *
-from .util_numba import *
+from .. import __release_date__, __version__
+from . import util, workers, xl
 
 NODATA_VALUE = -32768
 MASK_VALUE = -32767
@@ -1178,10 +1171,10 @@ def save_reporting_json(
 
     except OSError:
         logger.error("Error saving {output_path}")
-        error_message = (
-            "Error saving indicator table JSON - check that "
-            f"{output_path} is accessible and not already open."
-        )
+        # error_message = (
+        #     "Error saving indicator table JSON - check that "
+        #     f"{output_path} is accessible and not already open."
+        # )
 
         return None
 
@@ -1192,11 +1185,9 @@ def _render_drought_workbook(
     _write_drought_area_sheet(
         template_workbook["Area under drought by year"], summary_table, years
     )
-
     _write_drought_pop_total_sheet(
         template_workbook["Pop under drought (total)"], summary_table, years
     )
-
     _write_dvi_sheet(
         template_workbook["Drought Vulnerability Index"], summary_table, years
     )

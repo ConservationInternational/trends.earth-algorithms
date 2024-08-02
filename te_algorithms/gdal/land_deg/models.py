@@ -1,15 +1,9 @@
 import dataclasses
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
+from typing import Dict, List, Optional, Tuple
 
 import marshmallow_dataclass
-from te_schemas import land_cover
-from te_schemas import SchemaBase
+from te_schemas import SchemaBase, land_cover
 from te_schemas.datafile import DataFile
-
-from .. import util_numba
 
 
 @marshmallow_dataclass.dataclass
