@@ -5,46 +5,37 @@ import logging
 import multiprocessing
 import tempfile
 from pathlib import Path
-from typing import Callable
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from osgeo import gdal
-from te_schemas.datafile import combine_data_files
-from te_schemas.datafile import DataFile
-from te_schemas.land_cover import LCLegendNesting
-from te_schemas.land_cover import LCTransitionDefinitionDeg
+from te_schemas.datafile import DataFile, combine_data_files
+from te_schemas.land_cover import LCLegendNesting, LCTransitionDefinitionDeg
 from te_schemas.productivity import ProductivityMode
-from te_schemas.results import Band
-from te_schemas.results import DataType
-from te_schemas.results import Raster
-from te_schemas.results import RasterFileType
-from te_schemas.results import RasterResults
-from te_schemas.results import URI
+from te_schemas.results import (
+    URI,
+    Band,
+    DataType,
+    Raster,
+    RasterFileType,
+    RasterResults,
+)
 
-from . import config
-from . import models
-from . import worker
-from .. import util
-from .. import workers
-from ..util_numba import bizonal_total
-from ..util_numba import zonal_total
-from ..util_numba import zonal_total_weighted
-from .land_deg_numba import calc_deg_sdg
-from .land_deg_numba import calc_lc_trans
-from .land_deg_numba import calc_prod5
-from .land_deg_numba import prod5_to_prod3
-from .land_deg_numba import recode_deg_soc
-from .land_deg_numba import recode_indicator_errors
-from .land_deg_numba import recode_state
-from .land_deg_numba import recode_traj
+from .. import util, workers
+from ..util_numba import bizonal_total, zonal_total, zonal_total_weighted
+from . import config, models, worker
+from .land_deg_numba import (
+    calc_deg_sdg,
+    calc_lc_trans,
+    calc_prod5,
+    prod5_to_prod3,
+    recode_deg_soc,
+    recode_indicator_errors,
+    recode_state,
+    recode_traj,
+)
 from .land_deg_progress import compute_progress_summary
-from .land_deg_report import save_reporting_json
-from .land_deg_report import save_summary_table_excel
+from .land_deg_report import save_reporting_json, save_summary_table_excel
 
 if TYPE_CHECKING:
     from te_schemas.aoi import AOI
@@ -675,7 +666,10 @@ def _process_block_summary(
         a_soc = in_array[soc_row, :, :]
         soc_by_lc_annual_totals.append(
             zonal_total_weighted(
-                a_lc, a_soc, cell_areas * 100, mask  # from sq km to hectares
+                a_lc,
+                a_soc,
+                cell_areas * 100,
+                mask,  # from sq km to hectares
             )
         )
 

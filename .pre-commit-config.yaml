@@ -6,19 +6,9 @@ repos:
       - id: check-added-large-files
       # - id: pretty-format-json
       #   args: ["--autofix", "--no-sort-keys"]
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.5
     hooks:
-      - id: black
-  - repo: https://github.com/asottile/reorder-python-imports
-    rev: v3.13.0
-    hooks:
-    - id: reorder-python-imports
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.1.0
-    hooks:
-    - id: flake8
-  # - repo: https://github.com/jackdewinter/pymarkdown
-  #   rev: v0.9.8
-  #   hooks:
-  #     - id: pymarkdown
+      - id: ruff
+        args: ["check", "--select", "I", "--fix"]
+      - id: ruff-format
