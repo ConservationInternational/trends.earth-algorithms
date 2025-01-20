@@ -219,7 +219,7 @@ def get_job_json_from_s3(
         Bucket=s3_bucket,
         Prefix=s3_prefix,
     )
-    logger.info(f"Looking in bucket {s3_bucket} " f"for key prefix: {s3_prefix}")
+    logger.info(f"Looking in bucket {s3_bucket} for key prefix: {s3_prefix}")
 
     logger.debug(f"objects {objects}")
 
@@ -265,7 +265,7 @@ def _write_subregion_cogs(
 
     for index, bounding_box in enumerate(bounding_boxes):
         this_suffix = (
-            suffix + f'{("_" + piece_labels[index]) if len(bounding_boxes) > 1 else ""}'
+            suffix + f"{('_' + piece_labels[index]) if len(bounding_boxes) > 1 else ''}"
         )
 
         temp_vrt_local_path = Path(temp_dir) / (
