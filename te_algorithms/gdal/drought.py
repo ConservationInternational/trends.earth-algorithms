@@ -521,7 +521,7 @@ class DroughtSummary:
         lat = src_gt[3]
 
         logger.debug(
-            "getting line params for image with xsize " "%s, and ysize %s",
+            "getting line params for image with xsize %s, and ysize %s",
             src_ds.RasterXSize,
             src_ds.RasterYSize,
         )
@@ -926,7 +926,7 @@ def _summarize_tile(tile_input):
         )
 
         logger.info(
-            "Calculating summary table and saving " f"rasters to {tile_input.out_file}"
+            f"Calculating summary table and saving rasters to {tile_input.out_file}"
         )
 
         if tile_input.drought_worker_function:
@@ -940,7 +940,7 @@ def _summarize_tile(tile_input):
         if not result:
             if result.is_killed():
                 error_message = (
-                    "Cancelled calculation of summary " f"table for {tile_input.tile}."
+                    f"Cancelled calculation of summary table for {tile_input.tile}."
                 )
             else:
                 error_message = (

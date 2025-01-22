@@ -244,7 +244,7 @@ def save_reporting_json(
 
             for lc_class in lc_trans_matrix.legend.key:
                 logging.debug(
-                    f"Total area of {lc_class.get_name()} in {year}: {st.lc_annual_totals[year_num].get(lc_class.code, 0.)}"
+                    f"Total area of {lc_class.get_name()} in {year}: {st.lc_annual_totals[year_num].get(lc_class.code, 0.0)}"
                 )
 
             lc_by_year[int(year)] = {
@@ -883,7 +883,7 @@ def _write_land_cover_sheet(
             if cell.column == 3:
                 # Initial area column
                 cell.value = (
-                    f"={get_column_letter(cell.column+len(classes))}"
+                    f"={get_column_letter(cell.column + len(classes))}"
                     + f"{cell.offset(row=12 + n_new_rows_per_table).row}"
                 )
                 cell.number_format = "#,##0.00"
@@ -892,7 +892,7 @@ def _write_land_cover_sheet(
                 col_letter = cell.offset(
                     column=cell.row - first_data_row - 1
                 ).column_letter
-                cell.value = f"={col_letter}{33 + n_new_rows_per_table*2}"
+                cell.value = f"={col_letter}{33 + n_new_rows_per_table * 2}"
                 cell.number_format = "#,##0.00"
             elif cell.column == 5:
                 # Change in area column

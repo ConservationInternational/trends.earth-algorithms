@@ -293,7 +293,7 @@ class CutTiles:
     def progress_callback(self, fraction, message, callback_data):
         logger.info(
             "%s - %.2f%%",
-            f"Splitting {callback_data[0]} into tile " f"{callback_data[1]}",
+            f"Splitting {callback_data[0]} into tile {callback_data[1]}",
             100 * fraction,
         )
 

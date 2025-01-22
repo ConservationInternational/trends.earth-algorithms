@@ -225,7 +225,7 @@ class TEImage:
         if len(self.band_info) != len(self.image.getInfo()["bands"]):
             raise GEEImageError(
                 f"Band info length ({len(self.band_info)}) does not match "
-                f'number of bands in image ({self.image.getInfo()["bands"]})'
+                f"number of bands in image ({self.image.getInfo()['bands']})"
             )
 
     def merge(self, other):
@@ -336,7 +336,7 @@ class GEEImage:
             raise GEEImageError(
                 f"Band info length ({len(self.bands)}) "
                 "does not match number of bands in image "
-                f'({self.image.getInfo()["bands"]})'
+                f"({self.image.getInfo()['bands']})"
             )
 
     def merge(self, other):

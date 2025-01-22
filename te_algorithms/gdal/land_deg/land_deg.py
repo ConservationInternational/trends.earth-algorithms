@@ -993,7 +993,7 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         n_out_bands = 2  # 1 band for SDG, and 1 band for total pop affected
 
         if _have_pop_by_sex(inputs.in_dfs):
-            logger.info("Have population broken down by sex - " "adding 2 output bands")
+            logger.info("Have population broken down by sex - adding 2 output bands")
             n_out_bands += 2
 
         if inputs.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
