@@ -14,7 +14,6 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     if fake_data is set to True and the year_final is outside of the range of
     the land cover image stack.
     """
-    logger.warn(f"fake_data is set to {fake_data}")
     if not fake_data:
         return ee.Image(
             "users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022"
@@ -29,6 +28,9 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
         ):
             # Can only go up to index 30 as there are 31 bands (1992-2022), and zero-based indexing
             if index <= 30 or not fake_data:
+                logger.warn(
+                    f"Selecting band {index} for year {lc_band0_year + index} from land cover asset."
+                )
                 img = img.addBands(lc.select(index))
             else:
                 logger.warn(
