@@ -64,13 +64,9 @@ def soc(
 
     # land cover - note it needs to be reprojected to match soc so that it can
     # be output to cloud storage in the same stack
-    lc = (
-        ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
-        .select(
-            _get_lc_indices(soc_t0_year, lc_band0_year, year_final, fake_data, logger)
-        )
-        .reproject(crs=soc.projection())
-    )
+    lc = _select_lc(
+        soc_t0_year, lc_band0_year, year_final, fake_data, logger
+    ).reproject(crs=soc.projection())
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
