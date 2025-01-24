@@ -1,7 +1,25 @@
 import ee
+from ee.ee_exception import EEException
 from te_schemas.schemas import BandInfo
 
 from .util import TEImage
+
+
+def _select_lc(lc, year, logger):
+    try:
+        image = lc.select("y{}".format(year))
+    except EEException:
+        if year < 1992:
+            image = lc.select("y1992")
+            logger.warning(
+                f"Could not select year {year} from land cover asset. Returning data from 1992."
+            )
+        elif year > 2022:
+            image = lc.select("y2022")
+            logger.warning(
+                f"Could not select year {year} from land cover asset. Returning data from 2022."
+            )
+    return image
 
 
 def land_cover(
@@ -12,6 +30,7 @@ def land_cover(
     ipcc_nesting,  # defines how custom classes nest to IPCC
     additional_years,  # allows including years of lc outside of period
     logger,
+    fake_data=False,  # return data from closest available year if year is outside of range
 ):
     """
     Calculate land cover indicator.
@@ -23,6 +42,9 @@ def land_cover(
     lc = lc.where(lc.eq(9999), -32768)
     lc = lc.updateMask(lc.neq(-32768))
 
+    lc_initial = _select_lc(lc, year_initial, logger)
+    lc_final = _select_lc(lc, year_final, logger)
+
     # Transition codes are based on the class code indices (i.e. their order when
     # sorted by class code) - not the class codes themselves. So need to reclass
     # the land cover used for the transition calculations from the raw class codes
@@ -30,16 +52,12 @@ def land_cover(
     # reclassified initial and final layers to the IPCC (or custom) classes.
     class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
     class_positions = [*range(1, len(class_codes) + 1)]
-    lc_bl = (
-        lc.select("y{}".format(year_initial))
-        .remap(esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1])
-        .remap(class_codes, class_positions)
-    )
-    lc_tg = (
-        lc.select("y{}".format(year_final))
-        .remap(esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1])
-        .remap(class_codes, class_positions)
-    )
+    lc_bl = lc_initial.remap(
+        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
+    ).remap(class_codes, class_positions)
+    lc_tg = lc_final.remap(
+        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
+    ).remap(class_codes, class_positions)
 
     # compute transition map (first digit for baseline land cover, and second
     # digit for target year land cover)
@@ -58,12 +76,8 @@ def land_cover(
     ).rename(f"Land_cover_transitions_{year_initial}-{year_final}")
 
     logger.debug("Setting up output.")
-    lc_baseline_esa = lc.select("y{}".format(year_initial)).rename(
-        f"Land_cover_{year_initial}"
-    )
-    lc_target_esa = lc.select("y{}".format(year_final)).rename(
-        f"Land_cover_{year_final}"
-    )
+    lc_baseline_esa = lc_initial.rename(f"Land_cover_{year_initial}")
+    lc_target_esa = lc_final.rename(f"Land_cover_{year_final}")
     out = TEImage(
         lc_dg.addBands(lc_baseline_esa).addBands(lc_target_esa).addBands(lc_tr),
         [
@@ -104,7 +118,7 @@ def land_cover(
     logger.debug("Adding annual lc layers.")
     years = [*range(year_initial, year_final + 1)] + additional_years
     years = list(set(years))
-    lc_remapped = lc.select("y{}".format(years[0])).remap(
+    lc_remapped = _select_lc(lc, years[0], logger).remap(
         esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
     )
     d_lc = [
@@ -116,7 +130,7 @@ def land_cover(
     ]
     for year in years[1:]:
         lc_remapped = lc_remapped.addBands(
-            lc.select("y{}".format(year)).remap(
+            _select_lc(lc, year, logger).remap(
                 esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
             )
         )
