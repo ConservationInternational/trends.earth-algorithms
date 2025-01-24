@@ -4,6 +4,75 @@ from te_schemas.schemas import BandInfo
 from ..common.soc import trans_factors_for_custom_legend
 from .util import TEImage
 
+# stock change factor for management regime
+# fmt: off
+SOC_CHANGE_FACTOR_FOR_MANAGEMENT = (
+    [
+        11, 12, 13, 14, 15, 16, 17,
+        21, 22, 23, 24, 25, 26, 27,
+        31, 32, 33, 34, 35, 36, 37,
+        41, 42, 43, 44, 45, 46, 47,
+        51, 52, 53, 54, 55, 56, 57,
+        61, 62, 63, 64, 65, 66, 67,
+        71, 72, 73, 74, 75, 76, 77,
+    ],
+    [
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+    ],
+)
+
+# stock change factor for input of organic matter
+SOC_CHANGE_FACTOR_FOR_ORGANIC_MATTER = (
+    [
+        11, 12, 13, 14, 15, 16, 17,
+        21, 22, 23, 24, 25, 26, 27,
+        31, 32, 33, 34, 35, 36, 37,
+        41, 42, 43, 44, 45, 46, 47,
+        51, 52, 53, 54, 55, 56, 57,
+        61, 62, 63, 64, 65, 66, 67,
+        71, 72, 73, 74, 75, 76, 77,
+    ],
+    [
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+    ],
+)
+
+# stock change factor for land use - note the 99 and -99 will be
+# recoded using the chosen Fl option
+SOC_CHANGE_FACTOR_FOR_LAND_USE = (
+    [
+        11, 12, 13, 14, 15, 16, 17,
+        21, 22, 23, 24, 25, 26, 27,
+        31, 32, 33, 34, 35, 36, 37,
+        41, 42, 43, 44, 45, 46, 47,
+        51, 52, 53, 54, 55, 56, 57,
+        61, 62, 63, 64, 65, 66, 67,
+        71, 72, 73, 74, 75, 76, 77,
+    ],
+    [
+        1, 1, 99, 1, 0.1, 0.1, 1,
+        1, 1, 99, 1, 0.1, 0.1, 1,
+        -99, -99, 1, 1 / 0.71, 0.1, 0.1, 1,
+        1, 1, 0.71, 1, 0.1, 0.1, 1,
+        2, 2, 2, 2, 1, 1, 1,
+        2, 2, 2, 2, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1,
+    ],
+)
+# fmt: on
+
 
 def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     """
@@ -94,7 +163,7 @@ def soc(
     class_positions = [*range(1, len(class_codes) + 1)]
     # The minus 1 is to account for the fact that you can only calculate n - 1 land cover
     # change layers if n is the number of land cover layers you have
-    for k in range(year_final - soc_t0_year - 1):
+    for k in range(year_final - soc_t0_year):
         logger.info(
             f"Comparing lc band {k} with band {k + 1} for years {soc_t0_year + k} and {soc_t0_year + k + 1}."
         )
@@ -132,33 +201,9 @@ def soc(
             lc_tr_temp = lc_t0.multiply(10).add(lc_t1)
             lc_tr = lc_tr.where(lc_t0.neq(lc_t1), lc_tr_temp)
 
-        # stock change factor for land use - note the 99 and -99 will be
-        # recoded using the chosen Fl option
-        # fmt: off
-        soc_change_factor_for_land_use = (
-            [
-                11, 12, 13, 14, 15, 16, 17,
-                21, 22, 23, 24, 25, 26, 27,
-                31, 32, 33, 34, 35, 36, 37,
-                41, 42, 43, 44, 45, 46, 47,
-                51, 52, 53, 54, 55, 56, 57,
-                61, 62, 63, 64, 65, 66, 67,
-                71, 72, 73, 74, 75, 76, 77,
-            ],
-            [
-                1, 1, 99, 1, 0.1, 0.1, 1,
-                1, 1, 99, 1, 0.1, 0.1, 1,
-                -99, -99, 1, 1 / 0.71, 0.1, 0.1, 1,
-                1, 1, 0.71, 1, 0.1, 0.1, 1,
-                2, 2, 2, 2, 1, 1, 1,
-                2, 2, 2, 2, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-            ],
-        )
-        # fmt: on
-        # Covnert lc_tr_fl_0 (defined against IPCC legend)
+        # Convert lc_tr_fl_0 (defined against IPCC legend)
         soc_change_factor_for_land_use = trans_factors_for_custom_legend(
-            soc_change_factor_for_land_use, ipcc_nesting
+            SOC_CHANGE_FACTOR_FOR_LAND_USE, ipcc_nesting
         )
         lc_tr_fl_0 = lc_tr.remap(*soc_change_factor_for_land_use)
 
@@ -171,59 +216,13 @@ def soc(
                 lc_tr_fl_0.eq(-99), ee.Image(1).divide(fl)
             )
 
-        # stock change factor for management regime
-        # fmt: off
-        soc_change_factor_for_management = (
-            [
-                11, 12, 13, 14, 15, 16, 17,
-                21, 22, 23, 24, 25, 26, 27,
-                31, 32, 33, 34, 35, 36, 37,
-                41, 42, 43, 44, 45, 46, 47,
-                51, 52, 53, 54, 55, 56, 57,
-                61, 62, 63, 64, 65, 66, 67,
-                71, 72, 73, 74, 75, 76, 77,
-            ],
-            [
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-            ],
-        )
-        # fmt: on
         soc_change_factor_for_management = trans_factors_for_custom_legend(
-            soc_change_factor_for_management, ipcc_nesting
+            SOC_CHANGE_FACTOR_FOR_MANAGEMENT, ipcc_nesting
         )
         lc_tr_fm = lc_tr.remap(*soc_change_factor_for_management)
 
-        # stock change factor for input of organic matter
-        # fmt: off
-        soc_change_factor_for_organic_matter = (
-            [
-                11, 12, 13, 14, 15, 16, 17,
-                21, 22, 23, 24, 25, 26, 27,
-                31, 32, 33, 34, 35, 36, 37,
-                41, 42, 43, 44, 45, 46, 47,
-                51, 52, 53, 54, 55, 56, 57,
-                61, 62, 63, 64, 65, 66, 67,
-                71, 72, 73, 74, 75, 76, 77,
-            ],
-            [
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1,
-            ],
-        )
-        # fmt: on
         soc_change_factor_for_organic_matter = trans_factors_for_custom_legend(
-            soc_change_factor_for_organic_matter, ipcc_nesting
+            SOC_CHANGE_FACTOR_FOR_ORGANIC_MATTER, ipcc_nesting
         )
         lc_tr_fo = lc_tr.remap(*soc_change_factor_for_organic_matter)
 
