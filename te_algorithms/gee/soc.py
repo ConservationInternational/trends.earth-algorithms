@@ -5,6 +5,29 @@ from ..common.soc import trans_factors_for_custom_legend
 from .util import TEImage
 
 
+def _get_lc_indices(soc_t0_year, lc_band0_year, year_final, fake_data):
+    """
+    Get the indices for the land cover bands.
+
+    This function is used to get the indices for the land cover bands in the
+    land cover image stack. It allows for repeating the final land cover layer
+    if fake_data is set to True and the year_final is outside of the range of
+    the land cover image stack.
+    """
+    if not fake_data:
+        indices = ee.List.sequence(
+            soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1
+        )
+    else:
+        indices = []
+        for index in range(soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1):
+            if index < 31:
+                indices.append(index)
+            else:
+                indices.append(31)
+    return indices
+
+
 def soc(
     year_initial,
     year_final,
@@ -14,6 +37,7 @@ def soc(
     ipcc_nesting,  # defines how custom classes nest to IPCC
     dl_annual_lc,
     logger,
+    fake_data=False,  # return data from closest available year if year is outside of range
 ):
     """Calculate SOC indicator."""
     logger.debug("Entering soc function.")
@@ -32,9 +56,7 @@ def soc(
     # be output to cloud storage in the same stack
     lc = (
         ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
-        .select(
-            ee.List.sequence(soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1)
-        )
+        .select(_get_lc_indices(soc_t0_year, lc_band0_year, year_final, fake_data))
         .reproject(crs=soc.projection())
     )
     lc = lc.where(lc.eq(9999), -32768)
