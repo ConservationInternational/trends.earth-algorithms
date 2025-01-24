@@ -163,7 +163,7 @@ def soc(
     class_positions = [*range(1, len(class_codes) + 1)]
     # The minus 1 is to account for the fact that you can only calculate n - 1 land cover
     # change layers if n is the number of land cover layers you have
-    for k in range(year_final - soc_t0_year):
+    for k in range(year_final - soc_t0_year - 1):
         logger.info(
             f"Comparing lc band {k} with band {k + 1} for years {soc_t0_year + k} and {soc_t0_year + k + 1}."
         )
