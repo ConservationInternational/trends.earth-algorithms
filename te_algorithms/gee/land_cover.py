@@ -8,15 +8,16 @@ from .util import TEImage
 def _select_lc(lc, year, logger):
     try:
         image = lc.select("y{}".format(year))
+        image.getInfo()
     except EEException:
         if year < 1992:
             image = lc.select("y1992")
-            logger.warning(
+            logger.warn(
                 f"Could not select year {year} from land cover asset. Returning data from 1992."
             )
         elif year > 2022:
             image = lc.select("y2022")
-            logger.warning(
+            logger.warn(
                 f"Could not select year {year} from land cover asset. Returning data from 2022."
             )
     return image
