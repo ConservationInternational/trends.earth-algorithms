@@ -265,6 +265,9 @@ def soc(
             stack_soc = stack_soc.addBands(socn)
 
     # compute soc percent change for the analysis period
+    logger.debug(f"stack_lc band names are: {stack_soc.bandNames().getInfo()}")
+    logger.debug(f"stack_soc band names are: {stack_soc.bandNames().getInfo()}")
+    logger.debug(f"year_final is: {year_final}, and soc_t0_year is: {soc_t0_year}")
     soc_pch = (
         (
             (
