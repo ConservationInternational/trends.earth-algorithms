@@ -92,7 +92,9 @@ def soc(
 
     class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
     class_positions = [*range(1, len(class_codes) + 1)]
-    for k in range(year_final - soc_t0_year):
+    # The minus 1 is to account for the fact that you can only calculate n - 1 land cover
+    # change layers if n is the number of land cover layers you have
+    for k in range(year_final - soc_t0_year - 1):
         logger.info(f"Selecting band {k} for year {soc_t0_year + k} from lc image.")
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
