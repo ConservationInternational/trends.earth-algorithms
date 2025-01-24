@@ -5,14 +5,6 @@ from ..common.soc import trans_factors_for_custom_legend
 from .util import TEImage
 
 
-def _lc_index(index, fake_data):
-    # note limit is 22 because the land cover asset only goes up to 2022 and soc_t0_year is 2000
-    if index <= 22 or not fake_data:
-        return index
-    else:
-        return 22
-
-
 def _get_lc_indices(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     """
     Get the indices for the land cover bands.
@@ -100,12 +92,12 @@ def soc(
     for k in range(year_final - soc_t0_year):
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
-        lc_t0_orig_coding = lc.select(_lc_index(k, fake_data)).remap(
+        lc_t0_orig_coding = lc.select(k).remap(
             esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
         )
         lc_t0 = lc_t0_orig_coding.remap(class_codes, class_positions)
 
-        lc_t1_orig_coding = lc.select(_lc_index(k + 1, fake_data)).remap(
+        lc_t1_orig_coding = lc.select(k + 1).remap(
             esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
         )
         lc_t1 = lc_t1_orig_coding.remap(class_codes, class_positions)
@@ -325,10 +317,10 @@ def soc(
 
         for year in years:
             if year == years[0]:
-                lc_stack_out = stack_lc.select(_lc_index(year - soc_t0_year, fake_data))
+                lc_stack_out = stack_lc.select(year - soc_t0_year)
             else:
                 lc_stack_out = lc_stack_out.addBands(
-                    stack_lc.select(_lc_index(year - soc_t0_year, fake_data))
+                    stack_lc.select(year - soc_t0_year)
                 )
             d_lc.append(
                 BandInfo(
@@ -340,12 +332,12 @@ def soc(
         out.addBands(lc_stack_out, d_lc)
     else:
         logger.debug("Adding initial and final LC layers.")
-        lc_initial = stack_lc.select(
-            _lc_index(year_initial - soc_t0_year, fake_data)
-        ).rename(f"Land_cover_{year_initial}")
-        lc_final = stack_lc.select(
-            _lc_index(year_final - soc_t0_year, fake_data)
-        ).rename(f"Land_cover_{year_final}")
+        lc_initial = stack_lc.select(year_initial - soc_t0_year).rename(
+            f"Land_cover_{year_initial}"
+        )
+        lc_final = stack_lc.select(year_final - soc_t0_year).rename(
+            f"Land_cover_{year_final}"
+        )
         out.addBands(
             lc_initial.addBands(lc_final),
             [
