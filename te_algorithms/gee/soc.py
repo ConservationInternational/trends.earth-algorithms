@@ -6,10 +6,10 @@ from .util import TEImage
 
 
 def _lc_index(index, fake_data):
-    if index <= 31:
+    if index <= 30:
         return index
     else:
-        return 31
+        return 30
 
 
 def _get_lc_indices(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
@@ -28,14 +28,14 @@ def _get_lc_indices(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     else:
         indices = []
         for index in range(soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1):
-            if index <= 31:
+            if index <= 30:
                 indices.append(index)
             else:
                 logger.warn(
                     f"Could not select year {lc_band0_year + index} from land cover asset "
                     "for SOC calculations. Returning data from 2022."
                 )
-                indices.append(31)
+                indices.append(30)
     return indices
 
 
