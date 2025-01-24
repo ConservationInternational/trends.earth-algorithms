@@ -578,3 +578,58 @@ def productivity_state(
         .int16(),
         band_infos,
     )
+
+def productivity_faowocat(
+    low_bio_year, medium_bio_year, high_bio_year, years_interval,
+    modis_mode, prod_asset, logger
+):
+    logger.debug("Entering productivity_faowocat function.")
+
+    ndvi_dataset = ee.Image(prod_asset)
+    ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
+    ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
+
+    lf_trend, mk_trend = ndvi_trend(low_bio_year, high_bio_year, ndvi_dataset, logger)
+
+    period = years_interval
+    kendall90 = stats.get_kendall_coef(period, 90)
+    kendall95 = stats.get_kendall_coef(period, 95)
+    kendall99 = stats.get_kendall_coef(period, 99)
+
+    # TODO if modis mode is mankendall + mtid include mtid implementation
+
+    signif = (
+        ee.Image(-32768)
+        .where(lf_trend.select("scale").gt(0).And(mk_trend.abs().gte(kendall90)), 1)
+        .where(lf_trend.select("scale").gt(0).And(mk_trend.abs().gte(kendall95)), 2)
+        .where(lf_trend.select("scale").gt(0).And(mk_trend.abs().gte(kendall99)), 3)
+        .where(lf_trend.select("scale").lt(0).And(mk_trend.abs().gte(kendall90)), -1)
+        .where(lf_trend.select("scale").lt(0).And(mk_trend.abs().gte(kendall95)), -2)
+        .where(lf_trend.select("scale").lt(0).And(mk_trend.abs().gte(kendall99)), -3)
+        .where(mk_trend.abs().lte(kendall90), 0)
+        .where(lf_trend.select("scale").abs().lte(10), 0)
+    )
+    trend = lf_trend.select("scale").rename("Productivity_trend")
+    signif = signif.rename("Productivity_significance")
+    mk_trend = mk_trend.rename("Productivity_ann_mean")
+
+    return TEImage(
+        trend.addBands(signif).addBands(mk_trend).unmask(-32768).int16(),
+        [
+            BandInfo(
+                "Productivity trajectory (trend)",
+                metadata={"year_initial": low_bio_year, "year_final": high_bio_year},
+            ),
+            BandInfo(
+                "Productivity trajectory (significance)",
+                add_to_map=True,
+                metadata={"year_initial": low_bio_year, "year_final": high_bio_year},
+            ),
+            BandInfo(
+                "Mean annual NDVI integral",
+                metadata={"year_initial": low_bio_year, "year_final": high_bio_year},
+            ),
+        ],
+    )
+
+
