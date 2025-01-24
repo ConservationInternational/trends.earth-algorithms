@@ -1,7 +1,7 @@
 import ee
 from te_schemas.schemas import BandInfo
 
-from ..gdal.util import trans_factors_for_custom_legend
+from ..common.soc import trans_factors_for_custom_legend
 from .util import TEImage
 
 
