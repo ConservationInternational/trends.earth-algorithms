@@ -28,6 +28,7 @@ setup(
     keywords="land degradation LDN SDG sustainable development goals",
     packages=[
         "te_algorithms",
+        "te_algorithms.common",
         "te_algorithms.gdal.land_deg",
         "te_algorithms.gdal",
         "te_algorithms.gee",
