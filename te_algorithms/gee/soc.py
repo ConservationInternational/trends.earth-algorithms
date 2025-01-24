@@ -23,9 +23,7 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     else:
         lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
         img = lc.select(soc_t0_year - lc_band0_year)
-        for index in range(
-            soc_t0_year - lc_band0_year + 1, year_final - lc_band0_year, 1
-        ):
+        for index in range(soc_t0_year - lc_band0_year + 1, year_final - lc_band0_year):
             # Can only go up to index 30 as there are 31 bands (1992-2022), and zero-based indexing
             if index <= 30 or not fake_data:
                 logger.warn(
@@ -95,6 +93,7 @@ def soc(
     class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
     class_positions = [*range(1, len(class_codes) + 1)]
     for k in range(year_final - soc_t0_year):
+        logger.info(f"Selecting band {k} for year {soc_t0_year + k} from lc image.")
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
         lc_t0_orig_coding = lc.select(k).remap(
@@ -102,6 +101,9 @@ def soc(
         )
         lc_t0 = lc_t0_orig_coding.remap(class_codes, class_positions)
 
+        logger.info(
+            f"Selecting band {k + 1} for year {soc_t0_year + k + 1} from lc image."
+        )
         lc_t1_orig_coding = lc.select(k + 1).remap(
             esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
         )
