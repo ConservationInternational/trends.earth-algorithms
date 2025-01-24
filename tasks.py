@@ -152,7 +152,7 @@ def set_version(c, v=None, tag=False):
         else:
             # Last number in version string is odd, so this is a development
             # version, so use development version of schemas
-            _replace("setup.py", setup_install_requires_schemas_regex, r"\g<1>develop")
+            _replace("setup.py", setup_install_requires_schemas_regex, r"\g<1>master")
 
     if tag:
         set_tag(c)

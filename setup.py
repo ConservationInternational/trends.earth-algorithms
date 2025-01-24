@@ -42,7 +42,7 @@ setup(
         "marshmallow>=3.21.3",
         "marshmallow-dataclass[enum, union]==8.7.0",
         "defusedxml>=0.7.1",
-        "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@develop",
+        "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@master",
     ],
     extras_require={
         "api": ["boto3>=1.16", "GDAL>=3.0.0"],
