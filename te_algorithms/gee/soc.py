@@ -5,7 +5,7 @@ from ..common.soc import trans_factors_for_custom_legend
 from .util import TEImage
 
 
-def _get_lc_indices(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
+def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     """
     Get the indices for the land cover bands.
 
@@ -15,21 +15,27 @@ def _get_lc_indices(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     the land cover image stack.
     """
     if not fake_data:
-        indices = ee.List.sequence(
-            soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1
+        return ee.Image(
+            "users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022"
+        ).select(
+            ee.List.sequence(soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1)
         )
     else:
-        indices = []
-        for index in range(soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1):
-            if index <= 22 or not fake_data:
-                indices.append(index)
+        lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
+        img = lc.select(soc_t0_year - lc_band0_year)
+        for index in range(
+            soc_t0_year - lc_band0_year + 1, year_final - lc_band0_year, 1
+        ):
+            # Can only go up to index 30 as there are 31 bands (1992-2022), and zero-based indexing
+            if index <= 30 or not fake_data:
+                img = img.addBands(lc.select(index))
             else:
                 logger.warn(
                     f"Could not select year {lc_band0_year + index} from land cover asset "
                     "for SOC calculations. Returning data from 2022."
                 )
-                indices.append(22)
-    return indices
+                img = img.addBands(lc.select(index).rename(f"y{index + soc_t0_year}"))
+        return img
 
 
 def soc(
