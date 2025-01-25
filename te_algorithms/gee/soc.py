@@ -84,9 +84,11 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     the land cover image stack.
     """
     if not fake_data:
-        return ee.Image(
+        img = ee.Image(
             "users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022"
-        ).select(list(range(soc_t0_year - lc_band0_year, year_final - lc_band0_year)))
+        ).select(
+            list(range(soc_t0_year - lc_band0_year, year_final - lc_band0_year + 1))
+        )
     else:
         lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
         img = lc.select(soc_t0_year - lc_band0_year)
