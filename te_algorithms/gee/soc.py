@@ -97,9 +97,6 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
         ):
             # Can only go up to index 30 as there are 31 bands (1992-2022), and zero-based indexing
             if index <= 30 or not fake_data:
-                logger.warn(
-                    f"Selecting band {index} for year {lc_band0_year + index} from land cover asset."
-                )
                 img = img.addBands(lc.select(index))
             else:
                 logger.warn(
@@ -108,7 +105,7 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
                 )
                 img = img.addBands(lc.select(30).rename(f"y{index + lc_band0_year}"))
         logger.info(f"_select_lc img band names are: {img.bandNames().getInfo()}")
-        return img
+    return img
 
 
 def soc(
