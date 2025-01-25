@@ -10,7 +10,6 @@ from defusedxml.ElementTree import parse
 from osgeo import gdal, ogr, osr
 
 from .util_numba import _accumulate_dicts
-from ..common.soc import trans_factors_for_custom_legend
 
 logger = logging.getLogger(__name__)
 
