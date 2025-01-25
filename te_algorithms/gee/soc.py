@@ -86,13 +86,13 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
     if not fake_data:
         return ee.Image(
             "users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022"
-        ).select(
-            ee.List.sequence(soc_t0_year - lc_band0_year, year_final - lc_band0_year, 1)
-        )
+        ).select(list(range(soc_t0_year - lc_band0_year, year_final - lc_band0_year)))
     else:
         lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
         img = lc.select(soc_t0_year - lc_band0_year)
-        for index in range(soc_t0_year - lc_band0_year + 1, year_final - lc_band0_year):
+        for index in range(
+            soc_t0_year - lc_band0_year + 1, year_final - lc_band0_year + 1
+        ):
             # Can only go up to index 30 as there are 31 bands (1992-2022), and zero-based indexing
             if index <= 30 or not fake_data:
                 logger.warn(
@@ -105,6 +105,7 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
                     "for SOC calculations. Returning data from 2022."
                 )
                 img = img.addBands(lc.select(30).rename(f"y{index + soc_t0_year}"))
+        logger.info(f"_select_lc img band names are: {img.bandNames().getInfo()}")
         return img
 
 
