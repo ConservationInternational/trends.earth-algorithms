@@ -104,7 +104,7 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
                     f"Could not select year {lc_band0_year + index} from land cover asset "
                     "for SOC calculations. Returning data from 2022."
                 )
-                img = img.addBands(lc.select(30).rename(f"y{index + soc_t0_year}"))
+                img = img.addBands(lc.select(30).rename(f"y{index + lc_band0_year}"))
         logger.info(f"_select_lc img band names are: {img.bandNames().getInfo()}")
         return img
 
@@ -162,9 +162,7 @@ def soc(
 
     class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
     class_positions = [*range(1, len(class_codes) + 1)]
-    # The minus 1 is to account for the fact that you can only calculate n - 1 land cover
-    # change layers if n is the number of land cover layers you have
-    for k in range(year_final - soc_t0_year - 1):
+    for k in range(year_final - soc_t0_year):
         logger.info(
             f"Comparing lc band {k} with band {k + 1} for years {soc_t0_year + k} and {soc_t0_year + k + 1}."
         )
