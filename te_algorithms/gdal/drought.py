@@ -12,7 +12,6 @@ from typing import Callable, Dict, List, Optional, Tuple
 import marshmallow_dataclass
 import numpy as np
 import openpyxl
-from drought_numba import drought_class, jrc_sum_and_count
 from osgeo import gdal
 from te_schemas import SchemaBase, reporting, schemas
 from te_schemas.aoi import AOI
@@ -26,10 +25,11 @@ from te_schemas.results import (
     RasterFileType,
     RasterResults,
 )
-from util_numba import calc_cell_area, cast_numba_int_dict_list_to_cpython, zonal_total
 
 from .. import __release_date__, __version__
 from . import util, workers, xl
+from .drought_numba import drought_class, jrc_sum_and_count
+from .util_numba import calc_cell_area, cast_numba_int_dict_list_to_cpython, zonal_total
 
 NODATA_VALUE = -32768
 MASK_VALUE = -32767

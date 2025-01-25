@@ -221,9 +221,7 @@ def get_job_json_from_s3(
     )
     logger.info(f"Looking in bucket {s3_bucket} for key prefix: {s3_prefix}")
 
-    logger.debug(f"objects {objects}")
-
-    if len(objects["Contents"]) == 0:
+    if objects.get("Contents", []) == []:
         logger.exception(f"No objects found for {s3_prefix}")
 
         return None
