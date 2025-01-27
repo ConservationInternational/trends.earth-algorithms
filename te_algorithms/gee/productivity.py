@@ -579,9 +579,15 @@ def productivity_state(
         band_infos,
     )
 
+
 def productivity_faowocat(
-    low_bio_year, medium_bio_year, high_bio_year, years_interval,
-    modis_mode, prod_asset, logger
+    low_bio_year,
+    medium_bio_year,
+    high_bio_year,
+    years_interval,
+    modis_mode,
+    prod_asset,
+    logger,
 ):
     logger.debug("Entering productivity_faowocat function.")
 
@@ -631,5 +637,3 @@ def productivity_faowocat(
             ),
         ],
     )
-
-
