@@ -745,7 +745,7 @@ def download_cloud_results(
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key,
             )
-            raster_uri = (results.URI(uri=out_file),)
+            raster_uri = results.URI(uri=out_file)
             raster.uri = raster_uri
             out_rasters.append(
                 results.Raster(
