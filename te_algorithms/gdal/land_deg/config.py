@@ -7,6 +7,9 @@ MASK_VALUE = np.int16(-32767)
 
 SDG_BAND_NAME = "SDG 15.3.1 Indicator"
 SDG_STATUS_BAND_NAME = "SDG 15.3.1 Indicator (status)"
+PROD_STATUS_BAND_NAME = "Productivity degradation (status)"
+LC_STATUS_BAND_NAME = "Land cover degradation (status)"
+SOC_STATUS_BAND_NAME = "Soil organic carbon degradation (status)"
 ERROR_RECODE_BAND_NAME = "Error recode"
 PROD_DEG_COMPARISON_BAND_NAME = "Productivity degradation (comparison)"
 JRC_LPD_BAND_NAME = "Land Productivity Dynamics (from JRC)"

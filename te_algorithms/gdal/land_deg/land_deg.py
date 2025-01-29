@@ -224,7 +224,9 @@ def summarise_land_degradation(
     period_dfs = []
     period_vrts = []
 
-    for period_name, period_params in ldn_job.params.items():
+    for period in ldn_job.params["periods"]:
+        period_name = period["name"]
+        period_params = period["params"]
         logger.debug("preparing land cover dfs")
         lc_dfs = _prepare_land_cover_dfs(period_params)
         logger.debug("preparing soil organic carbon dfs")
@@ -400,8 +402,8 @@ def summarise_land_degradation(
             period_name,
         )
 
-    if len(ldn_job.params.items()) == 2:
-        # Make temporary combined VRT and DataFile just for the progress
+    if len(ldn_job.params["periods"]) > 1:
+        # Make temporary combined VRT and DataFile just for this reporting period
         # calculations. Don't save these in the output folder as at end of this
         # process all the DFs will be combined and referenced to a VRT in that
         # folder
@@ -412,35 +414,41 @@ def summarise_land_degradation(
         temp_df = combine_data_files(temp_overall_vrt, period_dfs)
 
         # Ensure the same lc legend and nesting are used for both the
-        # baseline and progress periods (at least in terms of codes and their
-        # nesting)
+        # baseline and this reporting period (at least in terms of codes
+        # and their nesting)
         baseline_nesting = LCLegendNesting.Schema().loads(
-            ldn_job.params["baseline"]["layer_lc_deg_band"]["metadata"].get("nesting")
+            ldn_job.params["periods"][0]["params"]["layer_lc_deg_band"]["metadata"].get(
+                "nesting"
+            )
         )
-        progress_nesting = LCLegendNesting.Schema().loads(
-            ldn_job.params["progress"]["layer_lc_deg_band"]["metadata"].get("nesting")
-        )
-        assert baseline_nesting.nesting == progress_nesting.nesting
+        for period_number in range(1, len(ldn_job.params["periods"])):
+            reporting_nesting = LCLegendNesting.Schema().loads(
+                ldn_job.params["periods"][period_number]["params"]["layer_lc_deg_band"][
+                    "metadata"
+                ].get("nesting")
+            )
+            assert baseline_nesting.nesting == reporting_nesting.nesting
 
-        logger.debug("Computing progress summary")
+        logger.debug(f"Computing reporting period {period_number} summary")
 
-        progress_summary_table, progress_df = compute_progress_summary(
+        reporting_summary_table, reporting_df = compute_progress_summary(
             temp_df,
             prod_mode,
             job_output_path,
             aoi,
             compute_bbs_from,
-            ldn_job.params["baseline"]["period"],
-            ldn_job.params["progress"]["period"],
+            ldn_job.params["periods"],
             baseline_nesting,
         )
-        period_vrts.append(progress_df.path)
-        period_dfs.append(progress_df)
+        period_vrts.append(reporting_df.path)
+        period_dfs.append(reporting_df)
     else:
-        progress_summary_table = None
+        reporting_summary_table = None
 
-    logger.debug("Finalizing layers")
+    logger.info("Finalizing layers")
     overall_vrt_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
+    logging.info("Combining all period VRTs into %s", overall_vrt_path)
+    logging.info("Period VRTs are: %s", period_vrts)
     util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
     out_df = combine_data_files(overall_vrt_path, period_dfs)
     out_df.path = overall_vrt_path.name
@@ -456,7 +464,7 @@ def summarise_land_degradation(
     report_json = save_reporting_json(
         summary_json_output_path,
         summary_tables,
-        progress_summary_table,
+        reporting_summary_table,
         ldn_job.params,
         ldn_job.task_name,
         aoi,

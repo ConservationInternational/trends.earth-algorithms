@@ -54,10 +54,10 @@ class SummaryTableLD(SchemaBase):
 
 @marshmallow_dataclass.dataclass
 class SummaryTableLDProgress(SchemaBase):
-    sdg_summary: Dict[int, float]
-    prod_summary: Dict[str, Dict[int, float]]
-    soc_summary: Dict[str, Dict[int, float]]
-    lc_summary: Dict[int, float]
+    sdg_summaries: List[Dict[int, float]]
+    prod_summaries: List[Dict[str, Dict[int, float]]]
+    soc_summaries: List[Dict[str, Dict[int, float]]]
+    lc_summaries: List[Dict[int, float]]
 
 
 @marshmallow_dataclass.dataclass
@@ -89,6 +89,7 @@ class DegradationProgressSummaryParams(SchemaBase):
     band_dict: dict
     model_band_number: int
     n_out_bands: int
+    n_reporting: int  # Number of periods in addition to baseline
     mask_file: str
     nesting: land_cover.LCLegendNesting
 

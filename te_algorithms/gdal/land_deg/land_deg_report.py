@@ -85,7 +85,9 @@ def save_reporting_json(
     land_condition_reports = {}
     affected_pop_reports = {}
 
-    for period_name, period_params in params.items():
+    for period in params["periods"]:
+        period_name = period["name"]
+        period_params = period["params"]
         st = summary_tables[period_name]
 
         ##########################################################################
@@ -362,72 +364,108 @@ def save_reporting_json(
         )
 
     if summary_table_progress:
-        land_condition_reports["integrated"] = reporting.LandConditionProgressReport(
-            sdg=reporting.AreaList(
-                "SDG Indicator 15.3.1 (progress since baseline)",
-                "sq km",
-                [
-                    reporting.Area(
-                        "Improved", summary_table_progress.sdg_summary.get(1, 0.0)
+        # There is one less status than there are periods (given status is a
+        # comparison of two successive periods)
+        for summary_number in range(len(params["periods"]) - 1):
+            period_name = f"{params['periods'][summary_number + 1]['name']} status"
+            land_condition_reports[f"{period_name} status"] = (
+                reporting.LandConditionProgressReport(
+                    sdg=reporting.AreaList(
+                        "SDG Indicator 15.3.1 (progress since baseline)",
+                        "sq km",
+                        [
+                            reporting.Area(
+                                "Improved",
+                                summary_table_progress.sdg_summaries[
+                                    summary_number
+                                ].get(1, 0.0),
+                            ),
+                            reporting.Area(
+                                "Stable",
+                                summary_table_progress.sdg_summaries[
+                                    summary_number
+                                ].get(0, 0.0),
+                            ),
+                            reporting.Area(
+                                "Degraded",
+                                summary_table_progress.sdg_summaries[
+                                    summary_number
+                                ].get(-1, 0.0),
+                            ),
+                            reporting.Area(
+                                "No data",
+                                summary_table_progress.sdg_summaries[
+                                    summary_number
+                                ].get(config.NODATA_VALUE, 0),
+                            ),
+                        ],
                     ),
-                    reporting.Area(
-                        "Stable", summary_table_progress.sdg_summary.get(0, 0.0)
+                    productivity={
+                        key: reporting.AreaList(
+                            "Productivity (progress since baseline)",
+                            "sq km",
+                            [
+                                reporting.Area("Improved", value.get(1, 0.0)),
+                                reporting.Area("Stable", value.get(0, 0.0)),
+                                reporting.Area("Degraded", value.get(-1, 0.0)),
+                                reporting.Area(
+                                    "No data", value.get(config.NODATA_VALUE, 0)
+                                ),
+                            ],
+                        )
+                        for key, value in summary_table_progress.prod_summaries[
+                            summary_number
+                        ].items()
+                    },
+                    land_cover=reporting.AreaList(
+                        "Land cover (progress since baseline)",
+                        "sq km",
+                        [
+                            reporting.Area(
+                                "Improved",
+                                summary_table_progress.lc_summaries[summary_number].get(
+                                    1, 0.0
+                                ),
+                            ),
+                            reporting.Area(
+                                "Stable",
+                                summary_table_progress.lc_summaries[summary_number].get(
+                                    0, 0.0
+                                ),
+                            ),
+                            reporting.Area(
+                                "Degraded",
+                                summary_table_progress.lc_summaries[summary_number].get(
+                                    -1, 0.0
+                                ),
+                            ),
+                            reporting.Area(
+                                "No data",
+                                summary_table_progress.lc_summaries[summary_number].get(
+                                    config.NODATA_VALUE, 0
+                                ),
+                            ),
+                        ],
                     ),
-                    reporting.Area(
-                        "Degraded", summary_table_progress.sdg_summary.get(-1, 0.0)
-                    ),
-                    reporting.Area(
-                        "No data",
-                        summary_table_progress.sdg_summary.get(config.NODATA_VALUE, 0),
-                    ),
-                ],
-            ),
-            productivity={
-                key: reporting.AreaList(
-                    "Productivity (progress since baseline)",
-                    "sq km",
-                    [
-                        reporting.Area("Improved", value.get(1, 0.0)),
-                        reporting.Area("Stable", value.get(0, 0.0)),
-                        reporting.Area("Degraded", value.get(-1, 0.0)),
-                        reporting.Area("No data", value.get(config.NODATA_VALUE, 0)),
-                    ],
+                    soil_organic_carbon={
+                        key: reporting.AreaList(
+                            "Soil organic carbon (progress since baseline)",
+                            "sq km",
+                            [
+                                reporting.Area("Improved", value.get(1, 0.0)),
+                                reporting.Area("Stable", value.get(0, 0.0)),
+                                reporting.Area("Degraded", value.get(-1, 0.0)),
+                                reporting.Area(
+                                    "No data", value.get(config.NODATA_VALUE, 0)
+                                ),
+                            ],
+                        )
+                        for key, value in summary_table_progress.soc_summaries[
+                            summary_number
+                        ].items()
+                    },
                 )
-                for key, value in summary_table_progress.prod_summary.items()
-            },
-            land_cover=reporting.AreaList(
-                "Land cover (progress since baseline)",
-                "sq km",
-                [
-                    reporting.Area(
-                        "Improved", summary_table_progress.lc_summary.get(1, 0.0)
-                    ),
-                    reporting.Area(
-                        "Stable", summary_table_progress.lc_summary.get(0, 0.0)
-                    ),
-                    reporting.Area(
-                        "Degraded", summary_table_progress.lc_summary.get(-1, 0.0)
-                    ),
-                    reporting.Area(
-                        "No data",
-                        summary_table_progress.lc_summary.get(config.NODATA_VALUE, 0),
-                    ),
-                ],
-            ),
-            soil_organic_carbon={
-                key: reporting.AreaList(
-                    "Soil organic carbon (progress since baseline)",
-                    "sq km",
-                    [
-                        reporting.Area("Improved", value.get(1, 0.0)),
-                        reporting.Area("Stable", value.get(0, 0.0)),
-                        reporting.Area("Degraded", value.get(-1, 0.0)),
-                        reporting.Area("No data", value.get(config.NODATA_VALUE, 0)),
-                    ],
-                )
-                for key, value in summary_table_progress.prod_summary.items()
-            },
-        )
+            )
 
     ##########################################################################
     # Format final JSON output
