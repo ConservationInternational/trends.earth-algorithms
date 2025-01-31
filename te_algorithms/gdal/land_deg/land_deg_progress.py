@@ -203,23 +203,23 @@ def compute_progress_summary(
             name=config.SDG_STATUS_BAND_NAME,
             no_data_value=config.NODATA_VALUE.item(),  # write as python type
             metadata={
-                "baseline_year_initial": periods[i]["params"]["periods"][
+                "baseline_year_initial": periods[0]["params"]["periods"][
                     "productivity"
                 ]["year_initial"],
-                "baseline_year_final": periods[i]["params"]["periods"]["productivity"][
+                "baseline_year_final": periods[0]["params"]["periods"]["productivity"][
                     "year_final"
                 ],
-                "reporting_year_initial": periods[i + 1]["params"]["periods"][
+                "reporting_year_initial": periods[i]["params"]["periods"][
                     "productivity"
                 ]["year_initial"],
-                "reporting_year_final": periods[i + 1]["params"]["periods"][
-                    "productivity"
-                ]["year_final"],
+                "reporting_year_final": periods[i]["params"]["periods"]["productivity"][
+                    "year_final"
+                ],
             },
             add_to_map=True,
             activated=True,
         )
-        for i in range(len(periods) - 1)
+        for i in range(1, len(periods))
     ]
     out_bands.extend(
         [
@@ -227,23 +227,23 @@ def compute_progress_summary(
                 name=config.PROD_STATUS_BAND_NAME,
                 no_data_value=config.NODATA_VALUE.item(),  # write as python type
                 metadata={
-                    "baseline_year_initial": periods[i]["params"]["periods"][
+                    "baseline_year_initial": periods[0]["params"]["periods"][
                         "productivity"
                     ]["year_initial"],
-                    "baseline_year_final": periods[i]["params"]["periods"][
+                    "baseline_year_final": periods[0]["params"]["periods"][
                         "productivity"
                     ]["year_final"],
-                    "reporting_year_initial": periods[i + 1]["params"]["periods"][
+                    "reporting_year_initial": periods[i]["params"]["periods"][
                         "productivity"
                     ]["year_initial"],
-                    "reporting_year_final": periods[i + 1]["params"]["periods"][
+                    "reporting_year_final": periods[i]["params"]["periods"][
                         "productivity"
                     ]["year_final"],
                 },
                 add_to_map=False,
                 activated=False,
             )
-            for i in range(len(periods) - 1)
+            for i in range(1, len(periods))
         ]
     )
     out_bands.extend(
@@ -252,23 +252,23 @@ def compute_progress_summary(
                 name=config.LC_STATUS_BAND_NAME,
                 no_data_value=config.NODATA_VALUE.item(),  # write as python type
                 metadata={
-                    "baseline_year_initial": periods[i]["params"]["periods"][
+                    "baseline_year_initial": periods[0]["params"]["periods"][
                         "land_cover"
                     ]["year_initial"],
-                    "baseline_year_final": periods[i]["params"]["periods"][
+                    "baseline_year_final": periods[0]["params"]["periods"][
                         "land_cover"
                     ]["year_final"],
-                    "reporting_year_initial": periods[i + 1]["params"]["periods"][
+                    "reporting_year_initial": periods[i]["params"]["periods"][
                         "land_cover"
                     ]["year_initial"],
-                    "reporting_year_final": periods[i + 1]["params"]["periods"][
+                    "reporting_year_final": periods[i]["params"]["periods"][
                         "land_cover"
                     ]["year_final"],
                 },
                 add_to_map=False,
                 activated=False,
             )
-            for i in range(len(periods) - 1)
+            for i in range(1, len(periods))
         ]
     )
     out_bands.extend(
@@ -277,23 +277,23 @@ def compute_progress_summary(
                 name=config.SOC_STATUS_BAND_NAME,
                 no_data_value=config.NODATA_VALUE.item(),  # write as python type
                 metadata={
-                    "baseline_year_initial": periods[i]["params"]["periods"]["soc"][
+                    "baseline_year_initial": periods[0]["params"]["periods"]["soc"][
                         "year_initial"
                     ],
-                    "baseline_year_final": periods[i]["params"]["periods"]["soc"][
+                    "baseline_year_final": periods[0]["params"]["periods"]["soc"][
                         "year_final"
                     ],
-                    "reporting_year_initial": periods[i + 1]["params"]["periods"][
-                        "soc"
-                    ]["year_initial"],
-                    "reporting_year_final": periods[i + 1]["params"]["periods"]["soc"][
+                    "reporting_year_initial": periods[i]["params"]["periods"]["soc"][
+                        "year_initial"
+                    ],
+                    "reporting_year_final": periods[i]["params"]["periods"]["soc"][
                         "year_final"
                     ],
                 },
                 add_to_map=False,
                 activated=False,
             )
-            for i in range(len(periods) - 1)
+            for i in range(1, len(periods))
         ]
     )
 
@@ -471,9 +471,6 @@ def _process_block_progress(
         sdg_reporting = in_array[
             params.band_dict[f"sdg_reporting_{i}_bandnum"] - 1, :, :
         ]
-        # Can use the land cover degradation calculation function
-        # to do the recoding, as it calculates transitions and recodes them
-        # according to a matrix
         sdg_status = sdg_status_expanded(sdg_baseline, sdg_reporting)
         sdg_statuses.append(sdg_status)
         sdg_summaries.append(
@@ -489,7 +486,7 @@ def _process_block_progress(
         prod5_reporting = in_array[
             params.band_dict[f"prod5_reporting_{i}_bandnum"] - 1, :, :
         ]
-        # TODO: recode zeros in prod5 to config.NODATA_VALUE as the JRC LPD on
+        # Recode zeros in prod5 to config.NODATA_VALUE as the JRC LPD on
         # trends.earth assets had 0 used instead of our standard nodata value
         prod5_baseline[prod5_baseline == 0] = config.NODATA_VALUE
         prod5_reporting[prod5_reporting == 0] = config.NODATA_VALUE
@@ -561,6 +558,8 @@ def _process_block_progress(
         write_arrays.append({"array": soc_status, "xoff": xoff, "yoff": yoff})
     for lc_status in lc_statuses:
         write_arrays.append({"array": lc_status, "xoff": xoff, "yoff": yoff})
+
+    logger.info(f"write_arrays is {write_arrays}")
 
     return (
         models.SummaryTableLDProgress(
