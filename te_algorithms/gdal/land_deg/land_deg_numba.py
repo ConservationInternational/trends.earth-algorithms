@@ -168,16 +168,17 @@ def sdg_status_expanded(sdg_bl, sdg_tg):
     sdg_tg = sdg_tg.ravel()
 
     out = sdg_bl.copy()
+    out.fill(NODATA_VALUE)
     # fmt:off
-    out[(sdg_bl == -1) | (sdg_tg == -1)] = 1
-    out[(sdg_bl ==  0) | (sdg_tg == -1)] = 2
-    out[(sdg_bl ==  1) | (sdg_tg == -1)] = 2
-    out[(sdg_bl == -1) | (sdg_tg ==  0)] = 3
-    out[(sdg_bl ==  0) | (sdg_tg ==  0)] = 4
-    out[(sdg_bl ==  1) | (sdg_tg ==  0)] = 5
-    out[(sdg_bl == -1) | (sdg_tg ==  1)] = 6
-    out[(sdg_bl ==  0) | (sdg_tg ==  1)] = 6
-    out[(sdg_bl ==  1) | (sdg_tg ==  1)] = 7
+    out[(sdg_bl == -1) & (sdg_tg == -1)] = 1
+    out[(sdg_bl ==  0) & (sdg_tg == -1)] = 2
+    out[(sdg_bl ==  1) & (sdg_tg == -1)] = 2
+    out[(sdg_bl == -1) & (sdg_tg ==  0)] = 3
+    out[(sdg_bl ==  0) & (sdg_tg ==  0)] = 4
+    out[(sdg_bl ==  1) & (sdg_tg ==  0)] = 5
+    out[(sdg_bl == -1) & (sdg_tg ==  1)] = 6
+    out[(sdg_bl ==  0) & (sdg_tg ==  1)] = 6
+    out[(sdg_bl ==  1) & (sdg_tg ==  1)] = 7
     # fmt:on
 
     return np.reshape(out, shp)
