@@ -167,8 +167,7 @@ def sdg_status_expanded(sdg_bl, sdg_tg):
     sdg_bl = sdg_bl.ravel()
     sdg_tg = sdg_tg.ravel()
 
-    out = sdg_bl.copy()
-    out.fill(NODATA_VALUE)
+    out = np.full(sdg_bl.shape, NODATA_VALUE[0], dtype=np.int16)
     # fmt:off
     out[(sdg_bl == -1) & (sdg_tg == -1)] = 1
     out[(sdg_bl ==  0) & (sdg_tg == -1)] = 2

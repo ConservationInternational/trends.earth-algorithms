@@ -103,7 +103,7 @@ def compute_progress_summary(
     }[len(wkt_aois)]
 
     progress_summary_tables = []
-    progress_paths = []
+    reporting_paths = []
     error_message = None
 
     for index, (wkt_aoi, this_bbs) in enumerate(zip(wkt_aois, bbs), start=1):
@@ -143,7 +143,7 @@ def compute_progress_summary(
             progress_out_path = job_output_path.parent / progress_name_pattern.format(
                 index=index
             )
-            progress_paths.append(progress_out_path)
+            reporting_paths.append(progress_out_path)
 
             logger.info(
                 f"Calculating progress summary table and saving layer to: {progress_out_path}"
@@ -192,11 +192,11 @@ def compute_progress_summary(
         progress_summary_tables
     )
 
-    if len(progress_paths) > 1:
-        progress_path = job_output_path.parent / f"{job_output_path.stem}_progress.vrt"
-        gdal.BuildVRT(str(progress_path), [str(p) for p in progress_paths])
+    if len(reporting_paths) > 1:
+        reporting_path = job_output_path.parent / f"{job_output_path.stem}_progress.vrt"
+        gdal.BuildVRT(str(reporting_path), [str(p) for p in reporting_paths])
     else:
-        progress_path = progress_paths[0]
+        reporting_path = reporting_paths[0]
 
     out_bands = [
         Band(
@@ -297,7 +297,7 @@ def compute_progress_summary(
         ]
     )
 
-    return progress_summary_table, DataFile(progress_path, out_bands)
+    return progress_summary_table, DataFile(reporting_path, out_bands)
 
 
 def _get_progress_summary_input_vrt(df, prod_mode, periods):
@@ -558,8 +558,6 @@ def _process_block_progress(
         write_arrays.append({"array": soc_status, "xoff": xoff, "yoff": yoff})
     for lc_status in lc_statuses:
         write_arrays.append({"array": lc_status, "xoff": xoff, "yoff": yoff})
-
-    logger.info(f"write_arrays is {write_arrays}")
 
     return (
         models.SummaryTableLDProgress(

@@ -33,9 +33,11 @@ class DegradationSummary:
         util.log_progress(*args, message="Processing land degradation summary")
 
     def work(self):
+        gdal.UseExceptions()
         mask_ds = gdal.Open(self.params.mask_file)
         band_mask = mask_ds.GetRasterBand(1)
 
+        logger.debug(f"Reading from {self.params.in_file}")
         src_ds = gdal.Open(str(self.params.in_file))
 
         model_band = src_ds.GetRasterBand(self.params.model_band_number)
@@ -46,10 +48,9 @@ class DegradationSummary:
         x_block_size = block_sizes[0]
         y_block_size = block_sizes[1]
 
-        # Setup output file for SDG degradation indicator and combined
-        # productivity bands
         driver = gdal.GetDriverByName("GTiff")
-        dst_ds_deg = driver.Create(
+        logger.debug(f"Writing to {self.params.out_file}")
+        dst_ds = driver.Create(
             str(self.params.out_file),
             xsize,
             ysize,
@@ -63,10 +64,10 @@ class DegradationSummary:
             ],
         )
         src_gt = src_ds.GetGeoTransform()
-        dst_ds_deg.SetGeoTransform(src_gt)
+        dst_ds.SetGeoTransform(src_gt)
         dst_srs = osr.SpatialReference()
         dst_srs.ImportFromWkt(src_ds.GetProjectionRef())
-        dst_ds_deg.SetProjection(dst_srs.ExportToWkt())
+        dst_ds.SetProjection(dst_srs.ExportToWkt())
 
         # Width of cells in longitude
         long_width = src_gt[1]
@@ -136,7 +137,7 @@ class DegradationSummary:
                 out.append(result[0])
 
                 for band_num, data in enumerate(result[1], start=1):
-                    dst_ds_deg.GetRasterBand(band_num).WriteArray(**data)
+                    dst_ds.GetRasterBand(band_num).WriteArray(**data)
 
                 n += 1
 
@@ -149,11 +150,10 @@ class DegradationSummary:
         # pr.dump_stats('calculate_ld_stats')
 
         if self.is_killed():
-            del dst_ds_deg
+            del dst_ds
             os.remove(self.params.out_file)
-
             return None
         else:
             self.emit_progress(1)
-
+            del dst_ds
             return out
