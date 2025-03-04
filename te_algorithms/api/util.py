@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import os
 import re
 import tarfile
 import tempfile
@@ -256,14 +257,11 @@ def _write_subregion_cogs(
     s3_extra_args,
     suffix="",
 ):
-    # Label pieces of polygon as east/west when there are two
-    piece_labels = ["E", "W"]
-
     cog_vsi_paths = []
 
     for index, bounding_box in enumerate(bounding_boxes):
         this_suffix = (
-            suffix + f"{('_' + piece_labels[index]) if len(bounding_boxes) > 1 else ''}"
+            suffix + f"{('_' + str(index)) if len(bounding_boxes) > 1 else ''}"
         )
 
         temp_vrt_local_path = Path(temp_dir) / (
@@ -412,6 +410,7 @@ def write_results_to_s3_cog(
         aws_access_key_id,
     )
     gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
+    gdal.UseExceptions()
     cog_vsi_base = get_vsis3_path(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
         for key, raster in res.rasters.items():
@@ -539,6 +538,7 @@ def write_job_to_s3_cog(
     nodata_value=-32768,
     s3_extra_args={},
 ):
+    gdal.UseExceptions()
     write_results_to_s3_cog(
         job.results,
         aoi,
@@ -874,15 +874,19 @@ def make_job(params, script):
     )
 
 
-def tar_gz_folder(path: Path, out_tar_gz):
+def tar_gz_folder(path: Path, out_tar_gz, max_file_size_mb=None):
     paths = [p for p in path.rglob("*.*")]
-    _make_tar_gz(out_tar_gz, paths)
+    _make_tar_gz(out_tar_gz, paths, max_file_size_mb)
 
 
-def _make_tar_gz(out_tar_gz, in_files):
+def _make_tar_gz(out_tar_gz, in_files, max_file_size_mb):
     with tarfile.open(out_tar_gz, "w:gz") as tar:
         for in_file in in_files:
-            tar.add(in_file, arcname=in_file.name)
+            if (
+                in_file.is_file()
+                and os.path.getsize(in_file) <= max_file_size_mb * 1024 * 1024
+            ):
+                tar.add(in_file, arcname=in_file.name)
 
 
 def write_cloud_job_metadata_file(job: jobs.Job):
