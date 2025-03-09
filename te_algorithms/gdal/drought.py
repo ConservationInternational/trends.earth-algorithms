@@ -813,7 +813,6 @@ def _summarize_over_aoi(
     ).name
     indic_vrt = Path(indic_vrt)
     logger.info("Saving indicator VRT to {}".format(indic_vrt))
-    # The plus one is because band numbers start at 1, not zero
     gdal.BuildVRT(
         str(indic_vrt),
         [item.path for item in in_dfs],
@@ -905,10 +904,12 @@ def _summarize_tile(tile_input):
     error_message = None
 
     if tile_input.mask_worker_function:
+        logger.debug("Using custom mask_worker function")
         mask_result = tile_input.mask_worker_function(
             mask_tif, geojson, str(tile_input.tile), **tile_input.mask_worker_params
         )
     else:
+        logger.debug("Using standard mask function")
         mask_worker = workers.Mask(mask_tif, geojson, str(tile_input.tile))
         mask_result = mask_worker.work()
 
@@ -966,21 +967,21 @@ def _compute_drought_summary_table(
 ) -> Tuple[SummaryTableDrought, Path, Path]:
     """Computes summary table and the output tif file(s)"""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
+    logger.debug(f"len(wkt_aois) is {len(wkt_aois)}")
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
+    logger.debug(f"len(bbs) is {len(bbs)}")
     assert len(wkt_aois) == len(bbs)
 
-    output_name_pattern = {
-        1: f"{output_job_path.stem}" + ".tif",
-        2: f"{output_job_path.stem}" + "_{index}.tif",
-    }[len(wkt_aois)]
-    mask_name_fragment = {
-        1: "Generating mask",
-        2: "Generating mask (part {index} of 2)",
-    }[len(wkt_aois)]
-    drought_name_fragment = {
-        1: "Calculating summary table",
-        2: "Calculating summary table (part {index} of 2)",
-    }[len(wkt_aois)]
+    if len(wkt_aois) > 1:
+        output_name_pattern = f"{output_job_path.stem}" + "_{index}.tif"
+        mask_name_fragment = "Generating mask (part {index} of " + f"{len(bbs)})"
+        drought_name_fragment = (
+            "Calculating summary table (part {index} of " + f"{len(bbs)})"
+        )
+    else:
+        output_name_pattern = f"{output_job_path.stem}.tif"
+        mask_name_fragment = "Generating mask"
+        drought_name_fragment = "Calculating summary table"
 
     summary_tables = []
     out_paths = []

@@ -879,13 +879,16 @@ def tar_gz_folder(path: Path, out_tar_gz, max_file_size_mb=None):
     _make_tar_gz(out_tar_gz, paths, max_file_size_mb)
 
 
-def _make_tar_gz(out_tar_gz, in_files, max_file_size_mb):
+def _make_tar_gz(out_tar_gz, in_files, max_file_size_mb=None):
     with tarfile.open(out_tar_gz, "w:gz") as tar:
         for in_file in in_files:
-            if (
-                in_file.is_file()
-                and os.path.getsize(in_file) <= max_file_size_mb * 1024 * 1024
-            ):
+            if max_file_size_mb:
+                if (
+                    in_file.is_file()
+                    and os.path.getsize(in_file) <= max_file_size_mb * 1024 * 1024
+                ):
+                    tar.add(in_file, arcname=in_file.name)
+            else:
                 tar.add(in_file, arcname=in_file.name)
 
 
