@@ -228,6 +228,7 @@ def get_job_json_from_s3(
         return None
     else:
         objects = objects["Contents"]
+        logger.debug(f"len(objects) = {len(objects)}")
         # Want most recent key
         objects.sort(key=lambda o: o["LastModified"], reverse=True)
         # Only want JSON files
@@ -238,6 +239,8 @@ def get_job_json_from_s3(
             logger.debug(f"grepping for {substr_regex}")
             objects = [o for o in objects if bool(re.search(substr_regex, o["Key"]))]
         logger.debug(f"found objects post-grep: {[o['Key'] for o in objects]}")
+        if objects == []:
+            return None
     jobfile = tempfile.NamedTemporaryFile(suffix=".json").name
     client.download_file(s3_bucket, objects[0]["Key"], jobfile)
     with open(jobfile) as f:
