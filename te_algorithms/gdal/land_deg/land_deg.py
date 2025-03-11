@@ -1198,10 +1198,11 @@ def _compute_ld_summary_table(
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
     assert len(wkt_aois) == len(bbs)
 
-    output_name_pattern = {
-        1: f"{output_job_path.stem}" + "_{layer}.tif",
-        2: f"{output_job_path.stem}" + "{layer}_{index}.tif",
-    }[len(wkt_aois)]
+    if len(wkt_aois) > 1:
+        output_name_pattern = f"{output_job_path.stem}" + "_{layer}_{index}.tif"
+    else:
+        output_name_pattern = f"{output_job_path.stem}" + "_{layer}.tif"
+
     stable_kwargs = {
         "in_dfs": in_dfs,
         "prod_mode": prod_mode,

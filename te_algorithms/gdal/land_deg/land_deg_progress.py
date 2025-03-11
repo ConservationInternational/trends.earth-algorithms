@@ -93,14 +93,15 @@ def compute_progress_summary(
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
     assert len(wkt_aois) == len(bbs)
 
-    progress_name_pattern = {
-        1: f"{job_output_path.stem}" + "_reporting.tif",
-        2: f"{job_output_path.stem}" + "_reporting_{index}.tif",
-    }[len(wkt_aois)]
-    mask_name_fragment = {
-        1: "Generating mask for reporting analysis",
-        2: "Generating mask for reporting analysis (part {index} of 2)",
-    }[len(wkt_aois)]
+    if len(wkt_aois) > 1:
+        progress_name_pattern = f"{job_output_path.stem}" + "_reporting_{index}.tif"
+        mask_name_fragment = (
+            "Generating mask for reporting analysis (part {index} of "
+            + f"{len(wkt_aois)})"
+        )
+    else:
+        progress_name_pattern = f"{job_output_path.stem}" + "_reporting.tif"
+        mask_name_fragment = "Generating mask for reporting analysis"
 
     progress_summary_tables = []
     reporting_paths = []
