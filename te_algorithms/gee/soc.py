@@ -115,7 +115,8 @@ def soc(
     trans_matrix,
     esa_to_custom_nesting,  # defines how ESA nests to custom classes
     ipcc_nesting,  # defines how custom classes nest to IPCC
-    dl_annual_lc,
+    annual_lc,
+    annual_soc,
     logger,
     fake_data=False,  # return data from closest available year if year is outside of range
 ):
@@ -305,26 +306,54 @@ def soc(
     # Output annual SOC layers
     d_soc = []
 
-    logger.debug(f"Adding annual SOC layers for years {years}.")
-    for year in years:
-        if year == years[0]:
-            soc_stack_out = stack_soc.select(year - soc_t0_year)
-        else:
-            soc_stack_out = soc_stack_out.addBands(stack_soc.select(year - soc_t0_year))
+    if annual_soc:
+        logger.debug(f"Adding annual SOC layers for years {years}.")
+        for year in years:
+            if year == years[0]:
+                soc_stack_out = stack_soc.select(year - soc_t0_year)
+            else:
+                soc_stack_out = soc_stack_out.addBands(
+                    stack_soc.select(year - soc_t0_year)
+                )
 
-        if (year == year_initial) or (year == year_final):
-            add_to_map = True
-        else:
-            add_to_map = False
-        d_soc.append(
-            BandInfo(
-                "Soil organic carbon", add_to_map=add_to_map, metadata={"year": year}
+            if (year == year_initial) or (year == year_final):
+                add_to_map = True
+            else:
+                add_to_map = False
+            d_soc.append(
+                BandInfo(
+                    "Soil organic carbon",
+                    add_to_map=add_to_map,
+                    metadata={"year": year},
+                )
             )
+        soc_stack_out = soc_stack_out.rename([f"SOC_{year}" for year in years])
+        out.addBands(soc_stack_out, d_soc)
+    else:
+        logger.debug("Adding initial and final SOC layers.")
+        soc_initial = stack_soc.select(year_initial - soc_t0_year).rename(
+            f"SOC_{year_initial}"
         )
-    soc_stack_out = soc_stack_out.rename([f"SOC_{year}" for year in years])
-    out.addBands(soc_stack_out, d_soc)
+        soc_final = stack_soc.select(year_final - soc_t0_year).rename(
+            f"SOC_{year_final}"
+        )
+        out.addBands(
+            soc_initial.addBands(soc_final),
+            [
+                BandInfo(
+                    "Soil organic carbon",
+                    add_to_map=True,
+                    metadata={"year": year_initial},
+                ),
+                BandInfo(
+                    "Soil organic carbon",
+                    add_to_map=True,
+                    metadata={"year": year_final},
+                ),
+            ],
+        )
 
-    if dl_annual_lc:
+    if annual_lc:
         logger.debug("Adding all annual LC layers.")
         d_lc = []
 
