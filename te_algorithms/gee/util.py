@@ -407,8 +407,8 @@ class GEEImage:
             if outer_index in duplicates:
                 continue
             outer_band = self.bands[outer_index]
-            for inner_index in range(1, len(self.bands)):
-                if (outer_index == inner_index) or (inner_index in duplicates):
+            for inner_index in range(outer_index + 1, len(self.bands)):
+                if inner_index in duplicates:
                     continue
                 inner_band = self.bands[inner_index]
                 if all(
