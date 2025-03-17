@@ -8,7 +8,12 @@ import ee
 import requests
 from te_schemas import results
 from te_schemas.results import Raster, TiledRaster
-from te_schemas.schemas import BandInfoSchema, CloudResults, CloudResultsSchema
+from te_schemas.schemas import (
+    BandInfo,
+    BandInfoSchema,
+    CloudResults,
+    CloudResultsSchema,
+)
 from te_schemas.schemas import Url as UrlDeprecated
 
 from . import GEEImageError, GEETaskFailure
@@ -357,6 +362,76 @@ class GEEImage:
         "Add new bands to the image"
         self.image = self.image.addBands(image)
         self.bands.extend(bands)
+
+        self._check_validity()
+
+    def match_bands(self, bands, reverse=False):
+        """
+        Returns the indices of bands that match input.
+
+        Matches on BandInfo name and metadata attributes only.
+        """
+
+        # Find indices in self.bands that match the specified input bands,
+        # matching only on the band names and metadata
+        matches = [
+            i
+            for i, self_band in enumerate(self.bands)
+            if any(
+                [
+                    all(
+                        [
+                            band.name == self_band.name,
+                            band.metadata == self_band.metadata,
+                        ]
+                    )
+                    for band in bands
+                ]
+            )
+        ]
+        if reverse:
+            # returns only band indices for bands that do NOT match
+            return [i for i in range(len(self.bands)) if i not in matches]
+        else:
+            return matches
+
+    def rmDuplicates(self):
+        """
+        Removes any bands that are duplicates
+
+        Matches on BandInfo name and metadata attributes only.
+        """
+
+        duplicates = []
+        for outer_index in range(len(self.bands) - 1):
+            outer_band = self.bands[outer_index]
+            for inner_index in range(1, len(self.bands)):
+                if inner_index in duplicates:
+                    continue
+                inner_band = self.bands[inner_index]
+                if all(
+                    [
+                        outer_band.name == inner_band.name,
+                        outer_band.metadata == inner_band.metadata,
+                    ]
+                ):
+                    duplicates.append(inner_index)
+        if len(duplicates) > 0:
+            self.rmBands(duplicates)
+
+    def rmBands(self, indices):
+        """
+        Remove bands from the image, based on their indices.
+        """
+
+        assert min(indices) >= 0 and max(indices) <= len(self.bands)
+
+        # Remove these bands, iterating in reverse order to avoid index shifting issues
+        for index in sorted(indices, reverse=True):
+            del self.bands[index]
+
+        non_match_indices = [i for i in range(len(self.bands)) if i not in indices]
+        self.image = self.image.select(non_match_indices)
 
         self._check_validity()
 
