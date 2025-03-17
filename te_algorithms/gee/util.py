@@ -502,6 +502,10 @@ class TEImageV2:
             else:
                 self.images[datatype] = other_image
 
+    def rmDuplicates(self):
+        for image in self.images:
+            image.rmDuplicates()
+
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
 
