@@ -9,7 +9,6 @@ import requests
 from te_schemas import results
 from te_schemas.results import Raster, TiledRaster
 from te_schemas.schemas import (
-    BandInfo,
     BandInfoSchema,
     CloudResults,
     CloudResultsSchema,
@@ -230,7 +229,7 @@ class TEImage:
         if len(self.band_info) != len(self.image.getInfo()["bands"]):
             raise GEEImageError(
                 f"Band info length ({len(self.band_info)}) does not match "
-                f"number of bands in image ({self.image.getInfo()['bands']})"
+                f"number of bands in image ({len(self.image.getInfo()['bands'])})"
             )
 
     def merge(self, other):
@@ -341,7 +340,7 @@ class GEEImage:
             raise GEEImageError(
                 f"Band info length ({len(self.bands)}) "
                 "does not match number of bands in image "
-                f"({self.image.getInfo()['bands']})"
+                f"({len(self.image.getInfo()['bands'])})"
             )
 
     def merge(self, other):
@@ -411,6 +410,7 @@ class GEEImage:
                 if inner_index in duplicates:
                     continue
                 inner_band = self.bands[inner_index]
+
                 if all(
                     [
                         outer_band.name == inner_band.name,
@@ -428,11 +428,12 @@ class GEEImage:
 
         assert min(indices) >= 0 and max(indices) <= len(self.bands)
 
+        non_match_indices = [i for i in range(len(self.bands)) if i not in indices]
+
         # Remove these bands, iterating in reverse order to avoid index shifting issues
         for index in sorted(indices, reverse=True):
             del self.bands[index]
 
-        non_match_indices = [i for i in range(len(self.bands)) if i not in indices]
         self.image = self.image.select(non_match_indices)
 
         self._check_validity()
