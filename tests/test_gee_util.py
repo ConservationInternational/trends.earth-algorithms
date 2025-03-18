@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import List
 
 import marshmallow_dataclass
-import pytest
 from te_schemas.results import RasterResults
 
 from te_algorithms.gee.util import GEEImage, TEImageV2
