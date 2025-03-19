@@ -11,6 +11,10 @@ from te_algorithms.gee.util import GEEImage, TEImageV2
 
 @marshmallow_dataclass.dataclass
 class ee_image_mock:
+    """
+    Mock of ee.Image to avoid needing to call GEE API during testing
+    """
+
     bands: List[int]
 
     def select(self, bands: List[int]):
