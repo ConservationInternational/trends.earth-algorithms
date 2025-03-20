@@ -462,8 +462,8 @@ def write_results_to_s3_cog(
                 )
 
             # All COG outputs are single tile rasters UNLESS there are multiple
-            # (East and West) subregions. So write everything as Raster
-            # regardless of what came in, unless there are E/W in which case
+            # polygons within the AOI. So write everything as Raster regardless
+            # of what came in, unless there are multiple regions in which case
             # need a TiledRaster
 
             out_uris = [
@@ -480,6 +480,7 @@ def write_results_to_s3_cog(
             ]
 
             if len(out_uris) > 1:
+                logger.debug(f"out_uris are: {out_uris}")
                 # Write a TiledRaster
                 res.rasters[key] = results.TiledRaster(
                     tile_uris=out_uris,

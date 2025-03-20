@@ -9,11 +9,12 @@ import marshmallow_dataclass
 from defusedxml.ElementTree import parse
 from osgeo import gdal, ogr, osr
 from te_schemas.datafile import DataFile
-from te_schemas.results import Band
 
 from .util_numba import _accumulate_dicts
 
 logger = logging.getLogger(__name__)
+
+gdal.UseExceptions()
 
 
 @marshmallow_dataclass.dataclass
@@ -45,10 +46,6 @@ def get_image_info(path: pathlib.Path):
 def setup_output_image(
     in_file: pathlib.Path, out_file: pathlib.Path, n_bands: int, image_info: ImageInfo
 ):
-    # Need two output bands for each four year period, plus one for the JRC
-    # layer
-
-    # Setup output file for max drought and population counts
     driver = gdal.GetDriverByName("GTiff")
     dst_ds = driver.Create(
         str(out_file),
@@ -110,6 +107,8 @@ def combine_all_bands_into_vrt(
         <SrcRect xOff="0" yOff="0" xSize="{out_Xsize}" ySize="{out_Ysize}"/>
         <DstRect xOff="0" yOff="0" xSize="{out_Xsize}" ySize="{out_Ysize}"/>
     </SimpleSource>"""
+
+    gdal.VSICurlClearCache()
 
     for file_num, in_file in enumerate(in_files):
         logger.debug("Adding %s (file number %s)", in_file, file_num)
@@ -174,6 +173,7 @@ def combine_all_bands_into_vrt(
             )
             band.SetMetadata(md, "vrt_sources")
 
+        in_ds = None
     out_ds = None
 
     # Use a regex to remove the parent elements from the paths for each band
