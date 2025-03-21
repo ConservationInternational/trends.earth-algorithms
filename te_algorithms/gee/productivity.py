@@ -397,6 +397,9 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
     ids = groups.map(lambda d: ee.Dictionary(d).get("code"))
     perc = groups.map(lambda d: ee.Dictionary(d).get("p90"))
 
+    logger.debug(
+        f"remapping units with ids: {ids.getInfo()} and perc: {perc.getInfo()}"
+    )
     # remap the units raster using their 90th percentile value
     raster_perc = units.remap(ids, perc)
 
