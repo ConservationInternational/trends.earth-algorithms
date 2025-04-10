@@ -368,7 +368,7 @@ def save_reporting_json(
         # comparison of two successive periods)
         for summary_number in range(len(params["periods"]) - 1):
             period_name = f"{params['periods'][summary_number + 1]['name']} status"
-            land_condition_reports[period_name] = reporting.LandConditionProgressReport(
+            land_condition_reports[period_name] = reporting.LandConditionReport(
                 sdg=reporting.AreaList(
                     "SDG Indicator 15.3.1 (progress since baseline)",
                     "sq km",

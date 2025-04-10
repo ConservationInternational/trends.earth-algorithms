@@ -417,7 +417,7 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
         prod_perf_ratio = ee.Image(-32768).rename("Productivity_performance_ratio")
 
     # create final degradation output layer (-32768 is background), 0 is not
-    # degreaded, -1 is degraded
+    # degraded, -1 is degraded
     lp_perf_deg = (
         ee.Image(-32768)
         .where(obs_ratio_2.gte(0.5), 0)
