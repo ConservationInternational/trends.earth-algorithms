@@ -11,10 +11,10 @@ build:
     python: "3.13"
 
 sphinx:
-   configuration: docs/source/conf.py
+  configuration: docs/source/conf.py
 
 # Install module dependencies
 python:
-   install:
-    - method: pip
-      requirements: docs/source/requirements.txt
+  install:
+    - requirements: docs/source/requirements.txt
+    - requirements: requirements.txt
