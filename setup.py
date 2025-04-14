@@ -52,5 +52,6 @@ setup(
         "numba": ["numba>=0.54.1"],
         "dev": ["check-manifest"],
         "test": ["coverage"],
+        "docs": ["sphinx", "sphinx_rtd_theme"],
     },
 )

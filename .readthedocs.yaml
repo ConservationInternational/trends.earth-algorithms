@@ -16,5 +16,8 @@ sphinx:
 # Install module dependencies
 python:
   install:
-    - requirements: docs/source/requirements.txt
-    - requirements: requirements.txt
+    - method: pip
+      path: .
+      extra_requirements:
+        - gee
+        - docs
