@@ -14,7 +14,7 @@ import unicodedata
 import uuid
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
-from typing import Dict, List
+from typing import Dict, List, Union
 from urllib.parse import unquote, urlparse
 
 import boto3
@@ -578,9 +578,11 @@ def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, s3_extra_args=None
         )
 
 
-def slugify(value, allow_unicode=False):
+def slugify(value: Union[int, float, complex, str], allow_unicode=False):
     """
-    Taken from https://github.com/django/django/blob/master/django/utils/text.py
+    Create an ASCII or Unicode slug
+
+    Taken from https://github.com/django/django/blob/master/django/utils/text.py.
     Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
     dashes to single dashes. Remove characters that aren't alphanumerics,
     underscores, or hyphens. Convert to lowercase. Also strip leading and
@@ -698,7 +700,10 @@ def _get_job_basename(job: jobs.Job):
 
 
 def download_cloud_results(
-    job: jobs.Job, download_path, aws_access_key_id=None, aws_secret_access_key=None
+    job: jobs.Job,
+    download_path: Path,
+    aws_access_key_id: Union[str, None] = None,
+    aws_secret_access_key: Union[str, None] = None,
 ) -> typing.Optional[Path]:
     base_output_path = download_path / f"{_get_job_basename(job)}"
 
@@ -801,7 +806,7 @@ class BandData:
 
 
 def get_bands_by_name(
-    job, band_name: str, sort_property: str = "year"
+    job: jobs.Job, band_name: str, sort_property: str = "year"
 ) -> typing.List[BandData]:
     bands = job.results.get_bands()
 
@@ -821,7 +826,7 @@ def get_bands_by_name(
 # This version drops the sort_property in favor fr filtering down to a single band based
 # on metadata
 def get_band_by_name(
-    job, band_name: str, filters: List[Dict] = None
+    job: jobs.Job, band_name: str, filters: Union[None, List[Dict]] = None
 ) -> typing.List[BandData]:
     bands = job.results.get_bands()
 
@@ -858,7 +863,7 @@ def get_band_by_name(
         return BandData(*bands_and_indices[0])
 
 
-def make_job(params, script):
+def make_job(params: Dict, script):
     final_params = params.copy()
     task_name = final_params.pop("task_name")
     task_notes = final_params.pop("task_notes")
