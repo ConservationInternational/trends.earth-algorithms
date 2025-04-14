@@ -1,7 +1,10 @@
-te_algorithms
-=============
+te_algorithms API Reference
+===========================
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 6
 
-   te_algorithms
+   api/index
+   common/index
+   gdal/index
+   gee/index

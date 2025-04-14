@@ -94,13 +94,15 @@ def compute_progress_summary(
     assert len(wkt_aois) == len(bbs)
 
     if len(wkt_aois) > 1:
-        progress_name_pattern = f"{job_output_path.stem}" + "_reporting_{index}.tif"
+        progress_name_pattern = (
+            f"{job_output_path.stem}" + "_reporting_summary_{index}.tif"
+        )
         mask_name_fragment = (
             "Generating mask for reporting analysis (part {index} of "
             + f"{len(wkt_aois)})"
         )
     else:
-        progress_name_pattern = f"{job_output_path.stem}" + "_reporting.tif"
+        progress_name_pattern = f"{job_output_path.stem}" + "_reporting_summary.tif"
         mask_name_fragment = "Generating mask for reporting analysis"
 
     progress_summary_tables = []
@@ -194,7 +196,9 @@ def compute_progress_summary(
     )
 
     if len(reporting_paths) > 1:
-        reporting_path = job_output_path.parent / f"{job_output_path.stem}_progress.vrt"
+        reporting_path = (
+            job_output_path.parent / f"{job_output_path.stem}_reporting.vrt"
+        )
         gdal.BuildVRT(str(reporting_path), [str(p) for p in reporting_paths])
     else:
         reporting_path = reporting_paths[0]

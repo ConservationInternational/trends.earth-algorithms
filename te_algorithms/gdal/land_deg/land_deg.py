@@ -276,6 +276,7 @@ def summarise_land_degradation(
             # Nesting is included only to ensure it goes into output, so if
             # missing (as it might be for local data), it will be set to None
             nesting = LCLegendNesting.Schema().loads(nesting)
+
         summary_table_stable_kwargs[period_name] = {
             "aoi": aoi,
             "lc_legend_nesting": nesting,
@@ -1199,9 +1200,9 @@ def _compute_ld_summary_table(
     assert len(wkt_aois) == len(bbs)
 
     if len(wkt_aois) > 1:
-        output_name_pattern = f"{output_job_path.stem}" + "_{layer}_{index}.tif"
+        output_name_pattern = f"{output_job_path.stem}" + "_{index}.tif"
     else:
-        output_name_pattern = f"{output_job_path.stem}" + "_{layer}.tif"
+        output_name_pattern = f"{output_job_path.stem}" + ".tif"
 
     stable_kwargs = {
         "in_dfs": in_dfs,
@@ -1219,7 +1220,7 @@ def _compute_ld_summary_table(
 
     for index, (wkt_aoi, pixel_aligned_bbox) in enumerate(zip(wkt_aois, bbs), start=1):
         base_output_path = output_job_path.parent / output_name_pattern.format(
-            layer="inputs", index=index
+            index=index
         )
 
         (
@@ -1244,13 +1245,13 @@ def _compute_ld_summary_table(
     summary_table = _accumulate_ld_summary_tables(summary_tables)
 
     if len(reproj_paths) > 1:
-        reproj_path = output_job_path.parent / f"{output_job_path.stem}_inputs.vrt"
+        reproj_path = output_job_path.parent / f"{output_job_path.stem}_tiles.vrt"
         gdal.BuildVRT(str(reproj_path), [str(p) for p in reproj_paths])
     else:
         reproj_path = reproj_paths[0]
 
     if len(output_paths) > 1:
-        output_path = output_job_path.parent / f"{output_job_path.stem}_sdg.vrt"
+        output_path = output_job_path.parent / f"{output_job_path.stem}_tiles_sdg.vrt"
         gdal.BuildVRT(str(output_path), [str(p) for p in output_paths])
     else:
         output_path = output_paths[0]

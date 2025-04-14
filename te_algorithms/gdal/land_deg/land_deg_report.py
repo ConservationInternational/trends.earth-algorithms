@@ -289,7 +289,7 @@ def save_reporting_json(
             )
         initial_soc_year = period_params["layer_soc_deg_years"]["year_initial"]
         final_soc_year = period_params["layer_soc_deg_years"]["year_final"]
-        crosstab_soc_by_transition_per_ha = reporting.CrossTab(
+        crosstab_soc_by_transition_per_ha = reporting.CrossTabInitialFinal(
             name="Initial and final carbon stock by transition type",
             unit="tons",
             initial_year=initial_soc_year,

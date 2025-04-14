@@ -14,7 +14,7 @@ recommendations for assessing UNCCD Strategic Objective 3)
    Algorithm Reference <algorithms/index>
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 6
    :caption: API
 
    API Reference <api/index>
