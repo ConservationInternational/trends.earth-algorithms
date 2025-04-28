@@ -2,6 +2,7 @@
 
 [![Ruff](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/ruff.yaml/badge.svg)](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/ruff.yaml)
 [![Test](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/test.yaml/badge.svg)](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/test.yaml)
+[![docs](https://readthedocs.org/projects/trendsearth-algorithms/badge/?version=latest)](https://app.readthedocs.org/projects/trendsearth-algorithms/builds/)
 
 `trends.earth-algorithms` is a python package to facilitate analyzing
 remotely-sensed datasets in support of monitoring land degradation. This

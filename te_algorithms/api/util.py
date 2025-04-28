@@ -14,7 +14,7 @@ import unicodedata
 import uuid
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
-from typing import Dict, List
+from typing import Dict, List, Union
 from urllib.parse import unquote, urlparse
 
 import boto3
@@ -228,6 +228,7 @@ def get_job_json_from_s3(
         return None
     else:
         objects = objects["Contents"]
+        logger.debug(f"len(objects) = {len(objects)}")
         # Want most recent key
         objects.sort(key=lambda o: o["LastModified"], reverse=True)
         # Only want JSON files
@@ -238,6 +239,8 @@ def get_job_json_from_s3(
             logger.debug(f"grepping for {substr_regex}")
             objects = [o for o in objects if bool(re.search(substr_regex, o["Key"]))]
         logger.debug(f"found objects post-grep: {[o['Key'] for o in objects]}")
+        if objects == []:
+            return None
     jobfile = tempfile.NamedTemporaryFile(suffix=".json").name
     client.download_file(s3_bucket, objects[0]["Key"], jobfile)
     with open(jobfile) as f:
@@ -459,8 +462,8 @@ def write_results_to_s3_cog(
                 )
 
             # All COG outputs are single tile rasters UNLESS there are multiple
-            # (East and West) subregions. So write everything as Raster
-            # regardless of what came in, unless there are E/W in which case
+            # polygons within the AOI. So write everything as Raster regardless
+            # of what came in, unless there are multiple regions in which case
             # need a TiledRaster
 
             out_uris = [
@@ -477,6 +480,7 @@ def write_results_to_s3_cog(
             ]
 
             if len(out_uris) > 1:
+                logger.debug(f"out_uris are: {out_uris}")
                 # Write a TiledRaster
                 res.rasters[key] = results.TiledRaster(
                     tile_uris=out_uris,
@@ -574,9 +578,11 @@ def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, s3_extra_args=None
         )
 
 
-def slugify(value, allow_unicode=False):
+def slugify(value: Union[int, float, complex, str], allow_unicode=False):
     """
-    Taken from https://github.com/django/django/blob/master/django/utils/text.py
+    Create an ASCII or Unicode slug
+
+    Taken from https://github.com/django/django/blob/master/django/utils/text.py.
     Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
     dashes to single dashes. Remove characters that aren't alphanumerics,
     underscores, or hyphens. Convert to lowercase. Also strip leading and
@@ -694,7 +700,10 @@ def _get_job_basename(job: jobs.Job):
 
 
 def download_cloud_results(
-    job: jobs.Job, download_path, aws_access_key_id=None, aws_secret_access_key=None
+    job: jobs.Job,
+    download_path: Path,
+    aws_access_key_id: Union[str, None] = None,
+    aws_secret_access_key: Union[str, None] = None,
 ) -> typing.Optional[Path]:
     base_output_path = download_path / f"{_get_job_basename(job)}"
 
@@ -797,7 +806,7 @@ class BandData:
 
 
 def get_bands_by_name(
-    job, band_name: str, sort_property: str = "year"
+    job: jobs.Job, band_name: str, sort_property: str = "year"
 ) -> typing.List[BandData]:
     bands = job.results.get_bands()
 
@@ -817,7 +826,7 @@ def get_bands_by_name(
 # This version drops the sort_property in favor fr filtering down to a single band based
 # on metadata
 def get_band_by_name(
-    job, band_name: str, filters: List[Dict] = None
+    job: jobs.Job, band_name: str, filters: Union[None, List[Dict]] = None
 ) -> typing.List[BandData]:
     bands = job.results.get_bands()
 
@@ -854,7 +863,7 @@ def get_band_by_name(
         return BandData(*bands_and_indices[0])
 
 
-def make_job(params, script):
+def make_job(params: Dict, script):
     final_params = params.copy()
     task_name = final_params.pop("task_name")
     task_notes = final_params.pop("task_notes")
@@ -879,13 +888,16 @@ def tar_gz_folder(path: Path, out_tar_gz, max_file_size_mb=None):
     _make_tar_gz(out_tar_gz, paths, max_file_size_mb)
 
 
-def _make_tar_gz(out_tar_gz, in_files, max_file_size_mb):
+def _make_tar_gz(out_tar_gz, in_files, max_file_size_mb=None):
     with tarfile.open(out_tar_gz, "w:gz") as tar:
         for in_file in in_files:
-            if (
-                in_file.is_file()
-                and os.path.getsize(in_file) <= max_file_size_mb * 1024 * 1024
-            ):
+            if max_file_size_mb:
+                if (
+                    in_file.is_file()
+                    and os.path.getsize(in_file) <= max_file_size_mb * 1024 * 1024
+                ):
+                    tar.add(in_file, arcname=in_file.name)
+            else:
                 tar.add(in_file, arcname=in_file.name)
 
 

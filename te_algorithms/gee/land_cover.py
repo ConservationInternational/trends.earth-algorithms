@@ -31,6 +31,7 @@ def land_cover(
     ipcc_nesting,  # defines how custom classes nest to IPCC
     additional_years,  # allows including years of lc outside of period
     logger,
+    annual_lc=False,
     fake_data=False,  # return data from closest available year if year is outside of range
 ):
     """
@@ -115,9 +116,11 @@ def land_cover(
         ],
     )
 
-    # Return the full land cover timeseries so it is available for reporting
-    logger.debug("Adding annual lc layers.")
-    years = [*range(year_initial, year_final + 1)] + additional_years
+    if annual_lc:
+        years = [*range(year_initial, year_final + 1)] + additional_years
+    else:
+        years = [year_initial, year_final] + additional_years
+    logger.debug(f"Adding lc layers for {years}")
     years = list(set(years))
     lc_remapped = _select_lc(lc, years[0], logger).remap(
         esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]

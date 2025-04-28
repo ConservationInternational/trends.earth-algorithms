@@ -397,29 +397,39 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
     ids = groups.map(lambda d: ee.Dictionary(d).get("code"))
     perc = groups.map(lambda d: ee.Dictionary(d).get("p90"))
 
-    # remap the units raster using their 90th percentile value
-    raster_perc = units.remap(ids, perc)
+    if len(ids.getInfo()) > 0:
+        # remap the units raster using their 90th percentile value
+        raster_perc = units.remap(ids, perc)
 
-    # compute the ration of observed ndvi to 90th for that class
-    obs_ratio = ndvi_avg_proj.divide(raster_perc)
+        # compute the ration of observed ndvi to 90th for that class
+        obs_ratio = ndvi_avg_proj.divide(raster_perc)
 
-    # aggregate obs_ratio to original NDVI data resolution (for modis this step does not change anything)
-    obs_ratio_2 = obs_ratio.reduceResolution(
-        reducer=ee.Reducer.mean(), maxPixels=2000
-    ).reproject(crs=ndvi_1yr.projection())
+        # aggregate obs_ratio to original NDVI data resolution (for modis this step does not change anything)
+        obs_ratio_2 = obs_ratio.reduceResolution(
+            reducer=ee.Reducer.mean(), maxPixels=2000
+        ).reproject(crs=ndvi_1yr.projection())
+        prod_perf_ratio = obs_ratio_2.multiply(10000).rename(
+            "Productivity_performance_ratio"
+        )
+    else:
+        logger.debug("unable to calculate ids - setting performance to -32768")
+        obs_ratio_2 = ee.Image(-32768)
+        prod_perf_ratio = ee.Image(-32768).rename("Productivity_performance_ratio")
 
-    # create final degradation output layer (9999 is background), 0 is not
-    # degreaded, -1 is degraded
+    # create final degradation output layer (-32768 is background), 0 is not
+    # degraded, -1 is degraded
     lp_perf_deg = (
-        ee.Image(-32768).where(obs_ratio_2.gte(0.5), 0).where(obs_ratio_2.lte(0.5), -1)
+        ee.Image(-32768)
+        .where(obs_ratio_2.gte(0.5), 0)
+        .where(obs_ratio_2.lte(0.5), -1)
+        .where(obs_ratio_2.eq(-32768), -32768)
     )
 
     lp_perf_deg = lp_perf_deg.rename("Productivity_performance_degradation")
-    obs_ratio_2 = obs_ratio_2.multiply(10000).rename("Productivity_performance_ratio")
     units = units.rename("Productivity_performance_units")
 
     return TEImage(
-        lp_perf_deg.addBands(obs_ratio_2).addBands(units).unmask(-32768).int16(),
+        lp_perf_deg.addBands(prod_perf_ratio).addBands(units).unmask(-32768).int16(),
         [
             BandInfo(
                 "Productivity performance (degradation)",

@@ -265,12 +265,12 @@ class CutTiles:
 
         del in_ds
 
-        logger.info("Generating %s tiles", len(src_wins))
+        logger.info("Reprojecting into %s tile(s)", len(src_wins))
         logger.debug("Tile src_wins are %s ", src_wins)
 
         if len(src_wins) > 1:
             out_files = [
-                self.out_file.parent / (self.out_file.stem + f"_{n}.tif")
+                self.out_file.parent / (self.out_file.stem + f"_tiles_{n}.tif")
                 for n in range(len(src_wins))
             ]
         else:
@@ -377,13 +377,17 @@ class Mask:
             # Assumes an image with no rotation
             ds = gdal.Open(self.model_file)
             gt = ds.GetGeoTransform()
-            x_res = gt[1]
-            y_res = gt[5]
+            x_res = abs(gt[1])
+            y_res = abs(gt[5])
             output_bounds = _get_bounding_box(ds)
         else:
             output_bounds = None
             x_res = None
             y_res = None
+
+        logger.debug(
+            f"Using output resolution {x_res}, {y_res}, and output bounds {output_bounds}"
+        )
 
         res = gdal.Rasterize(
             self.out_file,
