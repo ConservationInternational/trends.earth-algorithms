@@ -154,3 +154,53 @@ def land_cover(
     logger.debug("Leaving land_cover function.")
 
     return out
+
+
+def land_cover_deg(
+    year_initial,
+    year_final,
+    trans_matrix,
+    esa_to_custom_nesting,  # defines how ESA nests to custom classes
+    ipcc_nesting,  # defines how custom classes nest to IPCC
+    logger,
+    fake_data=False,  # return data from closest available year if year is outside of range
+):
+    """
+    Calculate land cover indicator.
+    """
+    logger.debug("Entering land_cover function.")
+
+    # Land cover
+    lc = ee.Image("users/geflanddegradation/toolbox_datasets/lcov_esacc_1992_2022")
+    lc = lc.where(lc.eq(9999), -32768)
+    lc = lc.updateMask(lc.neq(-32768))
+
+    lc_initial = _select_lc(lc, year_initial, logger)
+    lc_final = _select_lc(lc, year_final, logger)
+
+    # Transition codes are based on the class code indices (i.e. their order when
+    # sorted by class code) - not the class codes themselves. So need to reclass
+    # the land cover used for the transition calculations from the raw class codes
+    # to the positional indices of those class codes. And before doing that, need to
+    # reclassified initial and final layers to the IPCC (or custom) classes.
+    class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
+    class_positions = [*range(1, len(class_codes) + 1)]
+    lc_bl = lc_initial.remap(
+        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
+    ).remap(class_codes, class_positions)
+    lc_tg = lc_final.remap(
+        esa_to_custom_nesting.get_list()[0], esa_to_custom_nesting.get_list()[1]
+    ).remap(class_codes, class_positions)
+
+    # compute transition map (first digit for baseline land cover, and second
+    # digit for target year land cover)
+    lc_tr = lc_bl.multiply(esa_to_custom_nesting.parent.get_multiplier()).add(lc_tg)
+
+    # definition of land cover transitions as degradation (-1), improvement
+    # (1), or no relevant change (0)
+    lc_dg = lc_tr.remap(trans_matrix.get_list()[0], trans_matrix.get_list()[1]).rename(
+        "Land_cover_degradation"
+    )
+
+    logger.debug("Leaving land_cover_deg function.")
+    return lc_dg.unmask(-32768).int16()
