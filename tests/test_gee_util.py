@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List
 
 import marshmallow_dataclass
+import pytest
 from te_schemas.results import RasterResults
 
 from te_algorithms.gee.util import GEEImage, TEImageV2
@@ -64,3 +65,21 @@ def test_teimagev2_rmDuplicates():
         len(item[1].bands) == n_bands
         for item, n_bands in zip(te_image.images.items(), [4, 53])
     )
+
+
+def test_teimagev2_getImage_empty_name():
+    te_image = _get_TEImageV2("RasterResults_sdg-15-3-1-sub-indicators_1.json")
+    assert len(te_image.getImages("non-existing image")) == 0
+
+
+def test_teimagev2_getImage_empty_filter_field():
+    te_image = _get_TEImageV2("RasterResults_sdg-15-3-1-sub-indicators_1.json")
+    with pytest.raises(AssertionError):
+        te_image.getImages("non-existing image", "field_name")
+
+
+def test_teimagev2_getImage_correct_name():
+    te_image = _get_TEImageV2("RasterResults_sdg-15-3-1-sub-indicators_1.json")
+    images = te_image.getImages("Population (number of people)")
+    assert len(images) == 1
+    assert len(images[0].bands) == 2

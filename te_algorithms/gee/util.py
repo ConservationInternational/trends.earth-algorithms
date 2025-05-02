@@ -2,6 +2,7 @@ import random
 import threading
 import typing
 from time import time
+from typing import Union
 
 import backoff
 import ee
@@ -506,13 +507,42 @@ class TEImageV2:
                 self.images[datatype] = other_image
 
     def rmDuplicates(self):
-        for datatype, image in self.images.items():
+        for _, image in self.images.items():
             image.rmDuplicates()
+
+    def getImages(
+        self,
+        name_filter: Union[str, list],
+        field: Union[None, str] = None,
+        field_filter: Union[None, str] = None,
+    ):
+        "Select certain bands from the image(s), dropping all others"
+        if isinstance(name_filter, str):
+            # make name_filter a length 1 list if it is a string
+            name_filter = [name_filter]
+
+        out = []
+        for _, image in self.images.items():
+            if field:
+                assert field_filter is not None
+                band_indices = [
+                    i
+                    for i, bi in enumerate(image.bands)
+                    if (bi.name in name_filter and bi.metadata[field] == field_filter)
+                ]
+            else:
+                band_indices = [
+                    i for i, bi in enumerate(image.bands) if bi.name in name_filter
+                ]
+
+            if band_indices:
+                out.append(image.image.select(band_indices))
+        return out
 
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
 
-        for datatype, image in self.images.items():
+        for _, image in self.images.items():
             band_indices = [
                 i for i, bi in enumerate(image.bands) if bi.name in band_names
             ]
@@ -526,7 +556,7 @@ class TEImageV2:
     def setAddToMap(self, band_names=[]):
         "Set the layers that will be added to the map by default"
 
-        for datatype, image in self.images.items():
+        for _, image in self.images.items():
             for i in range(len(image.bands)):
                 if image.bands[i].name in band_names:
                     image.bands[i].add_to_map = True
