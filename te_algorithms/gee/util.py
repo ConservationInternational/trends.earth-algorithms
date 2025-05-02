@@ -261,6 +261,34 @@ class TEImage:
 
         self._check_validity()
 
+    def getImages(
+        self,
+        name_filter: Union[str, list],
+        field: Union[None, str] = None,
+        field_filter: Union[None, str] = None,
+    ):
+        "Select certain bands from the image(s), dropping all others"
+        if isinstance(name_filter, str):
+            # make name_filter a length 1 list if it is a string
+            name_filter = [name_filter]
+
+        if field:
+            assert field_filter is not None
+            band_indices = [
+                i
+                for i, bi in enumerate(self.image.bands)
+                if (bi.name in name_filter and bi.metadata[field] == field_filter)
+            ]
+        else:
+            band_indices = [
+                i for i, bi in enumerate(self.image.bands) if bi.name in name_filter
+            ]
+
+        if band_indices:
+            return self.image.select(band_indices)
+        else:
+            return None
+
     def setAddToMap(self, band_names=[]):
         "Set the layers that will be added to the map by default"
 
