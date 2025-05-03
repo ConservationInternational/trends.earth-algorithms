@@ -276,12 +276,12 @@ class TEImage:
             assert field_filter is not None
             band_indices = [
                 i
-                for i, bi in enumerate(self.image.bands)
+                for i, bi in enumerate(self.band_info)
                 if (bi.name in name_filter and bi.metadata[field] == field_filter)
             ]
         else:
             band_indices = [
-                i for i, bi in enumerate(self.image.bands) if bi.name in name_filter
+                i for i, bi in enumerate(self.band_info) if bi.name in name_filter
             ]
 
         if band_indices:
