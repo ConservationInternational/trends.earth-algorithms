@@ -770,7 +770,7 @@ def download_cloud_results(
     # more than one Raster or if it has one or more TiledRasters
 
     if len(job.results.rasters) > 1 or (
-        len(job.results.rasters == 1)
+        len(job.results.rasters) == 1
         and job.results.rasters[0].type == results.RasterType.TILED_RASTER
     ):
         vrt_file = base_output_path.parent / f"{base_output_path.name}.vrt"
