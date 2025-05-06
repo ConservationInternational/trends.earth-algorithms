@@ -631,7 +631,10 @@ def _get_raster_tile(
     uri: results.URI, out_file: Path, aws_access_key_id=None, aws_secret_access_key=None
 ) -> typing.Optional[Path]:
     path_exists = out_file.is_file()
-    hash_matches = etag_compare(out_file, uri.etag.hash)
+    if uri.etag:
+        hash_matches = etag_compare(out_file, uri.etag.hash)
+    else:
+        hash_matches = False
 
     if path_exists and hash_matches:
         logger.info(f"No download necessary, result already present in {out_file}")
@@ -771,7 +774,8 @@ def download_cloud_results(
 
     if len(job.results.rasters) > 1 or (
         len(job.results.rasters) == 1
-        and job.results.rasters[0].type == results.RasterType.TILED_RASTER
+        and list(job.results.rasters.values())[0].type
+        == results.RasterType.TILED_RASTER
     ):
         vrt_file = base_output_path.parent / f"{base_output_path.name}.vrt"
         logger.info("Saving vrt file to %s", vrt_file)
@@ -779,7 +783,7 @@ def download_cloud_results(
         combine_all_bands_into_vrt(main_raster_file_paths, vrt_file)
         job.results.uri = results.URI(uri=vrt_file)
     else:
-        job.results.uri = job.results.rasters[0].uri
+        job.results.uri = list(job.results.rasters.values())[0].uri
 
 
 def get_cloud_results_vrt(job: jobs.Job) -> typing.Optional[Path]:

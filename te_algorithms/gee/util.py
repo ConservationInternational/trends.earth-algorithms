@@ -298,7 +298,16 @@ class TEImage:
             else:
                 self.band_info[i].add_to_map = False
 
-    def export(self, geojsons, task_name, crs, logger, execution_id=None, proj=None):
+    def export(
+        self,
+        geojsons,
+        task_name,
+        crs,
+        logger,
+        execution_id=None,
+        proj=None,
+        maxpixels=1e13,
+    ):
         "Export layers to cloud storage"
 
         if not execution_id:
@@ -323,7 +332,7 @@ class TEImage:
                 "description": out_name,
                 "fileNamePrefix": out_name,
                 "bucket": BUCKET,
-                "maxPixels": 1e13,
+                "maxPixels": maxpixels,
                 "crs": crs,
                 "scale": ee.Number(proj.nominalScale()).getInfo(),
                 "region": get_coords(geojson),
@@ -600,6 +609,7 @@ class TEImageV2:
         execution_id=None,
         proj=None,
         filetype=results.RasterFileType.COG,
+        maxpixels=1e13,
     ):
         "Export layers to cloud storage"
 
@@ -636,7 +646,7 @@ class TEImageV2:
                     "description": out_name,
                     "fileNamePrefix": out_name,
                     "bucket": BUCKET,
-                    "maxPixels": 1e13,
+                    "maxPixels": maxpixels,
                     "crs": crs,
                     "scale": ee.Number(proj.nominalScale()).getInfo(),
                     "region": get_coords(geojson),
