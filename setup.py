@@ -51,7 +51,7 @@ setup(
         "gdal": ["GDAL>=3.0.0", "numpy>=1.17.0"],
         "numba": ["numba>=0.54.1"],
         "dev": ["check-manifest"],
-        "test": ["coverage"],
+        "test": ["coverage", "pytest"],
         "docs": ["sphinx", "sphinx_rtd_theme"],
     },
 )
