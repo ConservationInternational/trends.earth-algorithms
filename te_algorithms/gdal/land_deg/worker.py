@@ -17,7 +17,7 @@ class DegradationSummary:
         self,
         params: Union[
             models.DegradationSummaryParams,
-            models.DegradationProgressSummaryParams,
+            models.DegradationStatusSummaryParams,
             models.DegradationErrorRecodeSummaryParams,
         ],
         processing_function,

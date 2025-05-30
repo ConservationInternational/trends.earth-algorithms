@@ -2,7 +2,7 @@ import datetime as dt
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Dict, List, Union
 
 import numpy as np
 from openpyxl import load_workbook
@@ -75,8 +75,9 @@ def _get_population_list_by_degradation_class(pop_by_deg_class, pop_type):
 
 def save_reporting_json(
     output_path: Path,
-    summary_tables: List[models.SummaryTableLD],
-    summary_table_progress: models.SummaryTableLDProgress,
+    summary_tables: Dict[str, models.SummaryTableLD],
+    summary_table_status: Union[None, models.SummaryTableLD],
+    summary_table_change: Union[None, models.SummaryTableLDChange],
     params: dict,
     task_name: str,
     aoi: "AOI",
@@ -85,7 +86,16 @@ def save_reporting_json(
     land_condition_reports = {}
     affected_pop_reports = {}
 
-    for period in params["periods"]:
+    assert len(summary_tables) == len(params["periods"])
+
+    map_legend = {
+        "Improved": 1,
+        "Stable": 0,
+        "Degraded": -1,
+        "No data": config.NODATA_VALUE,
+    }
+
+    for period_num, period in enumerate(params["periods"]):
         period_name = period["name"]
         period_params = period["params"]
         st = summary_tables[period_name]
@@ -95,14 +105,12 @@ def save_reporting_json(
         lc_legend_nesting = summary_table_kwargs[period_name]["lc_legend_nesting"]
         lc_trans_matrix = summary_table_kwargs[period_name]["lc_trans_matrix"]
 
-        sdg_summary = reporting.AreaList(
+        period_sdg_summary = reporting.AreaList(
             "SDG Indicator 15.3.1",
             "sq km",
             [
-                reporting.Area("Improved", st.sdg_summary.get(1, 0.0)),
-                reporting.Area("Stable", st.sdg_summary.get(0, 0.0)),
-                reporting.Area("Degraded", st.sdg_summary.get(-1, 0.0)),
-                reporting.Area("No data", st.sdg_summary.get(config.NODATA_VALUE, 0)),
+                reporting.Area(class_name, st.sdg_summary.get(code, 0.0))
+                for class_name, code in map_legend.items()
             ],
         )
 
@@ -111,39 +119,33 @@ def save_reporting_json(
                 "Productivity",
                 "sq km",
                 [
-                    reporting.Area("Improved", value.get(1, 0.0)),
-                    reporting.Area("Stable", value.get(0, 0.0)),
-                    reporting.Area("Degraded", value.get(-1, 0.0)),
-                    reporting.Area("No data", value.get(config.NODATA_VALUE, 0)),
+                    reporting.Area(class_name, value.get(code, 0.0))
+                    for class_name, code in map_legend.items()
                 ],
             )
             for key, value in st.prod_summary.items()
-        }
-
-        soc_summaries = {
-            key: reporting.AreaList(
-                "Soil organic carbon",
-                "sq km",
-                [
-                    reporting.Area("Improved", value.get(1, 0.0)),
-                    reporting.Area("Stable", value.get(0, 0.0)),
-                    reporting.Area("Degraded", value.get(-1, 0.0)),
-                    reporting.Area("No data", value.get(config.NODATA_VALUE, 0.0)),
-                ],
-            )
-            for key, value in st.soc_summary.items()
         }
 
         lc_summary = reporting.AreaList(
             "Land cover",
             "sq km",
             [
-                reporting.Area("Improved", st.lc_summary.get(1, 0.0)),
-                reporting.Area("Stable", st.lc_summary.get(0, 0.0)),
-                reporting.Area("Degraded", st.lc_summary.get(-1, 0.0)),
-                reporting.Area("No data", st.lc_summary.get(config.NODATA_VALUE, 0.0)),
+                reporting.Area(class_name, st.lc_summary.get(code, 0.0))
+                for class_name, code in map_legend.items()
             ],
         )
+
+        soc_summaries = {
+            key: reporting.AreaList(
+                "Soil organic carbon",
+                "sq km",
+                [
+                    reporting.Area(class_name, value.get(code, 0.0))
+                    for class_name, code in map_legend.items()
+                ],
+            )
+            for key, value in st.soc_summary.items()
+        }
 
         #######################################################################
         # Productivity tables
@@ -317,10 +319,11 @@ def save_reporting_json(
 
         ###
         # Setup this period's land condition report
-        land_condition_reports[period_name] = reporting.LandConditionReport(
-            sdg=reporting.SDG15Report(summary=sdg_summary),
+        period_assessment = reporting.LandConditionAssessment(
+            sdg=reporting.SDG15Report(summary=period_sdg_summary),
             productivity=reporting.ProductivityReport(
-                summaries=prod_summaries, crosstabs_by_productivity_class=crosstab_prod
+                summaries=prod_summaries,
+                crosstabs_by_productivity_class=crosstab_prod,
             ),
             land_cover=reporting.LandCoverReport(
                 summary=lc_summary,
@@ -363,40 +366,28 @@ def save_reporting_json(
             affected_by_deg_summary
         )
 
-    if summary_table_progress:
-        # There is one less status than there are periods (given status is a
-        # comparison of two successive periods)
-        for summary_number in range(len(params["periods"]) - 1):
-            period_name = f"{params['periods'][summary_number + 1]['name']} status"
-            land_condition_reports[period_name] = reporting.LandConditionReport(
+        if period_num == 0:
+            status_assessment = None
+            change_assessment = None
+        else:
+            assert summary_table_status is not None
+            assert summary_table_change is not None
+
+            # There is one less status than there are periods (given status is a
+            # comparison of two successive periods)
+            summary_number = period_num - 1
+            status_assessment = reporting.LandConditionStatus(
                 sdg=reporting.AreaList(
                     "SDG Indicator 15.3.1 (progress since baseline)",
                     "sq km",
                     [
                         reporting.Area(
-                            "Improved",
-                            summary_table_progress.sdg_summaries[summary_number].get(
-                                1, 0.0
+                            class_name,
+                            summary_table_status.sdg_summaries[summary_number].get(
+                                code, 0.0
                             ),
-                        ),
-                        reporting.Area(
-                            "Stable",
-                            summary_table_progress.sdg_summaries[summary_number].get(
-                                0, 0.0
-                            ),
-                        ),
-                        reporting.Area(
-                            "Degraded",
-                            summary_table_progress.sdg_summaries[summary_number].get(
-                                -1, 0.0
-                            ),
-                        ),
-                        reporting.Area(
-                            "No data",
-                            summary_table_progress.sdg_summaries[summary_number].get(
-                                config.NODATA_VALUE, 0
-                            ),
-                        ),
+                        )
+                        for class_name, code in map_legend.items()
                     ],
                 ),
                 productivity={
@@ -404,15 +395,11 @@ def save_reporting_json(
                         "Productivity (progress since baseline)",
                         "sq km",
                         [
-                            reporting.Area("Improved", value.get(1, 0.0)),
-                            reporting.Area("Stable", value.get(0, 0.0)),
-                            reporting.Area("Degraded", value.get(-1, 0.0)),
-                            reporting.Area(
-                                "No data", value.get(config.NODATA_VALUE, 0)
-                            ),
+                            reporting.Area(class_name, value.get(code, 0.0))
+                            for class_name, code in map_legend.items()
                         ],
                     )
-                    for key, value in summary_table_progress.prod_summaries[
+                    for key, value in summary_table_status.prod_summaries[
                         summary_number
                     ].items()
                 },
@@ -421,29 +408,12 @@ def save_reporting_json(
                     "sq km",
                     [
                         reporting.Area(
-                            "Improved",
-                            summary_table_progress.lc_summaries[summary_number].get(
-                                1, 0.0
+                            class_name,
+                            summary_table_status.lc_summaries[summary_number].get(
+                                code, 0.0
                             ),
-                        ),
-                        reporting.Area(
-                            "Stable",
-                            summary_table_progress.lc_summaries[summary_number].get(
-                                0, 0.0
-                            ),
-                        ),
-                        reporting.Area(
-                            "Degraded",
-                            summary_table_progress.lc_summaries[summary_number].get(
-                                -1, 0.0
-                            ),
-                        ),
-                        reporting.Area(
-                            "No data",
-                            summary_table_progress.lc_summaries[summary_number].get(
-                                config.NODATA_VALUE, 0
-                            ),
-                        ),
+                        )
+                        for class_name, code in map_legend.items()
                     ],
                 ),
                 soil_organic_carbon={
@@ -451,19 +421,98 @@ def save_reporting_json(
                         "Soil organic carbon (progress since baseline)",
                         "sq km",
                         [
-                            reporting.Area("Improved", value.get(1, 0.0)),
-                            reporting.Area("Stable", value.get(0, 0.0)),
-                            reporting.Area("Degraded", value.get(-1, 0.0)),
-                            reporting.Area(
-                                "No data", value.get(config.NODATA_VALUE, 0)
-                            ),
+                            reporting.Area(class_name, value.get(code, 0.0))
+                            for class_name, code in map_legend.items()
                         ],
                     )
-                    for key, value in summary_table_progress.soc_summaries[
+                    for key, value in summary_table_status.soc_summaries[
                         summary_number
                     ].items()
                 },
             )
+
+            ### Change report
+
+            change_assessment = reporting.LandConditionChange(
+                sdg=reporting.CrossTab(
+                    name="Land area by change in degradation status (one-out all-out layer)",
+                    unit="sq km",
+                    initial_year=period_params["periods"]["productivity"][
+                        "year_initial"
+                    ],
+                    final_year=period_params["periods"]["productivity"]["year_final"],
+                    values=[
+                        reporting.CrossTabEntry(
+                            initial_class_name,
+                            final_class_name,
+                            value=summary_table_change.sdg_crosstabs[
+                                summary_number
+                            ].get((initial_code, final_code), 0.0),
+                        )
+                        for initial_class_name, initial_code in map_legend.items()
+                        for final_class_name, final_code in map_legend.items()
+                    ],
+                ),
+                productivity=reporting.CrossTab(
+                    name="Land area by change in land productivity degradation status",
+                    unit="sq km",
+                    initial_year=period_params["periods"]["productivity"][
+                        "year_initial"
+                    ],
+                    final_year=period_params["periods"]["productivity"]["year_final"],
+                    values=[
+                        reporting.CrossTabEntry(
+                            initial_class_name,
+                            final_class_name,
+                            value=summary_table_change.prod_crosstabs[
+                                summary_number
+                            ].get((initial_code, final_code), 0.0),
+                        )
+                        for initial_class_name, initial_code in map_legend.items()
+                        for final_class_name, final_code in map_legend.items()
+                    ],
+                ),
+                land_cover=reporting.CrossTab(
+                    name="Land area by change in land cover degradation status",
+                    unit="sq km",
+                    initial_year=period_params["periods"]["land_cover"]["year_initial"],
+                    final_year=period_params["periods"]["land_cover"]["year_final"],
+                    values=[
+                        reporting.CrossTabEntry(
+                            initial_class_name,
+                            final_class_name,
+                            value=summary_table_change.lc_crosstabs[summary_number].get(
+                                (initial_code, final_code), 0.0
+                            ),
+                        )
+                        for initial_class_name, initial_code in map_legend.items()
+                        for final_class_name, final_code in map_legend.items()
+                    ],
+                ),
+                soil_organic_carbon=reporting.CrossTab(
+                    name="Land area by change in land cover degradation status",
+                    unit="sq km",
+                    initial_year=period_params["periods"]["soc"]["year_initial"],
+                    final_year=period_params["periods"]["soc"]["year_final"],
+                    values=[
+                        reporting.CrossTabEntry(
+                            initial_class_name,
+                            final_class_name,
+                            value=summary_table_change.soc_crosstabs[
+                                summary_number
+                            ].get((initial_code, final_code), 0.0),
+                        )
+                        for initial_class_name, initial_code in map_legend.items()
+                        for final_class_name, final_code in map_legend.items()
+                    ],
+                ),
+            )
+
+        land_condition_reports[period_name] = reporting.LandConditionReport(
+            period_assessment=period_assessment,
+            status_assessment=status_assessment,
+            change_assessment=change_assessment,
+        )
 
     ##########################################################################
     # Format final JSON output

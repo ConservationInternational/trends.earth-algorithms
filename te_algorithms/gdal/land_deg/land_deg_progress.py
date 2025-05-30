@@ -1,6 +1,6 @@
 import logging
 import tempfile
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple, Union
 
 import numpy as np
 from osgeo import gdal
@@ -10,7 +10,7 @@ from te_schemas.productivity import ProductivityMode
 from te_schemas.results import Band
 
 from .. import util, workers
-from ..util_numba import zonal_total
+from ..util_numba import bizonal_total, zonal_total
 from . import config, models, worker
 from .land_deg_numba import (
     calc_soc_pch,
@@ -23,9 +23,10 @@ from .land_deg_numba import (
 logger = logging.getLogger(__name__)
 
 
-def _accumulate_ld_progress_summary_tables(
-    tables: List[models.SummaryTableLDProgress],
-) -> models.SummaryTableLDProgress:
+def _accumulate_ld_summary_tables_status(
+    tables: List[models.SummaryTableLDStatus],
+) -> models.SummaryTableLDStatus:
+    """Used for combining summary tables from multiple blocks of an image"""
     if len(tables) == 1:
         return tables[0]
     else:
@@ -71,7 +72,42 @@ def _accumulate_ld_progress_summary_tables(
     return out
 
 
-def compute_progress_summary(
+def _accumulate_ld_summary_tables_change(
+    tables: List[models.SummaryTableLDChange],
+) -> models.SummaryTableLDChange:
+    """Used for combining summary tables from multiple blocks of an image"""
+    if len(tables) == 1:
+        return tables[0]
+    else:
+        out = tables[0]
+
+    assert all(
+        [
+            len(out.sdg_crosstabs) == len(out.prod_crosstabs),
+            len(out.sdg_crosstabs) == len(out.lc_crosstabs),
+            len(out.sdg_crosstabs) == len(out.soc_crosstabs),
+        ]
+    )
+
+    for table in tables[1:]:
+        for i in range(len(out.sdg_crosstabs)):
+            out.sdg_crosstabs[i] = util.accumulate_dicts(
+                [out.sdg_crosstabs[i], table.sdg_crosstabs[i]]
+            )
+            out.prod_crosstabs[i] = util.accumulate_dicts(
+                [out.prod_crosstabs[i], table.prod_crosstabs[i]]
+            )
+            out.lc_crosstabs[i] = util.accumulate_dicts(
+                [out.lc_crosstabs[i], table.lc_crosstabs[i]]
+            )
+            out.soc_crosstabs[i] = util.accumulate_dicts(
+                [out.soc_crosstabs[i], table.soc_crosstabs[i]]
+            )
+
+    return out
+
+
+def compute_status_summary(
     df,
     prod_mode,
     job_output_path,
@@ -79,22 +115,19 @@ def compute_progress_summary(
     compute_bbs_from,
     periods,
     nesting: LCLegendNesting,
-    mask_worker_function: Callable = None,
-    mask_worker_params: dict = None,
-    progress_worker_function: Callable = None,
-    progress_worker_params: dict = None,
+    mask_worker_function: Union[None, Callable] = None,
+    mask_worker_params: Union[None, dict] = None,
+    status_worker_function: Union[None, Callable] = None,
+    status_worker_params: Union[None, dict] = None,
 ):
-    # Calculate progress summary
-    progress_vrt, progress_band_dict = _get_progress_summary_input_vrt(
-        df, prod_mode, periods
-    )
+    status_vrt, status_band_dict = _get_status_summary_input_vrt(df, prod_mode, periods)
 
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
     assert len(wkt_aois) == len(bbs)
 
     if len(wkt_aois) > 1:
-        progress_name_pattern = (
+        status_name_pattern = (
             f"{job_output_path.stem}" + "_reporting_summary_{index}.tif"
         )
         mask_name_fragment = (
@@ -102,27 +135,28 @@ def compute_progress_summary(
             + f"{len(wkt_aois)})"
         )
     else:
-        progress_name_pattern = f"{job_output_path.stem}" + "_reporting_summary.tif"
+        status_name_pattern = f"{job_output_path.stem}" + "_reporting.tif"
         mask_name_fragment = "Generating mask for reporting analysis"
 
-    progress_summary_tables = []
+    summary_table_status = []
+    summary_table_change = []
     reporting_paths = []
     error_message = None
 
     for index, (wkt_aoi, this_bbs) in enumerate(zip(wkt_aois, bbs), start=1):
-        cropped_progress_vrt = tempfile.NamedTemporaryFile(
-            suffix="_ld_progress_summary_inputs.vrt", delete=False
+        cropped_status_vrt = tempfile.NamedTemporaryFile(
+            suffix="_ld_status_summary_inputs.vrt", delete=False
         ).name
         gdal.BuildVRT(
-            cropped_progress_vrt,
-            progress_vrt,
+            cropped_status_vrt,
+            status_vrt,
             outputBounds=this_bbs,
             resolution="highest",
             resampleAlg=gdal.GRA_NearestNeighbour,
         )
 
         mask_tif = tempfile.NamedTemporaryFile(
-            suffix="_ld_progress_mask.tif", delete=False
+            suffix="_ld_status_mask.tif", delete=False
         ).name
         logger.info(f"Saving mask to {mask_tif}")
         logger.info(
@@ -132,30 +166,30 @@ def compute_progress_summary(
 
         if mask_worker_function:
             mask_result = mask_worker_function(
-                mask_tif, geojson, str(cropped_progress_vrt), **mask_worker_params
+                mask_tif, geojson, str(cropped_status_vrt), **mask_worker_params
             )
         else:
             mask_worker = workers.Mask(
                 mask_tif,
                 geojson,
-                str(cropped_progress_vrt),
+                str(cropped_status_vrt),
             )
             mask_result = mask_worker.work()
 
         if mask_result:
-            progress_out_path = job_output_path.parent / progress_name_pattern.format(
+            status_out_path = job_output_path.parent / status_name_pattern.format(
                 index=index
             )
-            reporting_paths.append(progress_out_path)
+            reporting_paths.append(status_out_path)
 
             logger.info(
-                f"Calculating progress summary table and saving layer to: {progress_out_path}"
+                f"Calculating status summary table and saving layer to: {status_out_path}"
             )
-            progress_params = models.DegradationProgressSummaryParams(
+            status_params = models.DegradationStatusSummaryParams(
                 prod_mode=prod_mode,
-                in_file=str(cropped_progress_vrt),
-                out_file=str(progress_out_path),
-                band_dict=progress_band_dict,
+                in_file=str(cropped_status_vrt),
+                out_file=str(status_out_path),
+                band_dict=status_band_dict,
                 model_band_number=1,
                 n_out_bands=4 * (len(periods) - 1),
                 n_reporting=len(periods) - 1,
@@ -163,37 +197,38 @@ def compute_progress_summary(
                 nesting=nesting,
             )
 
-            if progress_worker_function:
-                result = progress_worker_function(
-                    progress_params, _process_block_progress, **progress_worker_params
+            if status_worker_function:
+                result = status_worker_function(
+                    status_params, _process_block_status, **status_worker_params
                 )
             else:
                 summarizer = worker.DegradationSummary(
-                    progress_params, _process_block_progress
+                    status_params, _process_block_status
                 )
                 result = summarizer.work()
 
             if not result:
                 if result.is_killed():
-                    error_message = "Cancelled calculation of progress summary table."
+                    error_message = "Cancelled calculation of status summary tables."
                 else:
-                    error_message = "Error calculating progress summary table."
+                    error_message = "Error calculating status summary tables."
                     result = None
             else:
-                progress_summary_tables.append(
-                    _accumulate_ld_progress_summary_tables(result)
-                )
+                # Result will contain a list of tuples of length equal to
+                # number of blocks in the image, where each item in the list is
+                # a length two tuple.
+                summary_table_status.extend([item[0] for item in result])
+                summary_table_change.extend([item[1] for item in result])
 
         else:
             error_message = "Error creating mask."
 
     if error_message:
         logger.error(error_message)
-        raise RuntimeError(f"Error calculating progress: {error_message}")
+        raise RuntimeError(f"Error calculating status: {error_message}")
 
-    progress_summary_table = _accumulate_ld_progress_summary_tables(
-        progress_summary_tables
-    )
+    summary_table_status = _accumulate_ld_summary_tables_status(summary_table_status)
+    summary_table_change = _accumulate_ld_summary_tables_change(summary_table_change)
 
     if len(reporting_paths) > 1:
         reporting_path = (
@@ -302,10 +337,14 @@ def compute_progress_summary(
         ]
     )
 
-    return progress_summary_table, DataFile(reporting_path, out_bands)
+    return (
+        summary_table_status,
+        summary_table_change,
+        DataFile(reporting_path, out_bands),
+    )
 
 
-def _get_progress_summary_input_vrt(df, prod_mode, periods):
+def _get_status_summary_input_vrt(df, prod_mode, periods):
     ##########################################################################
     # Get SDG layers
     prod_final_years = [
@@ -436,7 +475,7 @@ def _get_progress_summary_input_vrt(df, prod_mode, periods):
         util.save_vrt(df.path, band_num + 1) for name, band_num in df_band_list
     ]
     out_vrt = tempfile.NamedTemporaryFile(
-        suffix="_ld_progress_inputs.vrt", delete=False
+        suffix="_ld_status_inputs.vrt", delete=False
     ).name
     gdal.BuildVRT(out_vrt, [vrt for vrt in band_vrts], separate=True)
     vrt_band_dict = {item[0]: index for index, item in enumerate(df_band_list, start=1)}
@@ -444,14 +483,14 @@ def _get_progress_summary_input_vrt(df, prod_mode, periods):
     return out_vrt, vrt_band_dict
 
 
-def _process_block_progress(
-    params: models.DegradationProgressSummaryParams,
+def _process_block_status(
+    params: models.DegradationStatusSummaryParams,
     in_array,
     mask,
     xoff: int,
     yoff: int,
     cell_areas_raw,
-) -> Tuple[models.SummaryTableLDProgress, Dict]:
+) -> Tuple[Tuple[models.SummaryTableLDStatus, models.SummaryTableLDChange], List[Dict]]:
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
     # Derive a water mask from last lc year - handling fact that there could be
@@ -472,14 +511,17 @@ def _process_block_progress(
     sdg_baseline = in_array[params.band_dict["sdg_baseline_bandnum"] - 1, :, :]
     sdg_statuses = []
     sdg_summaries = []
+    sdg_crosstabs = []
     for i in range(params.n_reporting):
         sdg_reporting = in_array[
             params.band_dict[f"sdg_reporting_{i}_bandnum"] - 1, :, :
         ]
         sdg_status = sdg_status_expanded(sdg_baseline, sdg_reporting)
         sdg_statuses.append(sdg_status)
-        sdg_summaries.append(
-            zonal_total(sdg_status_expanded_to_simple(sdg_status), cell_areas, mask)
+        sdg_status_3_class = sdg_status_expanded_to_simple(sdg_status)
+        sdg_summaries.append(zonal_total(sdg_status_3_class, cell_areas, mask))
+        sdg_crosstabs.append(
+            bizonal_total(sdg_baseline, sdg_status_3_class, cell_areas, mask)
         )
 
     ##########################################################################
@@ -487,6 +529,7 @@ def _process_block_progress(
     prod5_baseline = in_array[params.band_dict["prod5_baseline_bandnum"] - 1, :, :]
     prod_summaries = []
     prod_statuses = []
+    prod_crosstabs = []
     for i in range(params.n_reporting):
         prod5_reporting = in_array[
             params.band_dict[f"prod5_reporting_{i}_bandnum"] - 1, :, :
@@ -496,28 +539,33 @@ def _process_block_progress(
         prod5_baseline[prod5_baseline == 0] = config.NODATA_VALUE
         prod5_reporting[prod5_reporting == 0] = config.NODATA_VALUE
 
-        prod_status = sdg_status_expanded(
-            prod5_to_prod3(prod5_baseline), prod5_to_prod3(prod5_reporting)
-        )
+        prod3_baseline = prod5_to_prod3(prod5_baseline)
+        prod3_reporting = prod5_to_prod3(prod5_reporting)
+
+        prod_status = sdg_status_expanded(prod3_baseline, prod3_reporting)
+        prod_status_3_class = sdg_status_expanded_to_simple(prod_status)
 
         prod_statuses.append(prod_status)
         prod_summaries.append(
             {
-                "all_cover_types": zonal_total(
-                    sdg_status_expanded_to_simple(prod_status), cell_areas, mask
-                ),
+                "all_cover_types": zonal_total(prod_status_3_class, cell_areas, mask),
                 "non_water": zonal_total(
-                    sdg_status_expanded_to_simple(prod_status),
+                    prod_status_3_class,
                     cell_areas,
                     mask_plus_water,
                 ),
             }
         )
 
+        prod_crosstabs.append(
+            bizonal_total(prod3_baseline, prod_status_3_class, cell_areas, mask)
+        )
+
     ##########################################################################
     # LC
     lc_summaries = []
     lc_statuses = []
+    lc_crosstabs = []
     lc_deg_baseline = in_array[params.band_dict["lc_deg_baseline_bandnum"] - 1, :, :]
     for i in range(params.n_reporting):
         lc_deg_reporting = in_array[
@@ -527,14 +575,18 @@ def _process_block_progress(
         lc_status = sdg_status_expanded(lc_deg_baseline, lc_deg_reporting)
 
         lc_statuses.append(lc_status)
-        lc_summaries.append(
-            zonal_total(sdg_status_expanded_to_simple(lc_status), cell_areas, mask)
+        lc_status_3_class = sdg_status_expanded_to_simple(lc_status)
+        lc_summaries.append(zonal_total(lc_status_3_class, cell_areas, mask))
+
+        lc_crosstabs.append(
+            bizonal_total(lc_deg_baseline, lc_status_3_class, cell_areas, mask)
         )
 
     ##########################################################################
     # SOC
     soc_summaries = []
     soc_statuses = []
+    soc_crosstabs = []
     soc_deg_baseline = in_array[params.band_dict["soc_deg_baseline_bandnum"] - 1, :, :]
     for i in range(params.n_reporting):
         soc_pch = calc_soc_pch(
@@ -543,12 +595,16 @@ def _process_block_progress(
         )
         soc_deg_reporting = recode_deg_soc(soc_pch, water)
         soc_status = sdg_status_expanded(soc_deg_baseline, soc_deg_reporting)
+        soc_status_3_class = sdg_status_expanded_to_simple(soc_status)
         soc_statuses.append(soc_status)
         soc_summaries.append(
             {
                 "all_cover_types": zonal_total(soc_status, cell_areas, mask),
                 "non_water": zonal_total(soc_status, cell_areas, mask_plus_water),
             }
+        )
+        soc_crosstabs.append(
+            bizonal_total(soc_deg_baseline, soc_status_3_class, cell_areas, mask)
         )
 
     ##########################################################################
@@ -565,8 +621,19 @@ def _process_block_progress(
         write_arrays.append({"array": lc_status, "xoff": xoff, "yoff": yoff})
 
     return (
-        models.SummaryTableLDProgress(
-            sdg_summaries, prod_summaries, soc_summaries, lc_summaries
+        (
+            models.SummaryTableLDStatus(
+                sdg_summaries,
+                prod_summaries,
+                lc_summaries,
+                soc_summaries,
+            ),
+            models.SummaryTableLDChange(
+                sdg_crosstabs,
+                prod_crosstabs,
+                lc_crosstabs,
+                soc_crosstabs,
+            ),
         ),
         write_arrays,
     )
