@@ -13,8 +13,6 @@ class SummaryTableLD(SchemaBase):
     lc_trans_zonal_areas: List[Dict[int, float]]
     lc_trans_zonal_areas_periods: List[Dict[str, float]]
     lc_trans_prod_bizonal: Dict[Tuple[int, int], float]
-    lc_trans_zonal_soc_initial: Dict[int, float]
-    lc_trans_zonal_soc_final: Dict[int, float]
     sdg_zonal_population_total: Dict[int, float]
     sdg_zonal_population_male: Dict[int, float]
     sdg_zonal_population_female: Dict[int, float]
@@ -37,8 +35,6 @@ class SummaryTableLD(SchemaBase):
         self.lc_trans_prod_bizonal = {
             tuple(key): value for key, value in self.lc_trans_prod_bizonal.items()
         }
-        self.lc_trans_zonal_soc_initial = dict(self.lc_trans_zonal_soc_initial)
-        self.lc_trans_zonal_soc_final = dict(self.lc_trans_zonal_soc_final)
         self.sdg_zonal_population_total = dict(self.sdg_zonal_population_total)
         self.sdg_zonal_population_male = dict(self.sdg_zonal_population_male)
         self.sdg_zonal_population_female = dict(self.sdg_zonal_population_female)
@@ -146,12 +142,6 @@ def accumulate_summarytableld(
         assert out.lc_trans_zonal_areas_periods == table.lc_trans_zonal_areas_periods
         out.lc_trans_prod_bizonal = util.accumulate_dicts(
             [out.lc_trans_prod_bizonal, table.lc_trans_prod_bizonal]
-        )
-        out.lc_trans_zonal_soc_initial = util.accumulate_dicts(
-            [out.lc_trans_zonal_soc_initial, table.lc_trans_zonal_soc_initial]
-        )
-        out.lc_trans_zonal_soc_final = util.accumulate_dicts(
-            [out.lc_trans_zonal_soc_final, table.lc_trans_zonal_soc_final]
         )
         out.sdg_zonal_population_total = util.accumulate_dicts(
             [out.sdg_zonal_population_total, table.sdg_zonal_population_total]

@@ -267,39 +267,6 @@ def save_reporting_json(
         soil_organic_carbon_years = period_params["layer_soc_years"]
 
         ###
-        # SOC by transition type (initial and final stock for each transition
-        # type)
-        soc_by_transition = []
-
-        # TODO: Right now the below is produced even if the initial and final years of
-        # the SOC data don't match those of the LC data. Does this make sense? That
-        # would mean tabulating SOC change for years that could potentially be very
-        # different from the LC years (if both use custom data)
-
-        for transition, codes in lc_trans_dict.items():
-            initial_class = lc_trans_matrix.legend.classByCode(
-                codes["initial"]
-            ).get_name()
-            final_class = lc_trans_matrix.legend.classByCode(codes["final"]).get_name()
-            soc_by_transition.append(
-                reporting.CrossTabEntryInitialFinal(
-                    initial_label=initial_class,
-                    final_label=final_class,
-                    initial_value=st.lc_trans_zonal_soc_initial.get(transition, 0.0),
-                    final_value=st.lc_trans_zonal_soc_final.get(transition, 0.0),
-                )
-            )
-        initial_soc_year = period_params["layer_soc_deg_years"]["year_initial"]
-        final_soc_year = period_params["layer_soc_deg_years"]["year_final"]
-        crosstab_soc_by_transition_per_ha = reporting.CrossTabInitialFinal(
-            name="Initial and final carbon stock by transition type",
-            unit="tons",
-            initial_year=initial_soc_year,
-            final_year=final_soc_year,
-            values=soc_by_transition,
-        )
-
-        ###
         # SOC by year by land cover class
         soc_by_year = {}
 
@@ -334,7 +301,6 @@ def save_reporting_json(
             ),
             soil_organic_carbon=reporting.SoilOrganicCarbonReport(
                 summaries=soc_summaries,
-                crosstab_by_land_cover_class=crosstab_soc_by_transition_per_ha,
                 soc_stock_by_year=soc_by_year_by_class,
             ),
         )
@@ -821,23 +787,6 @@ def _write_soc_sheet(
             cell.alignment = Alignment(horizontal="center")
             cell.border = xl.thin_border
             cell.number_format = numbers.FORMAT_PERCENTAGE
-
-    setup_crosstab_by_lc(
-        sheet, classes, 24 + n_new_rows_per_table, 1, n_classes_in_template=6
-    )
-    if st.lc_trans_zonal_soc_initial != {} and st.lc_trans_zonal_soc_final != {}:
-        # write_soc_stock_change_table has its own writing function as it needs
-        # to write a
-        # mix of numbers and strings
-        _write_soc_stock_change_table(
-            sheet,
-            24 + n_new_rows_per_table,
-            1,
-            st.lc_trans_zonal_soc_initial,
-            st.lc_trans_zonal_soc_final,
-            lc_trans_matrix,
-            excluded_codes=excluded_codes,
-        )
 
     # Set value for cell showing percent change in SOC
     sheet["G11"].value = (
