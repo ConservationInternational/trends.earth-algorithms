@@ -615,7 +615,9 @@ def productivity_faowocat(
         modis_mode = "MannKendal + MTID"
     modis_mode = modis_mode.strip()
     if modis_mode not in ("MannKendal", "MannKendal + MTID"):
-        logger.warning("Unknown modis_mode '%s' – falling back to 'MannKendal + MTID'", modis_mode)
+        logger.warning(
+            "Unknown modis_mode '%s' – falling back to 'MannKendal + MTID'", modis_mode
+        )
         modis_mode = "MannKendal + MTID"
 
     years = list(range(year_start, year_end + 1))
@@ -630,19 +632,20 @@ def productivity_faowocat(
     period = year_end - year_start + 1
     kendall_s = stats.get_kendall_coef(period, 95)
 
-    trend_3cat = (ee.Image(0)
-                  .where(lf_trend.select("scale").lt(0).And(mk_trend.abs().gte(kendall_s)), 1)
-                  .where(mk_trend.abs().lt(kendall_s), 2)
-                  .where(lf_trend.select("scale").gt(0).And(mk_trend.abs().gte(kendall_s)), 3))
+    trend_3cat = (
+        ee.Image(0)
+        .where(lf_trend.select("scale").lt(0).And(mk_trend.abs().gte(kendall_s)), 1)
+        .where(mk_trend.abs().lt(kendall_s), 2)
+        .where(lf_trend.select("scale").gt(0).And(mk_trend.abs().gte(kendall_s)), 3)
+    )
 
     def _mtid(ic):
-        last_mean = (ic.filter(ee.Filter.gt("year", year_end - 3))
-                     .select("NDVI").mean())
+        last_mean = ic.filter(ee.Filter.gt("year", year_end - 3)).select("NDVI").mean()
         diffs = ic.map(lambda im: last_mean.subtract(im.select("NDVI")))
         return ee.ImageCollection(diffs).sum()
 
     mtid = _mtid(annual_ic)
-    mtid_code = (ee.Image(0).where(mtid.lte(0), 1).where(mtid.gt(0), 2))
+    mtid_code = ee.Image(0).where(mtid.lte(0), 1).where(mtid.gt(0), 2)
 
     if modis_mode == "MannKendal + MTID":
         steadiness = (
@@ -663,8 +666,12 @@ def productivity_faowocat(
             .where(trend_3cat.eq(3), 4)
         )
 
-    init_mean = (annual_ic.filter(ee.Filter.lte("year", year_start + 2))
-                 .select("NDVI").mean().divide(10000))
+    init_mean = (
+        annual_ic.filter(ee.Filter.lte("year", year_start + 2))
+        .select("NDVI")
+        .mean()
+        .divide(10000)
+    )
     init_biomass = (
         ee.Image(0)
         .where(init_mean.lte(low_biomass), 1)
@@ -675,7 +682,8 @@ def productivity_faowocat(
     baseline_end = year_start + max(15, years_interval) - 1
     baseline_ic = annual_ic.filter(ee.Filter.lte("year", baseline_end)).select("NDVI")
     pct = baseline_ic.reduce(
-        ee.Reducer.percentile([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]))
+        ee.Reducer.percentile([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+    )
 
     def _pct_class(mean_img):
         return (
@@ -692,70 +700,80 @@ def productivity_faowocat(
             .where(mean_img.gt(pct.select("NDVI_p90")), 10)
         )
 
-    t1_mean = (annual_ic.filter(ee.Filter.lte("year", year_start + 3))
-               .select("NDVI").mean())
-    t2_mean = (annual_ic.filter(ee.Filter.gte("year", year_end - 3))
-               .select("NDVI").mean())
+    t1_mean = (
+        annual_ic.filter(ee.Filter.lte("year", year_start + 3)).select("NDVI").mean()
+    )
+    t2_mean = (
+        annual_ic.filter(ee.Filter.gte("year", year_end - 3)).select("NDVI").mean()
+    )
     t1_class = _pct_class(t1_mean)
     t2_class = _pct_class(t2_mean)
 
     diff_class = t2_class.subtract(t1_class)
-    eme_state = (ee.Image(0)
-                 .where(diff_class.lte(-2), 1)
-                 .where(diff_class.gt(-2).And(diff_class.lt(2)), 2)
-                 .where(diff_class.gte(2), 3))
+    eme_state = (
+        ee.Image(0)
+        .where(diff_class.lte(-2), 1)
+        .where(diff_class.gt(-2).And(diff_class.lt(2)), 2)
+        .where(diff_class.gte(2), 3)
+    )
 
     semi = ee.Image().expression(
-        '(a==1&&b==1&&c==1)?1:'
-        '(a==1&&b==2&&c==1)?2:'
-        '(a==1&&b==3&&c==1)?3:'
-        '(a==1&&b==1&&c==2)?4:'
-        '(a==1&&b==2&&c==2)?5:'
-        '(a==1&&b==3&&c==2)?6:'
-        '(a==1&&b==1&&c==3)?7:'
-        '(a==1&&b==2&&c==3)?8:'
-        '(a==1&&b==3&&c==3)?9:'
-        '(a==2&&b==1&&c==1)?10:'
-        '(a==2&&b==2&&c==1)?11:'
-        '(a==2&&b==3&&c==1)?12:'
-        '(a==2&&b==1&&c==2)?13:'
-        '(a==2&&b==2&&c==2)?14:'
-        '(a==2&&b==3&&c==2)?15:'
-        '(a==2&&b==1&&c==3)?16:'
-        '(a==2&&b==2&&c==3)?17:'
-        '(a==2&&b==3&&c==3)?18:'
-        '(a==3&&b==1&&c==1)?19:'
-        '(a==3&&b==2&&c==1)?20:'
-        '(a==3&&b==3&&c==1)?21:'
-        '(a==3&&b==1&&c==2)?22:'
-        '(a==3&&b==2&&c==2)?23:'
-        '(a==3&&b==3&&c==2)?24:'
-        '(a==3&&b==1&&c==3)?25:'
-        '(a==3&&b==2&&c==3)?26:'
-        '(a==3&&b==3&&c==3)?27:'
-        '(a==4&&b==1&&c==1)?28:'
-        '(a==4&&b==2&&c==1)?29:'
-        '(a==4&&b==3&&c==1)?30:'
-        '(a==4&&b==1&&c==2)?31:'
-        '(a==4&&b==2&&c==2)?32:'
-        '(a==4&&b==3&&c==2)?33:'
-        '(a==4&&b==1&&c==3)?34:'
-        '(a==4&&b==2&&c==3)?35:'
-        '(a==4&&b==3&&c==3)?36:99',
-        {'a': steadiness, 'b': init_biomass, 'c': eme_state})
+        "(a==1&&b==1&&c==1)?1:"
+        "(a==1&&b==2&&c==1)?2:"
+        "(a==1&&b==3&&c==1)?3:"
+        "(a==1&&b==1&&c==2)?4:"
+        "(a==1&&b==2&&c==2)?5:"
+        "(a==1&&b==3&&c==2)?6:"
+        "(a==1&&b==1&&c==3)?7:"
+        "(a==1&&b==2&&c==3)?8:"
+        "(a==1&&b==3&&c==3)?9:"
+        "(a==2&&b==1&&c==1)?10:"
+        "(a==2&&b==2&&c==1)?11:"
+        "(a==2&&b==3&&c==1)?12:"
+        "(a==2&&b==1&&c==2)?13:"
+        "(a==2&&b==2&&c==2)?14:"
+        "(a==2&&b==3&&c==2)?15:"
+        "(a==2&&b==1&&c==3)?16:"
+        "(a==2&&b==2&&c==3)?17:"
+        "(a==2&&b==3&&c==3)?18:"
+        "(a==3&&b==1&&c==1)?19:"
+        "(a==3&&b==2&&c==1)?20:"
+        "(a==3&&b==3&&c==1)?21:"
+        "(a==3&&b==1&&c==2)?22:"
+        "(a==3&&b==2&&c==2)?23:"
+        "(a==3&&b==3&&c==2)?24:"
+        "(a==3&&b==1&&c==3)?25:"
+        "(a==3&&b==2&&c==3)?26:"
+        "(a==3&&b==3&&c==3)?27:"
+        "(a==4&&b==1&&c==1)?28:"
+        "(a==4&&b==2&&c==1)?29:"
+        "(a==4&&b==3&&c==1)?30:"
+        "(a==4&&b==1&&c==2)?31:"
+        "(a==4&&b==2&&c==2)?32:"
+        "(a==4&&b==3&&c==2)?33:"
+        "(a==4&&b==1&&c==3)?34:"
+        "(a==4&&b==2&&c==3)?35:"
+        "(a==4&&b==3&&c==3)?36:99",
+        {"a": steadiness, "b": init_biomass, "c": eme_state},
+    )
 
-    final_lpd = (ee.Image(0)
-                 .where(semi.lte(8), 1)
-                 .where(semi.gt(8).And(semi.lte(14)), 2)
-                 .where(semi.gt(14).And(semi.lte(22)), 3)
-                 .where(semi.gt(22).And(semi.lte(32)), 4)
-                 .where(semi.gt(32).And(semi.lte(36)), 5)
-                 .rename("LPD"))
+    final_lpd = (
+        ee.Image(0)
+        .where(semi.lte(8), 1)
+        .where(semi.gt(8).And(semi.lte(14)), 2)
+        .where(semi.gt(14).And(semi.lte(22)), 3)
+        .where(semi.gt(22).And(semi.lte(32)), 4)
+        .where(semi.gt(32).And(semi.lte(36)), 5)
+        .rename("LPD")
+    )
 
     return TEImage(
         final_lpd.unmask(-32768).int16(),
-        [BandInfo("Land Productivity Dynamics (FAO-WOCAT)",
-                  add_to_map=True,
-                  metadata={"year_initial": year_start,
-                            "year_final": year_end})],
+        [
+            BandInfo(
+                "Land Productivity Dynamics (FAO-WOCAT)",
+                add_to_map=True,
+                metadata={"year_initial": year_start, "year_final": year_end},
+            )
+        ],
     )
