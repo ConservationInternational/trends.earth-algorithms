@@ -620,13 +620,11 @@ def productivity_faowocat(
 
     years = list(range(year_start, year_end + 1))
 
-    def _add_img(y, lst):
-        img = (ndvi_dataset.select(f"y{y}")
-               .rename("NDVI")
-               .set({"year": y}))
-        return ee.List(lst).add(img)
-
-    annual_ic = ee.ImageCollection(ee.List(years).iterate(_add_img, []))
+    image_list = [
+        ndvi_dataset.select(f"y{yr}").rename("NDVI").set({"year": yr})
+        for yr in years
+    ]
+    annual_ic = ee.ImageCollection(image_list)
 
     lf_trend, mk_trend = ndvi_trend(year_start, year_end, ndvi_dataset, logger)
     period = year_end - year_start + 1
