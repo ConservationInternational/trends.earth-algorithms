@@ -2,13 +2,18 @@ import random
 import threading
 import typing
 from time import time
+from typing import Union
 
 import backoff
 import ee
 import requests
 from te_schemas import results
 from te_schemas.results import Raster, TiledRaster
-from te_schemas.schemas import BandInfoSchema, CloudResults, CloudResultsSchema
+from te_schemas.schemas import (
+    BandInfoSchema,
+    CloudResults,
+    CloudResultsSchema,
+)
 from te_schemas.schemas import Url as UrlDeprecated
 
 from . import GEEImageError, GEETaskFailure
@@ -225,7 +230,7 @@ class TEImage:
         if len(self.band_info) != len(self.image.getInfo()["bands"]):
             raise GEEImageError(
                 f"Band info length ({len(self.band_info)}) does not match "
-                f"number of bands in image ({self.image.getInfo()['bands']})"
+                f"number of bands in image ({len(self.image.getInfo()['bands'])})"
             )
 
     def merge(self, other):
@@ -256,6 +261,34 @@ class TEImage:
 
         self._check_validity()
 
+    def getImages(
+        self,
+        name_filter: Union[str, list],
+        field: Union[None, str] = None,
+        field_filter: Union[None, str] = None,
+    ):
+        "Select certain bands from the image(s), dropping all others"
+        if isinstance(name_filter, str):
+            # make name_filter a length 1 list if it is a string
+            name_filter = [name_filter]
+
+        if field:
+            assert field_filter is not None
+            band_indices = [
+                i
+                for i, bi in enumerate(self.band_info)
+                if (bi.name in name_filter and bi.metadata[field] == field_filter)
+            ]
+        else:
+            band_indices = [
+                i for i, bi in enumerate(self.band_info) if bi.name in name_filter
+            ]
+
+        if band_indices:
+            return self.image.select(band_indices)
+        else:
+            return None
+
     def setAddToMap(self, band_names=[]):
         "Set the layers that will be added to the map by default"
 
@@ -265,7 +298,16 @@ class TEImage:
             else:
                 self.band_info[i].add_to_map = False
 
-    def export(self, geojsons, task_name, crs, logger, execution_id=None, proj=None):
+    def export(
+        self,
+        geojsons,
+        task_name,
+        crs,
+        logger,
+        execution_id=None,
+        proj=None,
+        maxpixels=1e13,
+    ):
         "Export layers to cloud storage"
 
         if not execution_id:
@@ -290,7 +332,7 @@ class TEImage:
                 "description": out_name,
                 "fileNamePrefix": out_name,
                 "bucket": BUCKET,
-                "maxPixels": 1e13,
+                "maxPixels": maxpixels,
                 "crs": crs,
                 "scale": ee.Number(proj.nominalScale()).getInfo(),
                 "region": get_coords(geojson),
@@ -336,7 +378,7 @@ class GEEImage:
             raise GEEImageError(
                 f"Band info length ({len(self.bands)}) "
                 "does not match number of bands in image "
-                f"({self.image.getInfo()['bands']})"
+                f"({len(self.image.getInfo()['bands'])})"
             )
 
     def merge(self, other):
@@ -357,6 +399,80 @@ class GEEImage:
         "Add new bands to the image"
         self.image = self.image.addBands(image)
         self.bands.extend(bands)
+
+        self._check_validity()
+
+    def match_bands(self, bands, reverse=False):
+        """
+        Returns the indices of bands that match input.
+
+        Matches on BandInfo name and metadata attributes only.
+        """
+
+        # Find indices in self.bands that match the specified input bands,
+        # matching only on the band names and metadata
+        matches = [
+            i
+            for i, self_band in enumerate(self.bands)
+            if any(
+                [
+                    all(
+                        [
+                            band.name == self_band.name,
+                            band.metadata == self_band.metadata,
+                        ]
+                    )
+                    for band in bands
+                ]
+            )
+        ]
+        if reverse:
+            # returns only band indices for bands that do NOT match
+            return [i for i in range(len(self.bands)) if i not in matches]
+        else:
+            return matches
+
+    def rmDuplicates(self):
+        """
+        Removes any bands that are duplicates
+
+        Matches on BandInfo name and metadata attributes only.
+        """
+
+        duplicates = []
+        for outer_index in range(len(self.bands) - 1):
+            if outer_index in duplicates:
+                continue
+            outer_band = self.bands[outer_index]
+            for inner_index in range(outer_index + 1, len(self.bands)):
+                if inner_index in duplicates:
+                    continue
+                inner_band = self.bands[inner_index]
+
+                if all(
+                    [
+                        outer_band.name == inner_band.name,
+                        outer_band.metadata == inner_band.metadata,
+                    ]
+                ):
+                    duplicates.append(inner_index)
+        if len(duplicates) > 0:
+            self.rmBands(duplicates)
+
+    def rmBands(self, indices):
+        """
+        Remove bands from the image, based on their indices.
+        """
+
+        assert min(indices) >= 0 and max(indices) <= len(self.bands)
+
+        non_match_indices = [i for i in range(len(self.bands)) if i not in indices]
+
+        # Remove these bands, iterating in reverse order to avoid index shifting issues
+        for index in sorted(indices, reverse=True):
+            del self.bands[index]
+
+        self.image = self.image.select(non_match_indices)
 
         self._check_validity()
 
@@ -427,10 +543,43 @@ class TEImageV2:
             else:
                 self.images[datatype] = other_image
 
+    def rmDuplicates(self):
+        for _, image in self.images.items():
+            image.rmDuplicates()
+
+    def getImages(
+        self,
+        name_filter: Union[str, list],
+        field: Union[None, str] = None,
+        field_filter: Union[None, str] = None,
+    ):
+        "Select certain bands from the image(s), dropping all others"
+        if isinstance(name_filter, str):
+            # make name_filter a length 1 list if it is a string
+            name_filter = [name_filter]
+
+        out = []
+        for _, image in self.images.items():
+            if field:
+                assert field_filter is not None
+                band_indices = [
+                    i
+                    for i, bi in enumerate(image.bands)
+                    if (bi.name in name_filter and bi.metadata[field] == field_filter)
+                ]
+            else:
+                band_indices = [
+                    i for i, bi in enumerate(image.bands) if bi.name in name_filter
+                ]
+
+            if band_indices:
+                out.append(image.image.select(band_indices))
+        return out
+
     def selectBands(self, band_names):
         "Select certain bands from the image(s), dropping all others"
 
-        for image in self.images:
+        for _, image in self.images.items():
             band_indices = [
                 i for i, bi in enumerate(image.bands) if bi.name in band_names
             ]
@@ -444,7 +593,7 @@ class TEImageV2:
     def setAddToMap(self, band_names=[]):
         "Set the layers that will be added to the map by default"
 
-        for datatype, image in self.images.items():
+        for _, image in self.images.items():
             for i in range(len(image.bands)):
                 if image.bands[i].name in band_names:
                     image.bands[i].add_to_map = True
@@ -460,6 +609,7 @@ class TEImageV2:
         execution_id=None,
         proj=None,
         filetype=results.RasterFileType.COG,
+        maxpixels=1e13,
     ):
         "Export layers to cloud storage"
 
@@ -496,7 +646,7 @@ class TEImageV2:
                     "description": out_name,
                     "fileNamePrefix": out_name,
                     "bucket": BUCKET,
-                    "maxPixels": 1e13,
+                    "maxPixels": maxpixels,
                     "crs": crs,
                     "scale": ee.Number(proj.nominalScale()).getInfo(),
                     "region": get_coords(geojson),

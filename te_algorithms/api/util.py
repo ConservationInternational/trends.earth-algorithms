@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 import logging
+import os
 import re
 import tarfile
 import tempfile
@@ -13,7 +14,7 @@ import unicodedata
 import uuid
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
-from typing import Dict, List
+from typing import Dict, List, Union
 from urllib.parse import unquote, urlparse
 
 import boto3
@@ -227,6 +228,7 @@ def get_job_json_from_s3(
         return None
     else:
         objects = objects["Contents"]
+        logger.debug(f"len(objects) = {len(objects)}")
         # Want most recent key
         objects.sort(key=lambda o: o["LastModified"], reverse=True)
         # Only want JSON files
@@ -237,6 +239,8 @@ def get_job_json_from_s3(
             logger.debug(f"grepping for {substr_regex}")
             objects = [o for o in objects if bool(re.search(substr_regex, o["Key"]))]
         logger.debug(f"found objects post-grep: {[o['Key'] for o in objects]}")
+        if objects == []:
+            return None
     jobfile = tempfile.NamedTemporaryFile(suffix=".json").name
     client.download_file(s3_bucket, objects[0]["Key"], jobfile)
     with open(jobfile) as f:
@@ -256,14 +260,11 @@ def _write_subregion_cogs(
     s3_extra_args,
     suffix="",
 ):
-    # Label pieces of polygon as east/west when there are two
-    piece_labels = ["E", "W"]
-
     cog_vsi_paths = []
 
     for index, bounding_box in enumerate(bounding_boxes):
         this_suffix = (
-            suffix + f"{('_' + piece_labels[index]) if len(bounding_boxes) > 1 else ''}"
+            suffix + f"{('_' + str(index)) if len(bounding_boxes) > 1 else ''}"
         )
 
         temp_vrt_local_path = Path(temp_dir) / (
@@ -412,6 +413,7 @@ def write_results_to_s3_cog(
         aws_access_key_id,
     )
     gdal.SetConfigOption("AWS_SECRET_ACCESS_KEY", aws_secret_access_key)
+    gdal.UseExceptions()
     cog_vsi_base = get_vsis3_path(filename_base, s3_prefix, s3_bucket)
     with tempfile.TemporaryDirectory() as temp_dir:
         for key, raster in res.rasters.items():
@@ -460,8 +462,8 @@ def write_results_to_s3_cog(
                 )
 
             # All COG outputs are single tile rasters UNLESS there are multiple
-            # (East and West) subregions. So write everything as Raster
-            # regardless of what came in, unless there are E/W in which case
+            # polygons within the AOI. So write everything as Raster regardless
+            # of what came in, unless there are multiple regions in which case
             # need a TiledRaster
 
             out_uris = [
@@ -478,6 +480,7 @@ def write_results_to_s3_cog(
             ]
 
             if len(out_uris) > 1:
+                logger.debug(f"out_uris are: {out_uris}")
                 # Write a TiledRaster
                 res.rasters[key] = results.TiledRaster(
                     tile_uris=out_uris,
@@ -539,6 +542,7 @@ def write_job_to_s3_cog(
     nodata_value=-32768,
     s3_extra_args={},
 ):
+    gdal.UseExceptions()
     write_results_to_s3_cog(
         job.results,
         aoi,
@@ -574,9 +578,11 @@ def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, s3_extra_args=None
         )
 
 
-def slugify(value, allow_unicode=False):
+def slugify(value: Union[int, float, complex, str], allow_unicode=False):
     """
-    Taken from https://github.com/django/django/blob/master/django/utils/text.py
+    Create an ASCII or Unicode slug
+
+    Taken from https://github.com/django/django/blob/master/django/utils/text.py.
     Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
     dashes to single dashes. Remove characters that aren't alphanumerics,
     underscores, or hyphens. Convert to lowercase. Also strip leading and
@@ -625,7 +631,10 @@ def _get_raster_tile(
     uri: results.URI, out_file: Path, aws_access_key_id=None, aws_secret_access_key=None
 ) -> typing.Optional[Path]:
     path_exists = out_file.is_file()
-    hash_matches = etag_compare(out_file, uri.etag.hash)
+    if uri.etag:
+        hash_matches = etag_compare(out_file, uri.etag.hash)
+    else:
+        hash_matches = False
 
     if path_exists and hash_matches:
         logger.info(f"No download necessary, result already present in {out_file}")
@@ -694,7 +703,10 @@ def _get_job_basename(job: jobs.Job):
 
 
 def download_cloud_results(
-    job: jobs.Job, download_path, aws_access_key_id=None, aws_secret_access_key=None
+    job: jobs.Job,
+    download_path: Path,
+    aws_access_key_id: Union[str, None] = None,
+    aws_secret_access_key: Union[str, None] = None,
 ) -> typing.Optional[Path]:
     base_output_path = download_path / f"{_get_job_basename(job)}"
 
@@ -761,8 +773,9 @@ def download_cloud_results(
     # more than one Raster or if it has one or more TiledRasters
 
     if len(job.results.rasters) > 1 or (
-        len(job.results.rasters == 1)
-        and job.results.rasters[0].type == results.RasterType.TILED_RASTER
+        len(job.results.rasters) == 1
+        and list(job.results.rasters.values())[0].type
+        == results.RasterType.TILED_RASTER
     ):
         vrt_file = base_output_path.parent / f"{base_output_path.name}.vrt"
         logger.info("Saving vrt file to %s", vrt_file)
@@ -770,7 +783,7 @@ def download_cloud_results(
         combine_all_bands_into_vrt(main_raster_file_paths, vrt_file)
         job.results.uri = results.URI(uri=vrt_file)
     else:
-        job.results.uri = job.results.rasters[0].uri
+        job.results.uri = list(job.results.rasters.values())[0].uri
 
 
 def get_cloud_results_vrt(job: jobs.Job) -> typing.Optional[Path]:
@@ -797,7 +810,7 @@ class BandData:
 
 
 def get_bands_by_name(
-    job, band_name: str, sort_property: str = "year"
+    job: jobs.Job, band_name: str, sort_property: str = "year"
 ) -> typing.List[BandData]:
     bands = job.results.get_bands()
 
@@ -817,7 +830,7 @@ def get_bands_by_name(
 # This version drops the sort_property in favor fr filtering down to a single band based
 # on metadata
 def get_band_by_name(
-    job, band_name: str, filters: List[Dict] = None
+    job: jobs.Job, band_name: str, filters: Union[None, List[Dict]] = None
 ) -> typing.List[BandData]:
     bands = job.results.get_bands()
 
@@ -854,7 +867,7 @@ def get_band_by_name(
         return BandData(*bands_and_indices[0])
 
 
-def make_job(params, script):
+def make_job(params: Dict, script):
     final_params = params.copy()
     task_name = final_params.pop("task_name")
     task_notes = final_params.pop("task_notes")
@@ -874,15 +887,22 @@ def make_job(params, script):
     )
 
 
-def tar_gz_folder(path: Path, out_tar_gz):
+def tar_gz_folder(path: Path, out_tar_gz, max_file_size_mb=None):
     paths = [p for p in path.rglob("*.*")]
-    _make_tar_gz(out_tar_gz, paths)
+    _make_tar_gz(out_tar_gz, paths, max_file_size_mb)
 
 
-def _make_tar_gz(out_tar_gz, in_files):
+def _make_tar_gz(out_tar_gz, in_files, max_file_size_mb=None):
     with tarfile.open(out_tar_gz, "w:gz") as tar:
         for in_file in in_files:
-            tar.add(in_file, arcname=in_file.name)
+            if max_file_size_mb:
+                if (
+                    in_file.is_file()
+                    and os.path.getsize(in_file) <= max_file_size_mb * 1024 * 1024
+                ):
+                    tar.add(in_file, arcname=in_file.name)
+            else:
+                tar.add(in_file, arcname=in_file.name)
 
 
 def write_cloud_job_metadata_file(job: jobs.Job):

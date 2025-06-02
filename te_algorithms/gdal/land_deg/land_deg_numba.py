@@ -158,6 +158,55 @@ def calc_prod5(traj, state, perf):
 
 
 @numba.jit(nopython=True)
+@cc.export("sdg_status_expanded", "i2[:,:](i2[:,:], i2[:,:])")
+def sdg_status_expanded(sdg_bl, sdg_tg):
+    """
+    Returns an SDG Status layer following GPG addendum "expanded status matrix"
+    """
+    shp = sdg_bl.shape
+    sdg_bl = sdg_bl.ravel()
+    sdg_tg = sdg_tg.ravel()
+
+    out = np.full(sdg_bl.shape, NODATA_VALUE[0], dtype=np.int16)
+    # fmt:off
+    out[(sdg_bl == -1) & (sdg_tg == -1)] = 1
+    out[(sdg_bl ==  0) & (sdg_tg == -1)] = 2
+    out[(sdg_bl ==  1) & (sdg_tg == -1)] = 2
+    out[(sdg_bl == -1) & (sdg_tg ==  0)] = 3
+    out[(sdg_bl ==  0) & (sdg_tg ==  0)] = 4
+    out[(sdg_bl ==  1) & (sdg_tg ==  0)] = 5
+    out[(sdg_bl == -1) & (sdg_tg ==  1)] = 6
+    out[(sdg_bl ==  0) & (sdg_tg ==  1)] = 6
+    out[(sdg_bl ==  1) & (sdg_tg ==  1)] = 7
+    # fmt:on
+
+    return np.reshape(out, shp)
+
+
+@numba.jit(nopython=True)
+@cc.export("sdg_status_expanded_to_simple", "i2[:,:](i2[:,:])")
+def sdg_status_expanded_to_simple(sdg_status):
+    """
+    Converts expanded status matrix to simple deg/stable/not deg layer
+    """
+    shp = sdg_status.shape
+    sdg_status = sdg_status.ravel()
+
+    out = sdg_status.copy()
+    # fmt:off
+    out[sdg_status == 1] = -1
+    out[sdg_status == 2] = -1
+    out[sdg_status == 3] = -1
+    out[sdg_status == 4] =  0
+    out[sdg_status == 5] =  1
+    out[sdg_status == 6] =  1
+    out[sdg_status == 7] =  1
+    # fmt:on
+
+    return np.reshape(out, shp)
+
+
+@numba.jit(nopython=True)
 @cc.export("prod5_to_prod3", "i2[:,:](i2[:,:])")
 def prod5_to_prod3(prod5):
     shp = prod5.shape

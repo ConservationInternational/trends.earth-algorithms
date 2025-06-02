@@ -34,7 +34,7 @@ from .land_deg_numba import (
     recode_state,
     recode_traj,
 )
-from .land_deg_progress import compute_progress_summary
+from .land_deg_progress import compute_status_summary
 from .land_deg_report import save_reporting_json, save_summary_table_excel
 
 if TYPE_CHECKING:
@@ -42,65 +42,6 @@ if TYPE_CHECKING:
     from te_schemas.jobs import Job
 
 logger = logging.getLogger(__name__)
-
-
-def _accumulate_ld_summary_tables(
-    tables: List[models.SummaryTableLD],
-) -> models.SummaryTableLD:
-    if len(tables) == 1:
-        return tables[0]
-
-    out = tables[0]
-
-    for table in tables[1:]:
-        out.soc_by_lc_annual_totals = [
-            util.accumulate_dicts([a, b])
-            for a, b in zip(out.soc_by_lc_annual_totals, table.soc_by_lc_annual_totals)
-        ]
-        out.lc_annual_totals = [
-            util.accumulate_dicts([a, b])
-            for a, b in zip(out.lc_annual_totals, table.lc_annual_totals)
-        ]
-        out.lc_trans_zonal_areas = [
-            util.accumulate_dicts([a, b])
-            for a, b in zip(out.lc_trans_zonal_areas, table.lc_trans_zonal_areas)
-        ]
-        # A period should be listed for each object in lc_trans_zonal_areas
-        assert len(out.lc_trans_zonal_areas) == len(table.lc_trans_zonal_areas_periods)
-        # Periods for lc_trans_zonal_areas must be the same in both objects
-        assert out.lc_trans_zonal_areas_periods == table.lc_trans_zonal_areas_periods
-        out.lc_trans_prod_bizonal = util.accumulate_dicts(
-            [out.lc_trans_prod_bizonal, table.lc_trans_prod_bizonal]
-        )
-        out.lc_trans_zonal_soc_initial = util.accumulate_dicts(
-            [out.lc_trans_zonal_soc_initial, table.lc_trans_zonal_soc_initial]
-        )
-        out.lc_trans_zonal_soc_final = util.accumulate_dicts(
-            [out.lc_trans_zonal_soc_final, table.lc_trans_zonal_soc_final]
-        )
-        out.sdg_zonal_population_total = util.accumulate_dicts(
-            [out.sdg_zonal_population_total, table.sdg_zonal_population_total]
-        )
-        out.sdg_zonal_population_male = util.accumulate_dicts(
-            [out.sdg_zonal_population_male, table.sdg_zonal_population_male]
-        )
-        out.sdg_zonal_population_female = util.accumulate_dicts(
-            [out.sdg_zonal_population_female, table.sdg_zonal_population_female]
-        )
-        out.sdg_summary = util.accumulate_dicts([out.sdg_summary, table.sdg_summary])
-        assert set(out.prod_summary.keys()) == set(table.prod_summary.keys())
-        out.prod_summary = {
-            key: util.accumulate_dicts([out.prod_summary[key], table.prod_summary[key]])
-            for key in out.prod_summary.keys()
-        }
-        assert set(out.soc_summary.keys()) == set(table.soc_summary.keys())
-        out.soc_summary = {
-            key: util.accumulate_dicts([out.soc_summary[key], table.soc_summary[key]])
-            for key in out.soc_summary.keys()
-        }
-        out.lc_summary = util.accumulate_dicts([out.lc_summary, table.lc_summary])
-
-    return out
 
 
 def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
@@ -224,7 +165,9 @@ def summarise_land_degradation(
     period_dfs = []
     period_vrts = []
 
-    for period_name, period_params in ldn_job.params.items():
+    for period in ldn_job.params["periods"]:
+        period_name = period["name"]
+        period_params = period["params"]
         logger.debug("preparing land cover dfs")
         lc_dfs = _prepare_land_cover_dfs(period_params)
         logger.debug("preparing soil organic carbon dfs")
@@ -274,6 +217,7 @@ def summarise_land_degradation(
             # Nesting is included only to ensure it goes into output, so if
             # missing (as it might be for local data), it will be set to None
             nesting = LCLegendNesting.Schema().loads(nesting)
+
         summary_table_stable_kwargs[period_name] = {
             "aoi": aoi,
             "lc_legend_nesting": nesting,
@@ -400,8 +344,8 @@ def summarise_land_degradation(
             period_name,
         )
 
-    if len(ldn_job.params.items()) == 2:
-        # Make temporary combined VRT and DataFile just for the progress
+    if len(ldn_job.params["periods"]) > 1:
+        # Make temporary combined VRT and DataFile just for this reporting period
         # calculations. Don't save these in the output folder as at end of this
         # process all the DFs will be combined and referenced to a VRT in that
         # folder
@@ -412,35 +356,44 @@ def summarise_land_degradation(
         temp_df = combine_data_files(temp_overall_vrt, period_dfs)
 
         # Ensure the same lc legend and nesting are used for both the
-        # baseline and progress periods (at least in terms of codes and their
-        # nesting)
+        # baseline and each reporting period (at least in terms of codes
+        # and their nesting)
         baseline_nesting = LCLegendNesting.Schema().loads(
-            ldn_job.params["baseline"]["layer_lc_deg_band"]["metadata"].get("nesting")
+            ldn_job.params["periods"][0]["params"]["layer_lc_deg_band"]["metadata"].get(
+                "nesting"
+            )
         )
-        progress_nesting = LCLegendNesting.Schema().loads(
-            ldn_job.params["progress"]["layer_lc_deg_band"]["metadata"].get("nesting")
-        )
-        assert baseline_nesting.nesting == progress_nesting.nesting
+        for period_number in range(1, len(ldn_job.params["periods"])):
+            reporting_nesting = LCLegendNesting.Schema().loads(
+                ldn_job.params["periods"][period_number]["params"]["layer_lc_deg_band"][
+                    "metadata"
+                ].get("nesting")
+            )
+            assert baseline_nesting.nesting == reporting_nesting.nesting
 
-        logger.debug("Computing progress summary")
+        logger.debug(f"Computing reporting period {period_number} summary")
 
-        progress_summary_table, progress_df = compute_progress_summary(
-            temp_df,
-            prod_mode,
-            job_output_path,
-            aoi,
-            compute_bbs_from,
-            ldn_job.params["baseline"]["period"],
-            ldn_job.params["progress"]["period"],
-            baseline_nesting,
+        summary_table_status, summary_table_change, reporting_df = (
+            compute_status_summary(
+                temp_df,
+                prod_mode,
+                job_output_path,
+                aoi,
+                compute_bbs_from,
+                ldn_job.params["periods"],
+                baseline_nesting,
+            )
         )
-        period_vrts.append(progress_df.path)
-        period_dfs.append(progress_df)
+        period_vrts.append(reporting_df.path)
+        period_dfs.append(reporting_df)
     else:
-        progress_summary_table = None
+        summary_table_status = None
+        summary_table_change = None
 
-    logger.debug("Finalizing layers")
+    logger.info("Finalizing layers")
     overall_vrt_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
+    logging.info("Combining all period VRTs into %s", overall_vrt_path)
+    logging.info("Period VRTs are: %s", period_vrts)
     util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
     out_df = combine_data_files(overall_vrt_path, period_dfs)
     out_df.path = overall_vrt_path.name
@@ -456,7 +409,8 @@ def summarise_land_degradation(
     report_json = save_reporting_json(
         summary_json_output_path,
         summary_tables,
-        progress_summary_table,
+        summary_table_status,
+        summary_table_change,
         ldn_job.params,
         ldn_job.task_name,
         aoi,
@@ -673,50 +627,6 @@ def _process_block_summary(
             )
         )
 
-    if (soc_deg_band_period["year_initial"] in lc_years) and (
-        soc_deg_band_period["year_final"] in lc_years
-    ):
-        logger.debug(
-            "year_initial %s, year_final %s, lc_years %s",
-            soc_deg_band_period["year_initial"],
-            soc_deg_band_period["year_final"],
-            lc_years,
-        )
-        a_soc_bl = in_array[
-            params.in_df.indices_for_name(
-                config.SOC_BAND_NAME,
-                field="year",
-                field_filter=soc_deg_band_period["year_initial"],
-            ),
-            :,
-            :,
-        ]
-        a_soc_final = in_array[
-            params.in_df.indices_for_name(
-                config.SOC_BAND_NAME,
-                field="year",
-                field_filter=soc_deg_band_period["year_final"],
-            ),
-            :,
-            :,
-        ]
-
-        lc_trans_zonal_soc_initial = zonal_total_weighted(
-            a_lc_trans_soc_deg,
-            a_soc_bl,
-            cell_areas * 100,  # from sq km to hectares
-            mask,
-        )
-        lc_trans_zonal_soc_final = zonal_total_weighted(
-            a_lc_trans_soc_deg,
-            a_soc_final,
-            cell_areas * 100,  # from sq km to hectares
-            mask,
-        )
-    else:
-        lc_trans_zonal_soc_initial = {}
-        lc_trans_zonal_soc_final = {}
-
     ###########################################################
     # Calculate crosstabs for productivity
 
@@ -881,15 +791,13 @@ def _process_block_summary(
             lc_trans_zonal_areas,
             lc_trans_zonal_areas_periods,
             lc_trans_prod_bizonal,
-            lc_trans_zonal_soc_initial,
-            lc_trans_zonal_soc_final,
             sdg_zonal_population_total,
             sdg_zonal_population_male,
             sdg_zonal_population_female,
             sdg_summary,
             prod_summary,
-            soc_summary,
             lc_summary,
+            soc_summary,
         ),
         write_arrays,
     )
@@ -1035,13 +943,15 @@ def _summarize_tile(inputs: SummarizeTileInputs):
                 error_message = "Error calculating summary table."
                 result = None
         else:
-            result = _accumulate_ld_summary_tables(result)
+            result = models.accumulate_summarytableld(result)
             result.cast_to_cpython()  # needed for multiprocessing
 
     return result, out_file, error_message
 
 
 def _aoi_process_multiprocess(inputs, n_cpus):
+    from .. import util
+
     with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
         summary_tables = []
         out_files = []
@@ -1062,7 +972,7 @@ def _aoi_process_multiprocess(inputs, n_cpus):
             summary_tables.append(output[0])
             out_files.append(output[1])
 
-    summary_table = _accumulate_ld_summary_tables(summary_tables)
+    summary_table = models.accumulate_summarytableld(summary_tables)
 
     return summary_table, out_files
 
@@ -1086,7 +996,7 @@ def _aoi_process_sequential(inputs):
         summary_tables.append(output[0])
         out_files.append(output[1])
 
-    summary_table = _accumulate_ld_summary_tables(summary_tables)
+    summary_table = models.accumulate_summarytableld(summary_tables)
 
     return summary_table, out_files
 
@@ -1190,10 +1100,11 @@ def _compute_ld_summary_table(
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
     assert len(wkt_aois) == len(bbs)
 
-    output_name_pattern = {
-        1: f"{output_job_path.stem}" + "_{layer}.tif",
-        2: f"{output_job_path.stem}" + "{layer}_{index}.tif",
-    }[len(wkt_aois)]
+    if len(wkt_aois) > 1:
+        output_name_pattern = f"{output_job_path.stem}" + "_{index}.tif"
+    else:
+        output_name_pattern = f"{output_job_path.stem}" + ".tif"
+
     stable_kwargs = {
         "in_dfs": in_dfs,
         "prod_mode": prod_mode,
@@ -1210,7 +1121,7 @@ def _compute_ld_summary_table(
 
     for index, (wkt_aoi, pixel_aligned_bbox) in enumerate(zip(wkt_aois, bbs), start=1):
         base_output_path = output_job_path.parent / output_name_pattern.format(
-            layer="inputs", index=index
+            index=index
         )
 
         (
@@ -1232,16 +1143,16 @@ def _compute_ld_summary_table(
             reproj_paths.extend(these_reproj_paths)
             output_paths.extend(these_output_paths)
 
-    summary_table = _accumulate_ld_summary_tables(summary_tables)
+    summary_table = models.accumulate_summarytableld(summary_tables)
 
     if len(reproj_paths) > 1:
-        reproj_path = output_job_path.parent / f"{output_job_path.stem}_inputs.vrt"
+        reproj_path = output_job_path.parent / f"{output_job_path.stem}_tiles.vrt"
         gdal.BuildVRT(str(reproj_path), [str(p) for p in reproj_paths])
     else:
         reproj_path = reproj_paths[0]
 
     if len(output_paths) > 1:
-        output_path = output_job_path.parent / f"{output_job_path.stem}_sdg.vrt"
+        output_path = output_job_path.parent / f"{output_job_path.stem}_tiles_sdg.vrt"
         gdal.BuildVRT(str(output_path), [str(p) for p in output_paths])
     else:
         output_path = output_paths[0]

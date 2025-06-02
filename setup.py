@@ -40,8 +40,8 @@ setup(
     install_requires=[
         "openpyxl>=3.1.3",
         "backoff>=2.1.0",
-        "marshmallow>=3.21.3",
-        "marshmallow-dataclass[enum, union]>=8.7.0",
+        "marshmallow>=3.21.3,<4.0.0",
+        "marshmallow-dataclass>=8.7.1",
         "defusedxml>=0.7.1",
         "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@master",
     ],
@@ -51,6 +51,7 @@ setup(
         "gdal": ["GDAL>=3.0.0", "numpy>=1.17.0"],
         "numba": ["numba>=0.54.1"],
         "dev": ["check-manifest"],
-        "test": ["coverage"],
+        "test": ["coverage", "pytest"],
+        "docs": ["sphinx", "sphinx_rtd_theme"],
     },
 )
