@@ -592,7 +592,6 @@ def productivity_state(
 
 def productivity_faowocat(
     low_biomass=0.4,
-    medium_biomass=0.55,
     high_biomass=0.7,
     years_interval=15,
     modis_mode="MannKendal + MTID",
@@ -757,13 +756,20 @@ def productivity_faowocat(
         {"a": steadiness, "b": init_biomass, "c": eme_state},
     )
 
+    # Map the 36 semi‑final classes (see FAO‑WOCAT matrix) to the 5 UNCCD
+    # “traffic‑light” classes so they line up with the updated colour matrix:
+    #   1–8   → Declining
+    #   9–14  → Moderate decline
+    #   15–21 → Stable but stressed
+    #   22–30 → Stable
+    #   31–36 → Improving
     final_lpd = (
         ee.Image(0)
-        .where(semi.lte(8), 1)
-        .where(semi.gt(8).And(semi.lte(14)), 2)
-        .where(semi.gt(14).And(semi.lte(22)), 3)
-        .where(semi.gt(22).And(semi.lte(32)), 4)
-        .where(semi.gt(32).And(semi.lte(36)), 5)
+        .where(semi.lte(8), 1)                                  # 1‑8
+        .where(semi.gt(8).And(semi.lte(14)), 2)                 # 9‑14
+        .where(semi.gt(14).And(semi.lte(21)), 3)                # 15‑21
+        .where(semi.gt(21).And(semi.lte(30)), 4)                # 22‑30
+        .where(semi.gt(30).And(semi.lte(36)), 5)                # 31‑36
         .rename("LPD")
     )
 
