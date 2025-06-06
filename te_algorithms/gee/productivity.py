@@ -764,11 +764,11 @@ def productivity_faowocat(
     #   31–36 → Improving
     final_lpd = (
         ee.Image(0)
-        .where(semi.lte(8), 1)                                  # 1‑8
-        .where(semi.gt(8).And(semi.lte(14)), 2)                 # 9‑14
-        .where(semi.gt(14).And(semi.lte(21)), 3)                # 15‑21
-        .where(semi.gt(21).And(semi.lte(30)), 4)                # 22‑30
-        .where(semi.gt(30).And(semi.lte(36)), 5)                # 31‑36
+        .where(semi.lte(8), 1)  # 1‑8
+        .where(semi.gt(8).And(semi.lte(14)), 2)  # 9‑14
+        .where(semi.gt(14).And(semi.lte(21)), 3)  # 15‑21
+        .where(semi.gt(21).And(semi.lte(30)), 4)  # 22‑30
+        .where(semi.gt(30).And(semi.lte(36)), 5)  # 31‑36
         .rename("LPD")
     )
 
