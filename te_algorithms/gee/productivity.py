@@ -588,3 +588,197 @@ def productivity_state(
         .int16(),
         band_infos,
     )
+
+
+def productivity_faowocat(
+    low_biomass=0.4,
+    high_biomass=0.7,
+    years_interval=15,
+    modis_mode="MannKendal + MTID",
+    prod_asset=None,
+    logger=None,
+):
+    logger.debug("Entering productivity_faowocat function.")
+
+    if prod_asset is None:
+        raise GEEIOError("Must specify a prod_asset")
+
+    ndvi_dataset = ee.Image(prod_asset)
+    ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
+    ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
+
+    year_start = 2001
+    year_end = year_start + years_interval - 1
+
+    if modis_mode is None:
+        modis_mode = "MannKendal + MTID"
+    modis_mode = modis_mode.strip()
+    if modis_mode not in ("MannKendal", "MannKendal + MTID"):
+        logger.warning(
+            "Unknown modis_mode '%s' – falling back to 'MannKendal + MTID'", modis_mode
+        )
+        modis_mode = "MannKendal + MTID"
+
+    years = list(range(year_start, year_end + 1))
+
+    image_list = [
+        ndvi_dataset.select(f"y{yr}").rename("NDVI").set({"year": yr}) for yr in years
+    ]
+    annual_ic = ee.ImageCollection(image_list)
+
+    lf_trend, mk_trend = ndvi_trend(year_start, year_end, ndvi_dataset, logger)
+    period = year_end - year_start + 1
+    kendall_s = stats.get_kendall_coef(period, 95)
+
+    trend_3cat = (
+        ee.Image(0)
+        .where(lf_trend.select("scale").lt(0).And(mk_trend.abs().gte(kendall_s)), 1)
+        .where(mk_trend.abs().lt(kendall_s), 2)
+        .where(lf_trend.select("scale").gt(0).And(mk_trend.abs().gte(kendall_s)), 3)
+    )
+
+    def _mtid(ic):
+        last_mean = ic.filter(ee.Filter.gt("year", year_end - 3)).select("NDVI").mean()
+        diffs = ic.map(lambda im: last_mean.subtract(im.select("NDVI")))
+        return ee.ImageCollection(diffs).sum()
+
+    mtid = _mtid(annual_ic)
+    mtid_code = ee.Image(0).where(mtid.lte(0), 1).where(mtid.gt(0), 2)
+
+    if modis_mode == "MannKendal + MTID":
+        steadiness = (
+            ee.Image(0)
+            .where(trend_3cat.eq(1).And(mtid_code.eq(1)), 1)
+            .where(trend_3cat.eq(1).And(mtid_code.eq(2)), 2)
+            .where(trend_3cat.eq(2).And(mtid_code.eq(1)), 2)
+            .where(trend_3cat.eq(2).And(mtid_code.eq(2)), 3)
+            .where(trend_3cat.eq(3).And(mtid_code.eq(1)), 3)
+            .where(trend_3cat.eq(3).And(mtid_code.eq(2)), 4)
+        )
+    else:
+        steadiness = (
+            ee.Image(0)
+            .where(trend_3cat.eq(1), 1)
+            .where(trend_3cat.eq(2).And(mk_trend.lt(0)), 2)
+            .where(trend_3cat.eq(2).And(mk_trend.gt(0)), 3)
+            .where(trend_3cat.eq(3), 4)
+        )
+
+    init_mean = (
+        annual_ic.filter(ee.Filter.lte("year", year_start + 2))
+        .select("NDVI")
+        .mean()
+        .divide(10000)
+    )
+    init_biomass = (
+        ee.Image(0)
+        .where(init_mean.lte(low_biomass), 1)
+        .where(init_mean.gt(low_biomass).And(init_mean.lte(high_biomass)), 2)
+        .where(init_mean.gt(high_biomass), 3)
+    )
+
+    baseline_end = year_start + max(15, years_interval) - 1
+    baseline_ic = annual_ic.filter(ee.Filter.lte("year", baseline_end)).select("NDVI")
+    pct = baseline_ic.reduce(
+        ee.Reducer.percentile([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+    )
+
+    def _pct_class(mean_img):
+        return (
+            ee.Image(-32768)
+            .where(mean_img.lte(pct.select("NDVI_p10")), 1)
+            .where(mean_img.gt(pct.select("NDVI_p10")), 2)
+            .where(mean_img.gt(pct.select("NDVI_p20")), 3)
+            .where(mean_img.gt(pct.select("NDVI_p30")), 4)
+            .where(mean_img.gt(pct.select("NDVI_p40")), 5)
+            .where(mean_img.gt(pct.select("NDVI_p50")), 6)
+            .where(mean_img.gt(pct.select("NDVI_p60")), 7)
+            .where(mean_img.gt(pct.select("NDVI_p70")), 8)
+            .where(mean_img.gt(pct.select("NDVI_p80")), 9)
+            .where(mean_img.gt(pct.select("NDVI_p90")), 10)
+        )
+
+    t1_mean = (
+        annual_ic.filter(ee.Filter.lte("year", year_start + 3)).select("NDVI").mean()
+    )
+    t2_mean = (
+        annual_ic.filter(ee.Filter.gte("year", year_end - 3)).select("NDVI").mean()
+    )
+    t1_class = _pct_class(t1_mean)
+    t2_class = _pct_class(t2_mean)
+
+    diff_class = t2_class.subtract(t1_class)
+    eme_state = (
+        ee.Image(0)
+        .where(diff_class.lte(-2), 1)
+        .where(diff_class.gt(-2).And(diff_class.lt(2)), 2)
+        .where(diff_class.gte(2), 3)
+    )
+
+    semi = ee.Image().expression(
+        "(a==1&&b==1&&c==1)?1:"
+        "(a==1&&b==2&&c==1)?2:"
+        "(a==1&&b==3&&c==1)?3:"
+        "(a==1&&b==1&&c==2)?4:"
+        "(a==1&&b==2&&c==2)?5:"
+        "(a==1&&b==3&&c==2)?6:"
+        "(a==1&&b==1&&c==3)?7:"
+        "(a==1&&b==2&&c==3)?8:"
+        "(a==1&&b==3&&c==3)?9:"
+        "(a==2&&b==1&&c==1)?10:"
+        "(a==2&&b==2&&c==1)?11:"
+        "(a==2&&b==3&&c==1)?12:"
+        "(a==2&&b==1&&c==2)?13:"
+        "(a==2&&b==2&&c==2)?14:"
+        "(a==2&&b==3&&c==2)?15:"
+        "(a==2&&b==1&&c==3)?16:"
+        "(a==2&&b==2&&c==3)?17:"
+        "(a==2&&b==3&&c==3)?18:"
+        "(a==3&&b==1&&c==1)?19:"
+        "(a==3&&b==2&&c==1)?20:"
+        "(a==3&&b==3&&c==1)?21:"
+        "(a==3&&b==1&&c==2)?22:"
+        "(a==3&&b==2&&c==2)?23:"
+        "(a==3&&b==3&&c==2)?24:"
+        "(a==3&&b==1&&c==3)?25:"
+        "(a==3&&b==2&&c==3)?26:"
+        "(a==3&&b==3&&c==3)?27:"
+        "(a==4&&b==1&&c==1)?28:"
+        "(a==4&&b==2&&c==1)?29:"
+        "(a==4&&b==3&&c==1)?30:"
+        "(a==4&&b==1&&c==2)?31:"
+        "(a==4&&b==2&&c==2)?32:"
+        "(a==4&&b==3&&c==2)?33:"
+        "(a==4&&b==1&&c==3)?34:"
+        "(a==4&&b==2&&c==3)?35:"
+        "(a==4&&b==3&&c==3)?36:99",
+        {"a": steadiness, "b": init_biomass, "c": eme_state},
+    )
+
+    # Map the 36 semi‑final classes (see FAO‑WOCAT matrix) to the 5 UNCCD
+    # “traffic‑light” classes so they line up with the updated colour matrix:
+    #   1–8   → Declining
+    #   9–14  → Moderate decline
+    #   15–21 → Stable but stressed
+    #   22–30 → Stable
+    #   31–36 → Improving
+    final_lpd = (
+        ee.Image(0)
+        .where(semi.lte(8), 1)  # 1‑8
+        .where(semi.gt(8).And(semi.lte(14)), 2)  # 9‑14
+        .where(semi.gt(14).And(semi.lte(21)), 3)  # 15‑21
+        .where(semi.gt(21).And(semi.lte(30)), 4)  # 22‑30
+        .where(semi.gt(30).And(semi.lte(36)), 5)  # 31‑36
+        .rename("LPD")
+    )
+
+    return TEImage(
+        final_lpd.unmask(-32768).int16(),
+        [
+            BandInfo(
+                "Land Productivity Dynamics (FAO-WOCAT)",
+                add_to_map=True,
+                metadata={"year_initial": year_start, "year_final": year_end},
+            )
+        ],
+    )
