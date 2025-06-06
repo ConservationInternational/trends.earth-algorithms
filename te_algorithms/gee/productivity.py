@@ -622,8 +622,7 @@ def productivity_faowocat(
     years = list(range(year_start, year_end + 1))
 
     image_list = [
-        ndvi_dataset.select(f"y{yr}").rename("NDVI").set({"year": yr})
-        for yr in years
+        ndvi_dataset.select(f"y{yr}").rename("NDVI").set({"year": yr}) for yr in years
     ]
     annual_ic = ee.ImageCollection(image_list)
 
