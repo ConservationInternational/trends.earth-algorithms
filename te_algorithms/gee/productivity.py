@@ -1,9 +1,10 @@
+import re
+
 import ee
 from te_schemas.schemas import BandInfo
 
 from . import GEEIOError, stats
 from .util import TEImage
-import re
 
 
 def linear_trend(ndvi_series, logger):
@@ -610,11 +611,7 @@ def productivity_faowocat(
     band_names = ndvi_dataset.bandNames().getInfo()
     if not any(re.match(r"^y\d{4}$", bn) for bn in band_names):
         years_available = sorted(
-            {
-                int(m.group(1))
-                for bn in band_names
-                if (m := re.match(r"^d(\d{4})_", bn))
-            }
+            {int(m.group(1)) for bn in band_names if (m := re.match(r"^d(\d{4})_", bn))}
         )
         if not years_available:
             raise GEEIOError(
@@ -628,9 +625,7 @@ def productivity_faowocat(
             year_bands = [bn for bn in band_names if bn.startswith(f"d{year}_")]
             if not year_bands:
                 return (
-                    ee.Image.constant(-32768)
-                    .rename(f"y{year}")
-                    .updateMask(ee.Image(0))
+                    ee.Image.constant(-32768).rename(f"y{year}").updateMask(ee.Image(0))
                 )
             return (
                 ndvi_dataset.select(year_bands)
@@ -658,7 +653,9 @@ def productivity_faowocat(
     def _annual_mean(ndvi_dataset, years):
         images = []
         for year in years:
-            year_bands = [b for b in ndvi_dataset.bandNames().getInfo() if (f"d{year}_" in b)]
+            year_bands = [
+                b for b in ndvi_dataset.bandNames().getInfo() if (f"d{year}_" in b)
+            ]
             if year_bands:
                 img = (
                     ndvi_dataset.select(year_bands)
@@ -673,8 +670,9 @@ def productivity_faowocat(
             images.append(img.set({"year": year}))
         return ee.ImageCollection(images)
 
-    annual_ic = _annual_mean(
-        ndvi_dataset, years).map(lambda img: img.rename("NDVI").set({"year": img.get("year")}))
+    annual_ic = _annual_mean(ndvi_dataset, years).map(
+        lambda img: img.rename("NDVI").set({"year": img.get("year")})
+    )
 
     lf_trend, mk_trend = ndvi_trend(year_start, year_end, ndvi_dataset, logger)
     period = year_end - year_start + 1
