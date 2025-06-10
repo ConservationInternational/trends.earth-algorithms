@@ -3,6 +3,7 @@ from te_schemas.schemas import BandInfo
 
 from . import GEEIOError, stats
 from .util import TEImage
+import re
 
 
 def linear_trend(ndvi_series, logger):
@@ -606,6 +607,39 @@ def productivity_faowocat(
     ndvi_dataset = ee.Image(prod_asset)
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
+    band_names = ndvi_dataset.bandNames().getInfo()
+    if not any(re.match(r"^y\d{4}$", bn) for bn in band_names):
+        years_available = sorted(
+            {
+                int(m.group(1))
+                for bn in band_names
+                if (m := re.match(r"^d(\d{4})_", bn))
+            }
+        )
+        if not years_available:
+            raise GEEIOError(
+                "Input NDVI asset uses an unsupported band naming scheme; "
+                "expected either annual bands like 'y2003' or date bands "
+                "like 'd2003_07_12'."
+            )
+
+        def _annual_imgs_mean(year):
+            """Compute the mean NDVI for *year* and rename to 'yYYYY'."""
+            year_bands = [bn for bn in band_names if bn.startswith(f"d{year}_")]
+            if not year_bands:
+                return (
+                    ee.Image.constant(-32768)
+                    .rename(f"y{year}")
+                    .updateMask(ee.Image(0))
+                )
+            return (
+                ndvi_dataset.select(year_bands)
+                .reduce(ee.Reducer.mean())
+                .rename(f"y{year}")
+            )
+
+        annual_imgs = [_annual_imgs_mean(y) for y in years_available]
+        ndvi_dataset = ee.Image.cat(annual_imgs)
 
     year_start = 2001
     year_end = year_start + years_interval - 1
@@ -621,10 +655,26 @@ def productivity_faowocat(
 
     years = list(range(year_start, year_end + 1))
 
-    image_list = [
-        ndvi_dataset.select(f"y{yr}").rename("NDVI").set({"year": yr}) for yr in years
-    ]
-    annual_ic = ee.ImageCollection(image_list)
+    def _annual_mean(ndvi_dataset, years):
+        images = []
+        for year in years:
+            year_bands = [b for b in ndvi_dataset.bandNames().getInfo() if (f"d{year}_" in b)]
+            if year_bands:
+                img = (
+                    ndvi_dataset.select(year_bands)
+                    .reduce(ee.Reducer.mean())
+                    .rename(f"y{year}")
+                )
+            else:
+                try:
+                    img = ndvi_dataset.select(f"y{year}").rename(f"y{year}")
+                except Exception:
+                    continue
+            images.append(img.set({"year": year}))
+        return ee.ImageCollection(images)
+
+    annual_ic = _annual_mean(
+        ndvi_dataset, years).map(lambda img: img.rename("NDVI").set({"year": img.get("year")}))
 
     lf_trend, mk_trend = ndvi_trend(year_start, year_end, ndvi_dataset, logger)
     period = year_end - year_start + 1
