@@ -597,6 +597,7 @@ def productivity_faowocat(
     high_biomass=0.7,
     years_interval=15,
     modis_mode="MannKendal + MTID",
+    year_initial=2001,
     prod_asset=None,
     logger=None,
 ):
@@ -636,8 +637,7 @@ def productivity_faowocat(
         annual_imgs = [_annual_imgs_mean(y) for y in years_available]
         ndvi_dataset = ee.Image.cat(annual_imgs)
 
-    year_start = 2001
-    year_end = year_start + years_interval - 1
+    year_end = year_initial + years_interval - 1
 
     if modis_mode is None:
         modis_mode = "MannKendal + MTID"
@@ -648,7 +648,7 @@ def productivity_faowocat(
         )
         modis_mode = "MannKendal + MTID"
 
-    years = list(range(year_start, year_end + 1))
+    years = list(range(year_initial, year_end + 1))
 
     def _annual_mean(ndvi_dataset, years):
         images = []
@@ -674,8 +674,8 @@ def productivity_faowocat(
         lambda img: img.rename("NDVI").set({"year": img.get("year")})
     )
 
-    lf_trend, mk_trend = ndvi_trend(year_start, year_end, ndvi_dataset, logger)
-    period = year_end - year_start + 1
+    lf_trend, mk_trend = ndvi_trend(year_initial, year_end, ndvi_dataset, logger)
+    period = year_end - year_initial + 1
     kendall_s = stats.get_kendall_coef(period, 95)
 
     trend_3cat = (
@@ -713,7 +713,7 @@ def productivity_faowocat(
         )
 
     init_mean = (
-        annual_ic.filter(ee.Filter.lte("year", year_start + 2))
+        annual_ic.filter(ee.Filter.lte("year", year_initial + 2))
         .select("NDVI")
         .mean()
         .divide(10000)
@@ -725,7 +725,7 @@ def productivity_faowocat(
         .where(init_mean.gt(high_biomass), 3)
     )
 
-    baseline_end = year_start + max(15, years_interval) - 1
+    baseline_end = year_initial + max(15, years_interval) - 1
     baseline_ic = annual_ic.filter(ee.Filter.lte("year", baseline_end)).select("NDVI")
     pct = baseline_ic.reduce(
         ee.Reducer.percentile([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
@@ -747,7 +747,7 @@ def productivity_faowocat(
         )
 
     t1_mean = (
-        annual_ic.filter(ee.Filter.lte("year", year_start + 3)).select("NDVI").mean()
+        annual_ic.filter(ee.Filter.lte("year", year_initial + 3)).select("NDVI").mean()
     )
     t2_mean = (
         annual_ic.filter(ee.Filter.gte("year", year_end - 3)).select("NDVI").mean()
@@ -826,7 +826,7 @@ def productivity_faowocat(
             BandInfo(
                 "Land Productivity Dynamics (FAO-WOCAT)",
                 add_to_map=True,
-                metadata={"year_initial": year_start, "year_final": year_end},
+                metadata={"year_initial": year_initial, "year_final": year_end},
             )
         ],
     )
