@@ -456,7 +456,7 @@ def save_reporting_json(
                     ],
                 ),
                 soil_organic_carbon=reporting.CrossTab(
-                    name="Land area by change in land cover degradation status",
+                    name="Land area by change in soil organic carbon degradation status",
                     unit="sq km",
                     initial_year=period_params["periods"]["soc"]["year_initial"],
                     final_year=period_params["periods"]["soc"]["year_final"],
