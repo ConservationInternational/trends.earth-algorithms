@@ -235,21 +235,21 @@ def save_reporting_json(
         lc_by_year = {}
 
         for year_num, year in enumerate(land_cover_years):
-            total_land_area = sum(
-                [
-                    value
-                    for key, value in st.lc_annual_totals[year_num].items()
-                    if key != config.MASK_VALUE
-                ]
-            )
-            logging.debug(
-                f"Total land area in {year} per land cover data {total_land_area}"
-            )
-
-            for lc_class in lc_trans_matrix.legend.key:
-                logging.debug(
-                    f"Total area of {lc_class.get_name()} in {year}: {st.lc_annual_totals[year_num].get(lc_class.code, 0.0)}"
-                )
+            # total_land_area = sum(
+            #     [
+            #         value
+            #         for key, value in st.lc_annual_totals[year_num].items()
+            #         if key != config.MASK_VALUE
+            #     ]
+            # )
+            # logging.debug(
+            #     f"Total land area in {year} per land cover data {total_land_area}"
+            # )
+            #
+            # for lc_class in lc_trans_matrix.legend.key:
+            #     logging.debug(
+            #         f"Total area of {lc_class.get_name()} in {year}: {st.lc_annual_totals[year_num].get(lc_class.code, 0.0)}"
+            #     )
 
             lc_by_year[int(year)] = {
                 lc_class.get_name(): st.lc_annual_totals[year_num].get(
