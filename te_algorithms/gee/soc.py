@@ -112,7 +112,6 @@ def soc(
     year_initial,
     year_final,
     fl,
-    trans_matrix,
     esa_to_custom_nesting,  # defines how ESA nests to custom classes
     ipcc_nesting,  # defines how custom classes nest to IPCC
     annual_lc,
@@ -293,7 +292,6 @@ def soc(
                 metadata={
                     "year_initial": year_initial,
                     "year_final": year_final,
-                    "trans_matrix": trans_matrix.dumps(),
                     "nesting": ipcc_nesting.dumps(),
                 },
             )
@@ -403,7 +401,6 @@ def soc_deg(
     year_initial,
     year_final,
     fl,
-    trans_matrix,
     esa_to_custom_nesting,  # defines how ESA nests to custom classes
     ipcc_nesting,  # defines how custom classes nest to IPCC
     logger,
