@@ -13,9 +13,8 @@ from .. import util, workers
 from ..util_numba import bizonal_total, zonal_total
 from . import config, models, worker
 from .land_deg_numba import (
-    calc_soc_pch,
+    calc_deg_soc,
     prod5_to_prod3,
-    recode_deg_soc,
     sdg_status_expanded,
     sdg_status_expanded_to_simple,
 )
@@ -589,18 +588,20 @@ def _process_block_status(
     soc_crosstabs = []
     soc_deg_baseline = in_array[params.band_dict["soc_deg_baseline_bandnum"] - 1, :, :]
     for i in range(params.n_reporting):
-        soc_pch = calc_soc_pch(
+        soc_deg_reporting = calc_deg_soc(
             in_array[params.band_dict["soc_baseline_bandnum"] - 1, :, :],
             in_array[params.band_dict[f"soc_reporting_{i}_bandnum"] - 1, :, :],
+            water,
         )
-        soc_deg_reporting = recode_deg_soc(soc_pch, water)
         soc_status = sdg_status_expanded(soc_deg_baseline, soc_deg_reporting)
-        soc_status_3_class = sdg_status_expanded_to_simple(soc_status)
         soc_statuses.append(soc_status)
+        soc_status_3_class = sdg_status_expanded_to_simple(soc_status)
         soc_summaries.append(
             {
-                "all_cover_types": zonal_total(soc_status, cell_areas, mask),
-                "non_water": zonal_total(soc_status, cell_areas, mask_plus_water),
+                "all_cover_types": zonal_total(soc_status_3_class, cell_areas, mask),
+                "non_water": zonal_total(
+                    soc_status_3_class, cell_areas, mask_plus_water
+                ),
             }
         )
         soc_crosstabs.append(

@@ -627,50 +627,6 @@ def _process_block_summary(
             )
         )
 
-    if (soc_deg_band_period["year_initial"] in lc_years) and (
-        soc_deg_band_period["year_final"] in lc_years
-    ):
-        logger.debug(
-            "year_initial %s, year_final %s, lc_years %s",
-            soc_deg_band_period["year_initial"],
-            soc_deg_band_period["year_final"],
-            lc_years,
-        )
-        a_soc_bl = in_array[
-            params.in_df.indices_for_name(
-                config.SOC_BAND_NAME,
-                field="year",
-                field_filter=soc_deg_band_period["year_initial"],
-            ),
-            :,
-            :,
-        ]
-        a_soc_final = in_array[
-            params.in_df.indices_for_name(
-                config.SOC_BAND_NAME,
-                field="year",
-                field_filter=soc_deg_band_period["year_final"],
-            ),
-            :,
-            :,
-        ]
-
-        lc_trans_zonal_soc_initial = zonal_total_weighted(
-            a_lc_trans_soc_deg,
-            a_soc_bl,
-            cell_areas * 100,  # from sq km to hectares
-            mask,
-        )
-        lc_trans_zonal_soc_final = zonal_total_weighted(
-            a_lc_trans_soc_deg,
-            a_soc_final,
-            cell_areas * 100,  # from sq km to hectares
-            mask,
-        )
-    else:
-        lc_trans_zonal_soc_initial = {}
-        lc_trans_zonal_soc_final = {}
-
     ###########################################################
     # Calculate crosstabs for productivity
 
@@ -835,8 +791,6 @@ def _process_block_summary(
             lc_trans_zonal_areas,
             lc_trans_zonal_areas_periods,
             lc_trans_prod_bizonal,
-            lc_trans_zonal_soc_initial,
-            lc_trans_zonal_soc_final,
             sdg_zonal_population_total,
             sdg_zonal_population_male,
             sdg_zonal_population_female,
