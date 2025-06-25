@@ -1,2 +1,16 @@
 # Include the license file
 include LICENSE
+include README.md
+include version.txt
+include pyproject.toml
+
+# Include package data
+recursive-include te_algorithms/data *
+include te_algorithms/version.json
+
+# Include documentation
+recursive-include docs *
+
+# Exclude compiled Python files and cache directories
+global-exclude *.pyc
+global-exclude __pycache__
