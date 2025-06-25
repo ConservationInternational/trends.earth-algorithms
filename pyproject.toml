@@ -6,10 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "te_algorithms"
 description = "Library supporting analysis of land degradation."
 readme = "README.md"
-license = {text = "MIT"}
-authors = [
-    {name = "Conservation International", email = "trends.earth@conservation.org"}
-]
 keywords = ["land degradation", "LDN", "SDG", "sustainable development goals"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -31,9 +27,16 @@ dependencies = [
     "marshmallow>=3.21.3,<4.0.0",
     "marshmallow-dataclass>=8.7.1",
     "defusedxml>=0.7.1",
-    "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git",
+    "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@master",
 ]
 dynamic = ["version"]
+
+[project.license]
+text = "MIT"
+
+[[project.authors]]
+name = "Conservation International"
+email = "trends.earth@conservation.org"
 
 [project.urls]
 Homepage = "https://github.com/ConservationInternational/trends.earth-algorithms"
@@ -57,11 +60,13 @@ packages = [
     "te_algorithms.gee",
     "te_algorithms.api",
 ]
-package-dir = {"te_algorithms" = "te_algorithms"}
 include-package-data = true
+
+[tool.setuptools.package-dir]
+te_algorithms = "te_algorithms"
 
 [tool.setuptools.package-data]
 te_algorithms = ["version.json", "data/*"]
 
-[tool.setuptools.dynamic]
-version = {file = "version.txt"}
+[tool.setuptools.dynamic.version]
+file = "version.txt"
