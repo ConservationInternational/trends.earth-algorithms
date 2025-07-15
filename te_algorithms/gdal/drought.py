@@ -305,14 +305,12 @@ def _process_block(
             pop_female_max_drought = _expand_dims(pop_female_max_drought, in_array)
             pop_male_max_drought = _expand_dims(pop_male_max_drought, in_array)
 
-        pop_total_max_drought[pop_total_max_drought == NODATA_VALUE] = 0
-        pop_total_max_drought[max_drought < -1000] = -pop_total_max_drought[
-            max_drought < -1000
-        ]
+        pop_total_max_drought[
+            (pop_total_max_drought == NODATA_VALUE) | (max_drought == NODATA_VALUE)
+        ] = NODATA_VALUE
+        exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
+        pop_total_max_drought[exposed_areas] = -pop_total_max_drought[exposed_areas]
         # Set water to NODATA_VALUE as requested by UNCCD for Prais
-
-        logger.debug("pop_total_max_drought.shape %s", pop_total_max_drought.shape)
-
         if mask_water:
             logger.debug("a_water_mask.shape %s", a_water_mask.shape)
             pop_total_max_drought[a_water_mask == 1] = NODATA_VALUE
