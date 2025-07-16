@@ -162,9 +162,6 @@ def soc(
     class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
     class_positions = [*range(1, len(class_codes) + 1)]
     for k in range(year_final - soc_t0_year):
-        logger.info(
-            f"Comparing lc band {k} with band {k + 1} for years {soc_t0_year + k} and {soc_t0_year + k + 1}."
-        )
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
         lc_t0_orig_coding = lc.select(k).remap(
@@ -449,9 +446,6 @@ def soc_deg(
     class_codes = sorted([c.code for c in esa_to_custom_nesting.parent.key])
     class_positions = [*range(1, len(class_codes) + 1)]
     for k in range(year_final - soc_t0_year):
-        logger.info(
-            f"Comparing lc band {k} with band {k + 1} for years {soc_t0_year + k} and {soc_t0_year + k + 1}."
-        )
         # land cover map reclassified to custom classes (1: forest, 2:
         # grassland, 3: cropland, 4: wetland, 5: artifitial, 6: bare, 7: water)
         lc_t0_orig_coding = lc.select(k).remap(
@@ -549,16 +543,6 @@ def soc_deg(
             stack_lc = stack_lc.addBands(lc_t1_orig_coding)
             stack_soc = stack_soc.addBands(socn)
 
-    # compute soc percent change for the analysis period
-    logger.debug(
-        f"lc band names are: {lc.bandNames().getInfo()}\n"
-        f"lc band length is: {len(lc.bandNames().getInfo())}\n"
-        f"stack_lc band names are: {stack_lc.bandNames().getInfo()}\n"
-        f"stack_lc band length is: {len(stack_lc.bandNames().getInfo())}\n"
-        f"stack_soc band names are: {stack_soc.bandNames().getInfo()}\n"
-        f"stack_soc band length is: {len(stack_soc.bandNames().getInfo())}\n"
-        f"year_final is: {year_final}, and soc_t0_year is: {soc_t0_year}"
-    )
     soc_pch = (
         (
             (
