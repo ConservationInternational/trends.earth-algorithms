@@ -4,21 +4,24 @@ from te_schemas.schemas import BandInfo
 
 from .util import TEImage
 
+LAND_COVER_INITIAL_YEAR = 1992
+LAND_COVER_FINAL_YEAR = 2022
 
-def _select_lc(lc, year, logger):
+
+def _select_lc(lc, year, logger, fake_data=False):
     try:
         image = lc.select("y{}".format(year))
         image.getInfo()
     except EEException:
-        if year < 1992:
-            image = lc.select("y1992")
+        if year < LAND_COVER_INITIAL_YEAR and fake_data:
+            image = lc.select(f"y{LAND_COVER_INITIAL_YEAR}")
             logger.warn(
-                f"Could not select year {year} from land cover asset. Returning data from 1992."
+                f"Could not select year {year} from land cover asset. Returning data from {LAND_COVER_INITIAL_YEAR}."
             )
-        elif year > 2022:
-            image = lc.select("y2022")
+        elif year > LAND_COVER_FINAL_YEAR and fake_data:
+            image = lc.select(f"y{LAND_COVER_FINAL_YEAR}")
             logger.warn(
-                f"Could not select year {year} from land cover asset. Returning data from 2022."
+                f"Could not select year {year} from land cover asset. Returning data from {LAND_COVER_FINAL_YEAR}."
             )
     return image
 
@@ -115,6 +118,28 @@ def land_cover(
             ),
         ],
     )
+
+    filtered_years = []
+    for year in additional_years:
+        if year == year_initial or year == year_final:
+            logger.warn(
+                f"Year {year} is already included as initial or final year. Skipping."
+            )
+        elif year < LAND_COVER_INITIAL_YEAR or year > LAND_COVER_FINAL_YEAR:
+            if fake_data:
+                filtered_years.append(year)
+                logger.warn(
+                    f"Year {year} is outside of available land cover data range "
+                    f"({LAND_COVER_INITIAL_YEAR}-{LAND_COVER_FINAL_YEAR}) "
+                    "Including it anyway because fake_data=True."
+                )
+            else:
+                logger.warn(
+                    f"Year {year} is outside of available land cover data range. Skipping."
+                )
+        else:
+            filtered_years.append(year)
+    additional_years = filtered_years
 
     if annual_lc:
         years = [*range(year_initial, year_final + 1)] + additional_years
