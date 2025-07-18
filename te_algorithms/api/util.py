@@ -641,7 +641,21 @@ def _get_raster_tile(
         result = out_file
     else:
         if "vsis3" not in str(uri.uri) and "amazonaws.com" not in str(uri.uri):
-            _download_file(uri.uri, out_file)
+            try:
+                _download_file(uri.uri, out_file)
+            except requests.exceptions.HTTPError:
+                if "https://www.googleapis.com/download/storage" in str(uri.uri):
+                    # If the download fails, try stripping the generation
+                    # parameter from the URL, which is sometimes present in
+                    # Google Cloud Storage URLs.
+                    uri_stripped = re.sub(
+                        r"([&?])?generation=\d+(&)?",
+                        lambda m: "&" if m.group(1) and m.group(2) else "",
+                        str(uri.uri),
+                    )
+                    _download_file(uri_stripped, out_file)
+                else:
+                    raise
         else:
             try:
                 # Below will fail if uri is not a URL but a path
