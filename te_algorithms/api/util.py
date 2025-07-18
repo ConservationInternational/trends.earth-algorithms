@@ -649,8 +649,10 @@ def _get_raster_tile(
                     # parameter from the URL, which is sometimes present in
                     # Google Cloud Storage URLs.
                     uri_stripped = re.sub(
-                        r"([&?])?generation=\d+(&)?",
-                        lambda m: "&" if m.group(1) and m.group(2) else "",
+                        r"([&?])generation=\d+(&|$)",
+                        lambda m: "?"
+                        if m.group(1) == "?" and m.group(2) == "&"
+                        else m.group(2),
                         str(uri.uri),
                     )
                     _download_file(uri_stripped, out_file)
