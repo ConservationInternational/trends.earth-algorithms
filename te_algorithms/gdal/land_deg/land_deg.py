@@ -450,20 +450,48 @@ def _process_block_summary(
     class_codes = sorted([c.code for c in params.nesting.child.key])
     class_positions = [*range(1, len(class_codes) + 1)]
 
+    # Cache expensive lookups once at the start
+    lc_indices = params.in_df.indices_for_name(config.LC_BAND_NAME)
     lc_band_years = params.in_df.metadata_for_name(config.LC_BAND_NAME, "year")
-    lc_bands = [
-        (band, year)
-        for band, year in zip(
-            params.in_df.indices_for_name(config.LC_BAND_NAME), lc_band_years
-        )
-    ]
-    soc_bands = [
-        (band, year)
-        for band, year in zip(
-            params.in_df.indices_for_name(config.SOC_BAND_NAME),
-            params.in_df.metadata_for_name(config.SOC_BAND_NAME, "year"),
-        )
-    ]
+    soc_indices = params.in_df.indices_for_name(config.SOC_BAND_NAME)
+    soc_band_years = params.in_df.metadata_for_name(config.SOC_BAND_NAME, "year")
+
+    lc_bands = [(band, year) for band, year in zip(lc_indices, lc_band_years)]
+    soc_bands = [(band, year) for band, year in zip(soc_indices, soc_band_years)]
+
+    # Create lookup dictionaries for O(1) year-to-row mapping
+    lc_year_to_row = {year: row for row, year in lc_bands}
+    lc_years_set = set(lc_band_years)  # For faster membership testing
+
+    # Cache all band index lookups at the start for efficiency
+    traj_band_idx = (
+        params.in_df.index_for_name(config.TRAJ_BAND_NAME)
+        if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value
+        else None
+    )
+    state_band_idx = (
+        params.in_df.index_for_name(config.STATE_BAND_NAME)
+        if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value
+        else None
+    )
+    perf_band_idx = (
+        params.in_df.index_for_name(config.PERF_BAND_NAME)
+        if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value
+        else None
+    )
+    soc_deg_band_idx = params.in_df.index_for_name(config.SOC_DEG_BAND_NAME)
+    lc_deg_band_idx = params.in_df.index_for_name(config.LC_DEG_BAND_NAME)
+
+    # Pre-compute population band indices
+    pop_rows_total = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field="type", field_filter="total"
+    )
+    pop_rows_male = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field="type", field_filter="male"
+    )
+    pop_rows_female = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field="type", field_filter="female"
+    )
 
     # Create container for output arrays (will write later in main thread)
     write_arrays = []
@@ -479,15 +507,13 @@ def _process_block_summary(
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1).astype(np.float64)
 
     if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        traj_array = in_array[params.in_df.index_for_name(config.TRAJ_BAND_NAME), :, :]
+        traj_array = in_array[traj_band_idx, :, :]
         traj_recode = recode_traj(traj_array)
 
-        state_array = in_array[
-            params.in_df.index_for_name(config.STATE_BAND_NAME), :, :
-        ]
+        state_array = in_array[state_band_idx, :, :]
         state_recode = recode_state(state_array)
 
-        perf_array = in_array[params.in_df.index_for_name(config.PERF_BAND_NAME), :, :]
+        perf_array = in_array[perf_band_idx, :, :]
 
         deg_prod5 = calc_prod5(traj_recode, state_recode, perf_array)
 
@@ -499,7 +525,9 @@ def _process_block_summary(
             band_name = config.JRC_LPD_BAND_NAME
         elif params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
             band_name = config.FAO_WOCAT_LPD_BAND_NAME
-        deg_prod5 = in_array[params.in_df.index_for_name(band_name), :, :]
+
+        band_idx = params.in_df.index_for_name(band_name)
+        deg_prod5 = in_array[band_idx, :, :]
         # TODO: Below is temporary until missing data values are
         # fixed in LPD layer on GEE and missing data values are
         # fixed in LPD layer made by UNCCD for SIDS
@@ -519,12 +547,11 @@ def _process_block_summary(
     ###########################################################
     # Calculate LC transition arrays
     lc_deg_band_period = params.periods["land_cover"]
-    lc_deg_initial_cover_row = [
-        row for row, year in lc_bands if year == lc_deg_band_period["year_initial"]
-    ][0]
-    lc_deg_final_cover_row = [
-        row for row, year in lc_bands if year == lc_deg_band_period["year_final"]
-    ][0]
+
+    # Use cached lookup dictionaries for O(1) access
+    lc_deg_initial_cover_row = lc_year_to_row[lc_deg_band_period["year_initial"]]
+    lc_deg_final_cover_row = lc_year_to_row[lc_deg_band_period["year_final"]]
+
     # a_lc_trans_lc_deg is an array land cover transitions over the time period
     # used in the land cover degradation layer
     a_lc_trans_lc_deg = calc_lc_trans(
@@ -548,17 +575,13 @@ def _process_block_summary(
     if prod_deg_band_period == lc_deg_band_period:
         a_lc_trans_prod_deg = a_lc_trans_lc_deg
     elif (
-        prod_deg_band_period["year_initial"] in lc_band_years
-        and prod_deg_band_period["year_final"] in lc_band_years
+        prod_deg_band_period["year_initial"] in lc_years_set
+        and prod_deg_band_period["year_final"] in lc_years_set
     ):
-        prod_deg_initial_cover_row = [
-            row
-            for row, year in lc_bands
-            if year == prod_deg_band_period["year_initial"]
-        ][0]
-        prod_deg_final_cover_row = [
-            row for row, year in lc_bands if year == prod_deg_band_period["year_final"]
-        ][0]
+        prod_deg_initial_cover_row = lc_year_to_row[
+            prod_deg_band_period["year_initial"]
+        ]
+        prod_deg_final_cover_row = lc_year_to_row[prod_deg_band_period["year_final"]]
         a_lc_trans_prod_deg = calc_lc_trans(
             in_array[prod_deg_initial_cover_row, :, :],
             in_array[prod_deg_final_cover_row, :, :],
@@ -580,15 +603,11 @@ def _process_block_summary(
     elif soc_deg_band_period == prod_deg_band_period:
         a_lc_trans_soc_deg = a_lc_trans_prod_deg
     elif (
-        soc_deg_band_period["year_initial"] in lc_band_years
-        and soc_deg_band_period["year_final"] in lc_band_years
+        soc_deg_band_period["year_initial"] in lc_years_set
+        and soc_deg_band_period["year_final"] in lc_years_set
     ):
-        soc_deg_initial_cover_row = [
-            row for row, year in lc_bands if year == soc_deg_band_period["year_initial"]
-        ][0]
-        soc_deg_final_cover_row = [
-            row for row, year in lc_bands if year == soc_deg_band_period["year_final"]
-        ][0]
+        soc_deg_initial_cover_row = lc_year_to_row[soc_deg_band_period["year_initial"]]
+        soc_deg_final_cover_row = lc_year_to_row[soc_deg_band_period["year_final"]]
         a_lc_trans_soc_deg = calc_lc_trans(
             in_array[soc_deg_initial_cover_row, :, :],
             in_array[soc_deg_final_cover_row, :, :],
@@ -604,15 +623,13 @@ def _process_block_summary(
     # tables are tons C (summed over the total area of each class).
 
     # First filter the SOC years to only those years for which land cover is
-    # available.
-    lc_years = [year for _, year in lc_bands]
+    # available. Use cached lookup for efficiency.
     soc_bands_with_lc_avail = [
-        (band, year) for band, year in soc_bands if year in lc_years
+        (band, year) for band, year in soc_bands if year in lc_years_set
     ]
-    lc_rows_for_soc = [
-        params.in_df.index_for_name(config.LC_BAND_NAME, "year", year)
-        for _, year in soc_bands_with_lc_avail
-    ]
+
+    # Pre-compute LC row indices for SOC years using cached lookup
+    lc_rows_for_soc = [lc_year_to_row[year] for _, year in soc_bands_with_lc_avail]
     soc_by_lc_annual_totals = []
 
     for index, (soc_row, _) in enumerate(soc_bands_with_lc_avail):
@@ -660,7 +677,7 @@ def _process_block_summary(
     water = np.isin(in_array[lc_deg_initial_cover_row, :, :], params.nesting.nesting[7])
     water = water.astype(bool, copy=False)
 
-    deg_soc = in_array[params.in_df.index_for_name(config.SOC_DEG_BAND_NAME), :, :]
+    deg_soc = in_array[soc_deg_band_idx, :, :]
     deg_soc = recode_deg_soc(deg_soc, water)
 
     if "soc" in params.error_recode:
@@ -669,7 +686,7 @@ def _process_block_summary(
         ]
         deg_soc = recode_indicator_errors(deg_soc, soc_error_recode)
 
-    deg_lc = in_array[params.in_df.index_for_name(config.LC_DEG_BAND_NAME), :, :]
+    deg_lc = in_array[lc_deg_band_idx, :, :]
 
     if "lc" in params.error_recode:
         lc_error_recode = in_array[
@@ -708,16 +725,6 @@ def _process_block_summary(
 
     ###########################################################
     # Population affected by degradation
-
-    pop_rows_total = params.in_df.indices_for_name(
-        config.POPULATION_BAND_NAME, field="type", field_filter="total"
-    )
-    pop_rows_male = params.in_df.indices_for_name(
-        config.POPULATION_BAND_NAME, field="type", field_filter="male"
-    )
-    pop_rows_female = params.in_df.indices_for_name(
-        config.POPULATION_BAND_NAME, field="type", field_filter="female"
-    )
 
     if len(pop_rows_total) == 1:
         assert len(pop_rows_male) == 0 and len(pop_rows_female) == 0
@@ -817,6 +824,7 @@ def _get_n_pop_band_for_type(dfs, pop_type):
 
 
 def _have_pop_by_sex(pop_dfs):
+    # Cache the function calls to avoid repeated lookups
     n_total_pop_bands = _get_n_pop_band_for_type(pop_dfs, "total")
     n_female_pop_bands = _get_n_pop_band_for_type(pop_dfs, "female")
     n_male_pop_bands = _get_n_pop_band_for_type(pop_dfs, "male")
@@ -830,12 +838,10 @@ def _have_pop_by_sex(pop_dfs):
 
     if n_total_pop_bands == 1:
         assert n_female_pop_bands == 0 and n_male_pop_bands == 0
-
         return False
     else:
         assert n_total_pop_bands == 0
         assert n_female_pop_bands == 1 and n_male_pop_bands == 1
-
         return True
 
 
@@ -863,10 +869,10 @@ class SummarizeTileInputs:
     lc_trans_matrix: LCTransitionDefinitionDeg
     period_name: str
     periods: dict
-    mask_worker_function: Callable = None
-    mask_worker_params: dict = None
-    deg_worker_function: Callable = None
-    deg_worker_params: dict = None
+    mask_worker_function: Optional[Callable] = None
+    mask_worker_params: Optional[dict] = None
+    deg_worker_function: Optional[Callable] = None
+    deg_worker_params: Optional[dict] = None
 
 
 def _summarize_tile(inputs: SummarizeTileInputs):
@@ -884,8 +890,9 @@ def _summarize_tile(inputs: SummarizeTileInputs):
     geojson = util.wkt_geom_to_geojson_file_string(inputs.wkt_aoi)
 
     if inputs.mask_worker_function:
+        mask_worker_params = inputs.mask_worker_params or {}
         mask_result = inputs.mask_worker_function(
-            mask_tif, geojson, str(inputs.in_file), **inputs.mask_worker_params
+            mask_tif, geojson, str(inputs.in_file), **mask_worker_params
         )
 
     else:
@@ -931,7 +938,8 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         )
 
         if inputs.deg_worker_function:
-            result = inputs.deg_worker_function(params, **inputs.deg_worker_params)
+            deg_worker_params = inputs.deg_worker_params or {}
+            result = inputs.deg_worker_function(params, **deg_worker_params)
         else:
             summarizer = worker.DegradationSummary(params, _process_block_summary)
             result = summarizer.work()

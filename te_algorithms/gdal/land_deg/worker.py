@@ -76,35 +76,42 @@ class DegradationSummary:
         # Width of cells in latitude
         pixel_height = src_gt[5]
 
-        n_blocks = len(np.arange(0, xsize, x_block_size)) * len(
-            np.arange(0, ysize, y_block_size)
-        )
+        x_blocks = (xsize + x_block_size - 1) // x_block_size  # Ceiling division
+        y_blocks = (ysize + y_block_size - 1) // y_block_size  # Ceiling division
+        n_blocks = x_blocks * y_blocks
 
-        # pr = cProfile.Profile()
-        # pr.enable()
-        n = 0
-        out = []
-
-        for y in range(0, ysize, y_block_size):
-            if y + y_block_size < ysize:
-                win_ysize = y_block_size
-            else:
-                win_ysize = ysize - y
-
-            cell_areas = (
-                np.array(
-                    [
-                        calc_cell_area(
-                            lat + pixel_height * n,
-                            lat + pixel_height * (n + 1),
-                            long_width,
-                        )
-                        for n in range(win_ysize)
-                    ]
+        # Pre-calculate all cell areas for the entire raster to avoid repeated computation
+        all_cell_areas = np.empty(ysize, dtype=np.float64)
+        current_lat = lat
+        for row in range(ysize):
+            all_cell_areas[row] = (
+                calc_cell_area(
+                    current_lat,
+                    current_lat + pixel_height,
+                    long_width,
                 )
                 * 1e-6
-            )  # 1e-6 is to convert from meters to kilometers
-            cell_areas.shape = (cell_areas.size, 1)
+            )  # Convert from meters to kilometers
+            current_lat += pixel_height
+
+        # Cache raster bands to avoid repeated access
+        src_bands = [src_ds.GetRasterBand(i) for i in range(1, src_ds.RasterCount + 1)]
+        dst_bands = [
+            dst_ds.GetRasterBand(i) for i in range(1, self.params.n_out_bands + 1)
+        ]
+
+        progress_increment = 1.0 / n_blocks
+        n = 0
+
+        # Pre-allocate list with None values to avoid repeated memory reallocation
+        out = [None] * n_blocks
+        block_index = 0
+
+        for y in range(0, ysize, y_block_size):
+            win_ysize = min(y_block_size, ysize - y)
+
+            cell_areas = all_cell_areas[y : y + win_ysize].copy()
+            cell_areas = cell_areas.reshape(-1, 1)
 
             for x in range(0, xsize, x_block_size):
                 if self.is_killed():
@@ -114,16 +121,19 @@ class DegradationSummary:
                     )
 
                     break
-                self.emit_progress(n / n_blocks)
+                self.emit_progress(n * progress_increment)
 
-                if x + x_block_size < xsize:
-                    win_xsize = x_block_size
+                win_xsize = min(x_block_size, xsize - x)
+
+                # Use cached bands and more efficient array reading
+                if src_ds.RasterCount == 1:
+                    src_array = src_bands[0].ReadAsArray(
+                        xoff=x, yoff=y, win_xsize=win_xsize, win_ysize=win_ysize
+                    )
                 else:
-                    win_xsize = xsize - x
-
-                src_array = src_ds.ReadAsArray(
-                    xoff=x, yoff=y, xsize=win_xsize, ysize=win_ysize
-                )
+                    src_array = src_ds.ReadAsArray(
+                        xoff=x, yoff=y, xsize=win_xsize, ysize=win_ysize
+                    )
 
                 mask_array = band_mask.ReadAsArray(
                     xoff=x, yoff=y, win_xsize=win_xsize, win_ysize=win_ysize
@@ -134,10 +144,14 @@ class DegradationSummary:
                     self.params, src_array, mask_array, x, y, cell_areas
                 )
 
-                out.append(result[0])
+                out[block_index] = result[0]
+                block_index += 1
 
-                for band_num, data in enumerate(result[1], start=1):
-                    dst_ds.GetRasterBand(band_num).WriteArray(**data)
+                write_arrays = result[1]
+                for band_num, data in enumerate(write_arrays):
+                    dst_bands[band_num].WriteArray(
+                        data["array"], data["xoff"], data["yoff"]
+                    )
 
                 n += 1
 
@@ -145,6 +159,9 @@ class DegradationSummary:
                 break
 
             lat += pixel_height * win_ysize
+
+        # Clean up cached references
+        del src_bands, dst_bands
 
         # pr.disable()
         # pr.dump_stats('calculate_ld_stats')
@@ -156,4 +173,6 @@ class DegradationSummary:
         else:
             self.emit_progress(1)
             del dst_ds
+            # Filter out None values if processing was interrupted
+            out = [item for item in out if item is not None]
             return out
