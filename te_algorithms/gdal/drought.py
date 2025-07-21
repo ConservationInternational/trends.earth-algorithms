@@ -1147,7 +1147,8 @@ def save_reporting_json(
                 ),
             ),
             area_of_interest=schemas.AreaOfInterest(
-                name=task_name,  # TODO replace this with area of interest name once implemented in TE
+                # TODO replace this with area of interest name once implemented in TE
+                name=task_name,
                 geojson=aoi.get_geojson(),
                 crs_wkt=aoi.get_crs_wkt(),
             ),

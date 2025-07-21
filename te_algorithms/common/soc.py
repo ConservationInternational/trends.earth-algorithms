@@ -4,8 +4,8 @@ def trans_factors_for_custom_legend(trans_factors, ipcc_nesting):
     trans_factors[0] and trans_factors[1] is a transition code (in first list), and then
     what that transition code should be recoded as (in second list)
 
-    this function takes in SOC transition factors defined against the IPCC legend and spits
-    out transition factors tied to a child legend of the IPCC legend
+    this function takes in SOC transition factors defined against the IPCC legend
+    and spits out transition factors tied to a child legend of the IPCC legend
     """
 
     transitions = []

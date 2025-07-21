@@ -69,9 +69,8 @@ def rmtree(top):
                 os.rmdir(os.path.join(root, name))
             except OSError:
                 print(
-                    "Unable to remove directory {}. Skipping removing that folder.".format(
-                        os.path.join(root, name)
-                    )
+                    "Unable to remove directory {}. Skipping removing "
+                    "that folder.".format(os.path.join(root, name))
                 )
     try:
         os.rmdir(top)
@@ -111,9 +110,8 @@ def set_version(c, v=None, tag=False):
         version_update = False
         v = get_version(c)
         print(
-            "No version specified, retaining version {}, but updating SHA and release date".format(
-                v
-            )
+            "No version specified, retaining version {}, but updating "
+            "SHA and release date".format(v)
         )
     elif not re.match("[0-9]+([.][0-9]+)+", v):
         print("Must specify a valid version (example: 0.36)")
