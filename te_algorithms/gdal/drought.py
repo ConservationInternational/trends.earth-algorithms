@@ -546,17 +546,26 @@ class DroughtSummary:
 
         out = []
 
-        for n, line_params in enumerate(line_params_list):
-            self.emit_progress(n / len(line_params_list))
-            results = _process_line(line_params)
+        try:
+            for n, line_params in enumerate(line_params_list):
+                self.emit_progress(n / len(line_params_list))
+                results = _process_line(line_params)
 
-            for result in results:
-                out.append(result[0])
+                for result in results:
+                    out.append(result[0])
 
-                for key, value in result[1].items():
-                    out_ds.GetRasterBand(key).WriteArray(**value)
+                    for key, value in result[1].items():
+                        out_ds.GetRasterBand(key).WriteArray(**value)
 
-        out = _accumulate_drought_summary_tables(out)
+            out = _accumulate_drought_summary_tables(out)
+        finally:
+            # Ensure the output dataset is properly closed to flush data to disk
+            if out_ds is not None:
+                out_ds.FlushCache()
+                out_ds = None
+                logger.info(
+                    f"Output dataset closed successfully for file: {self.params.out_file}"
+                )
 
         return out
 
@@ -611,7 +620,7 @@ def summarise_drought_vulnerability(
     available_memory_gb = psutil.virtual_memory().available / (1024**3)
 
     # Estimate memory per CPU core needed (rough heuristic)
-    memory_per_core_gb = 2.0  # Conservative estimate for raster processing
+    memory_per_core_gb = 4.0  # Conservative estimate for raster processing
     max_cpus_by_memory = int(available_memory_gb / memory_per_core_gb)
 
     # Use the minimum of requested CPUs and memory-constrained CPUs
@@ -836,7 +845,7 @@ def _summarize_over_aoi(
     mask_worker_params: dict = None,
     drought_worker_function: Callable = None,
     drought_worker_params: dict = None,
-) -> Tuple[Optional[SummaryTableDrought], str]:
+) -> Tuple[Optional[SummaryTableDrought], List[Path], str]:
     # Combine all raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(
         suffix="_drought_indicators.vrt", delete=False
@@ -859,6 +868,7 @@ def _summarize_over_aoi(
     logger.info(f"Reprojecting inputs and saving to {indic_reproj}")
 
     error_message = ""
+    out_files = []
 
     if translate_worker_function:
         tiles = translate_worker_function(
@@ -876,7 +886,7 @@ def _summarize_over_aoi(
         # For very large datasets, reduce CPU count to avoid memory pressure
         # For small datasets, use fewer CPUs to reduce overhead
         if n_pixels > 50_000_000:  # 50M pixels
-            effective_cpus = min(n_cpus, 16)  # Cap at 16 for very large data
+            effective_cpus = min(n_cpus, 8)  # Cap at 8 for very large data
             logger.info(
                 f"Large dataset detected ({n_pixels} pixels), "
                 f"using {effective_cpus} CPUs for tiling"
@@ -1011,6 +1021,17 @@ def _summarize_tile(tile_input):
         else:
             logger.info("Completed processing tile: %s", tile_name)
             result.cast_to_cpython()
+
+            # Validate that the output file was created successfully
+            if Path(tile_input.out_file).exists():
+                file_size = Path(tile_input.out_file).stat().st_size
+                logger.info(
+                    f"Output file created successfully: {tile_input.out_file} (size: {file_size} bytes)"
+                )
+            else:
+                logger.error(f"Output file was not created: {tile_input.out_file}")
+                error_message = f"Output file was not created for tile {tile_name}."
+                result = None
     else:
         error_message = f"Error creating mask for tile {tile_name}."
         result = None
@@ -1025,7 +1046,7 @@ def _compute_drought_summary_table(
     output_job_path: Path,
     drought_period: int,
     n_cpus: int,
-) -> Tuple[SummaryTableDrought, Path, Path]:
+) -> Tuple[SummaryTableDrought, Path]:
     """Computes summary table and the output tif file(s)"""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     logger.debug(f"len(wkt_aois) is {len(wkt_aois)}")

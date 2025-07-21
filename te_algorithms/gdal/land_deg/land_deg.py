@@ -5,6 +5,7 @@ import json
 import logging
 import multiprocessing
 import tempfile
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
@@ -474,7 +475,7 @@ def summarise_land_degradation(
     available_memory_gb = psutil.virtual_memory().available / (1024**3)
 
     # Estimate memory per CPU core needed (rough heuristic)
-    memory_per_core_gb = 2.0  # Conservative estimate for raster processing
+    memory_per_core_gb = 4.0  # Conservative estimate for raster processing
     max_cpus_by_memory = int(available_memory_gb / memory_per_core_gb)
 
     # Use the minimum of requested CPUs and memory-constrained CPUs
@@ -504,6 +505,17 @@ def summarise_land_degradation(
         )
 
         import concurrent.futures
+
+        def process_period_wrapper_with_thread_marker(period_data):
+            """Wrapper that marks the current thread as being in a ThreadPoolExecutor"""
+            current_thread = threading.current_thread()
+            current_thread._is_in_thread_pool = True
+            try:
+                return process_period_wrapper(period_data)
+            finally:
+                # Clean up the marker
+                if hasattr(current_thread, "_is_in_thread_pool"):
+                    delattr(current_thread, "_is_in_thread_pool")
 
         def process_period_wrapper(period_data):
             period, cpus, prepared_schemas = period_data
@@ -540,7 +552,9 @@ def summarise_land_degradation(
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(ldn_job.params["periods"])
         ) as executor:
-            period_results = list(executor.map(process_period_wrapper, period_data))
+            period_results = list(
+                executor.map(process_period_wrapper_with_thread_marker, period_data)
+            )
 
         for result, period, prepared_schemas in zip(
             period_results, ldn_job.params["periods"], prepared_schemas_list
@@ -1277,8 +1291,58 @@ def _aoi_process_multiprocess(inputs, n_cpus):
     # Use ThreadPoolExecutor for I/O bound tasks + ProcessPoolExecutor for CPU bound
     # This hybrid approach can improve throughput when tasks have mixed characteristics
 
+    # Check if we're already in a ThreadPoolExecutor thread to avoid deadlocks
+    current_thread = threading.current_thread()
+    is_in_thread_pool = getattr(
+        current_thread, "_is_in_thread_pool", False
+    ) or current_thread.name.startswith("ThreadPoolExecutor")
+
+    if is_in_thread_pool:
+        logger.info(
+            "Running in ThreadPoolExecutor thread - using multiprocessing.Pool instead of ProcessPoolExecutor to avoid deadlock"
+        )
+        # Use multiprocessing.Pool instead of ProcessPoolExecutor when in a thread
+        # This avoids the deadlock while maintaining parallel processing
+        chunksize = max(1, len(inputs) // (n_cpus * 2))
+
+        with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
+            summary_tables = []
+            out_files = []
+            total_tiles = len(inputs)
+            logger.info(
+                f"Processing {total_tiles} tiles with {n_cpus} processes using multiprocessing.Pool"
+            )
+
+            try:
+                for n, output in enumerate(
+                    p.imap_unordered(_summarize_tile, inputs, chunksize=chunksize)
+                ):
+                    completed_tiles = n + 1
+                    progress_percent = (completed_tiles / total_tiles) * 100
+                    util.log_progress(
+                        completed_tiles / total_tiles,
+                        message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
+                    )
+                    error_message = output[2]
+
+                    if error_message is not None:
+                        logger.error("Error %s", error_message)
+                        p.terminate()
+                        return None
+
+                    summary_tables.append(output[0])
+                    out_files.append(output[1])
+
+                logger.info(
+                    f"Successfully completed {total_tiles}/{total_tiles} tiles with multiprocessing.Pool"
+                )
+            except Exception as e:
+                logger.error(f"Error in multiprocessing.Pool: {e}")
+                p.terminate()
+                return None
+
     # For very large datasets, use more aggressive parallelization
-    if len(inputs) > n_cpus * 2:
+    elif len(inputs) > n_cpus * 2:
         # Use process pool with larger chunksize for better load balancing
         chunksize = max(1, len(inputs) // (n_cpus * 4))
 
@@ -1311,46 +1375,68 @@ def _aoi_process_multiprocess(inputs, n_cpus):
                 out_files.append(output[1])
     else:
         # For smaller datasets, use concurrent.futures for better control
-        with concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus) as executor:
-            # Submit all tasks at once for better scheduling
-            future_to_input = {
-                executor.submit(_summarize_tile, inp): inp for inp in inputs
-            }
-            summary_tables = []
-            out_files = []
-            total_tiles = len(inputs)
-            logger.info(
-                f"Processing {total_tiles} tiles with {n_cpus} concurrent processes"
-            )
+        logger.info(f"Creating ProcessPoolExecutor with {n_cpus} workers")
+        try:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus) as executor:
+                # Submit all tasks at once for better scheduling
+                future_to_input = {
+                    executor.submit(_summarize_tile, inp): inp for inp in inputs
+                }
+                summary_tables = []
+                out_files = []
+                total_tiles = len(inputs)
+                logger.info(
+                    f"Processing {total_tiles} tiles with {n_cpus} concurrent processes"
+                )
 
-            for n, future in enumerate(
-                concurrent.futures.as_completed(future_to_input)
-            ):
-                try:
-                    output = future.result(timeout=3600)  # 1 hour timeout per tile
-                    completed_tiles = n + 1
-                    progress_percent = (completed_tiles / total_tiles) * 100
-                    util.log_progress(
-                        completed_tiles / total_tiles,
-                        message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
-                    )
-                    error_message = output[2]
+                completed = 0
+                for n, future in enumerate(
+                    concurrent.futures.as_completed(
+                        future_to_input, timeout=7200
+                    )  # 2 hour total timeout
+                ):
+                    try:
+                        output = future.result(timeout=3600)  # 1 hour timeout per tile
+                        completed_tiles = n + 1
+                        progress_percent = (completed_tiles / total_tiles) * 100
+                        util.log_progress(
+                            completed_tiles / total_tiles,
+                            message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
+                        )
+                        error_message = output[2]
 
-                    if error_message is not None:
-                        logger.error("Error %s", error_message)
+                        if error_message is not None:
+                            logger.error("Error %s", error_message)
+                            # Cancel remaining tasks
+                            for f in future_to_input:
+                                f.cancel()
+                            return None
+
+                        summary_tables.append(output[0])
+                        out_files.append(output[1])
+                        completed += 1
+                    except concurrent.futures.TimeoutError as e:
+                        logger.error(f"Tile processing timed out after 1 hour: {e}")
+                        # Cancel remaining tasks
+                        for f in future_to_input:
+                            f.cancel()
+                        return None
+                    except Exception as e:
+                        logger.error(f"Error processing tile: {e}")
                         # Cancel remaining tasks
                         for f in future_to_input:
                             f.cancel()
                         return None
 
-                    summary_tables.append(output[0])
-                    out_files.append(output[1])
-                except concurrent.futures.TimeoutError:
-                    logger.error("Tile processing timed out")
-                    return None
-                except Exception as e:
-                    logger.error("Error processing tile: %s", e)
-                    return None
+                logger.info(f"Successfully completed {completed}/{total_tiles} tiles")
+
+        except concurrent.futures.TimeoutError as e:
+            logger.error(f"Overall tile processing timed out after 2 hours: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"ProcessPoolExecutor failed: {e}")
+            logger.exception("ProcessPoolExecutor exception details:", exc_info=True)
+            return None
 
     summary_table = models.accumulate_summarytableld(summary_tables)
     return summary_table, out_files
@@ -1441,7 +1527,7 @@ def _process_region(
         # For very large datasets, reduce CPU count to avoid memory pressure
         # For small datasets, use fewer CPUs to reduce overhead
         if n_pixels > 50_000_000:  # 50M pixels
-            effective_cpus = min(n_cpus, 16)  # Cap at 16 for very large data
+            effective_cpus = min(n_cpus, 8)  # Cap at 8  for very large data
             logger.info(
                 f"Large dataset detected ({n_pixels} pixels), "
                 f"using {effective_cpus} CPUs for tiling"
