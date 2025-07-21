@@ -6,6 +6,7 @@ import multiprocessing
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Callable, Optional
 
 import numpy as np
 from osgeo import gdal
@@ -77,7 +78,7 @@ class CutParams:
     in_file: Path
     out_file: Path
     datatype: int
-    progress_callback: callable
+    progress_callback: Callable
 
 
 def _next_power_of_two(x):
@@ -118,56 +119,116 @@ def _get_tile_size(
     min_tile_size=1024 * 4,
     max_tile_size=2048 * 6,
 ):
+    """Optimized tile size calculation using smart algorithm"""
     n_pixels = img_width * img_height
-    max_pixel_per_cpu = math.ceil(n_pixels / n_cpus)
 
-    logger.info("max_pixel_per_cpu %s", max_pixel_per_cpu)
+    # Memory-aware scaling: estimate available memory per CPU
+    try:
+        import psutil
 
-    x_bs_out = x_bs_initial
-    y_bs_out = y_bs_initial
-
-    x_stop = y_stop = False
-
-    while not (x_stop and y_stop):
-        x_bs_out += x_bs_initial
-
-        if (
-            not _block_sizes_valid(
-                x_bs_out, y_bs_out, img_width, img_height, max_pixel_per_cpu
+        available_memory_gb = psutil.virtual_memory().available / (1024**3)
+        # Conservative estimate: 1.5GB per CPU for raster processing
+        memory_per_cpu_gb = 1.5
+        max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_cpu_gb))
+        effective_cpus = min(n_cpus, max_cpus_by_memory)
+        if effective_cpus < n_cpus:
+            logger.info(
+                f"Memory-limited: using {effective_cpus} CPUs instead of {n_cpus}"
             )
-            or x_bs_out > max_tile_size
-        ):
-            x_bs_out -= x_bs_initial
-            x_stop = True
+    except ImportError:
+        effective_cpus = n_cpus
 
-        y_bs_out += y_bs_initial
+    # Target pixels per tile (not per CPU to account for overhead)
+    target_pixels_per_tile = n_pixels / (effective_cpus * 0.8)  # 20% overhead buffer
 
-        if (
-            not _block_sizes_valid(
-                x_bs_out, y_bs_out, img_width, img_height, max_pixel_per_cpu
-            )
-            or y_bs_out > max_tile_size
-        ):
-            y_bs_out -= y_bs_initial
-            y_stop = True
+    # Smart tile size calculation using geometric approach
+    # Start with square tiles close to target size
+    target_tile_side = int(math.sqrt(target_pixels_per_tile))
 
-    if x_bs_out < min_tile_size:
-        x_bs_out = _get_closest_multiple(x_bs_initial, min_tile_size, img_width)
+    # Align to block sizes for optimal I/O
+    x_bs_out = _round_to_multiple(target_tile_side, x_bs_initial)
+    y_bs_out = _round_to_multiple(target_tile_side, y_bs_initial)
 
-    if y_bs_out < min_tile_size:
-        y_bs_out = _get_closest_multiple(y_bs_initial, min_tile_size, img_height)
+    # Ensure tiles fit constraints
+    x_bs_out = max(min_tile_size, min(x_bs_out, max_tile_size, img_width))
+    y_bs_out = max(min_tile_size, min(y_bs_out, max_tile_size, img_height))
+
+    # Optimize for better load balancing - adjust to minimize edge tile size difference
+    x_bs_out = _optimize_tile_size_for_balance(img_width, x_bs_out, x_bs_initial)
+    y_bs_out = _optimize_tile_size_for_balance(img_height, y_bs_out, y_bs_initial)
+
+    n_tiles = math.ceil(img_width / x_bs_out) * math.ceil(img_height / y_bs_out)
+
+    logger.info(
+        f"Optimized tile size: {x_bs_out}x{y_bs_out} "
+        f"({n_tiles} tiles, ~{target_pixels_per_tile:.0f} pixels/tile)"
+    )
 
     return x_bs_out, y_bs_out
 
 
+def _round_to_multiple(value, multiple):
+    """Round value to nearest multiple"""
+    return max(multiple, ((value + multiple // 2) // multiple) * multiple)
+
+
+def _optimize_tile_size_for_balance(img_dimension, tile_size, block_size):
+    """Optimize tile size to minimize load imbalance from edge tiles"""
+    if img_dimension <= tile_size:
+        return img_dimension
+
+    n_full_tiles = img_dimension // tile_size
+    remainder = img_dimension % tile_size
+
+    # If remainder is too small, redistribute to balance load
+    if remainder > 0 and remainder < tile_size * 0.3:  # Less than 30% of tile size
+        # Reduce tile size slightly to create more balanced tiles
+        new_tile_size = img_dimension // (n_full_tiles + 1)
+        # Align to block boundaries
+        new_tile_size = _round_to_multiple(new_tile_size, block_size)
+
+        # Only use if it doesn't create too small tiles
+        if new_tile_size >= block_size * 4:
+            return new_tile_size
+
+    return tile_size
+
+
 def _cut_tiles_multiprocess(n_cpus, params):
-    logger.debug("Using multiprocessing")
-    logger.debug("Params are %s ", params)
+    """Optimized multiprocessing with chunking and error handling"""
+    logger.debug("Using multiprocessing with %d CPUs", n_cpus)
+    logger.debug("Processing %d tiles", len(params))
+
+    # Use chunking for better load balancing
+    # Smaller chunks for better granularity, but not too small to avoid overhead
+    chunk_size = max(1, len(params) // (n_cpus * 4))
+    logger.debug("Using chunk size: %d", chunk_size)
+
     results = []
-    with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
-        for result in p.imap_unordered(cut_tile, params):
-            logger.debug("Finished processing %s", result)
-            results.append(result)
+    failed_tiles = []
+
+    try:
+        with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
+            # Use imap with chunking for better memory efficiency and load balancing
+            for i, result in enumerate(p.imap(cut_tile, params, chunksize=chunk_size)):
+                if result is None:
+                    logger.warning(f"Failed to process tile {i}")
+                    failed_tiles.append(i)
+                else:
+                    logger.debug("Finished processing %s", result)
+                results.append(result)
+
+                # Log progress every 10 tiles or 10% completion
+                if (i + 1) % max(10, len(params) // 10) == 0:
+                    logger.info(f"Processed {i + 1}/{len(params)} tiles")
+
+    except Exception as e:
+        logger.error(f"Multiprocessing failed: {e}")
+        raise
+
+    if failed_tiles:
+        logger.warning(f"Failed to process {len(failed_tiles)} tiles: {failed_tiles}")
+
     return results
 
 
@@ -196,8 +257,10 @@ def cut_tile(params):
         creationOptions=[
             "BIGTIFF=YES",
             "COMPRESS=LZW",
-            "NUM_THREADS=ALL_CPUs",
+            "NUM_THREADS=ALL_CPUS",
             "TILED=YES",
+            "BLOCKXSIZE=512",  # Optimize block size for better I/O
+            "BLOCKYSIZE=512",
         ],
         callback=params.progress_callback,
         callback_data=[str(params.in_file), str(params.out_file)],
@@ -214,8 +277,10 @@ def cut_tile(params):
 @dataclasses.dataclass()
 class CutTiles:
     in_file: Path
-    n_cpus: int = max(multiprocessing.cpu_count() - 1, 16)
-    out_file: Path = None
+    n_cpus: int = min(
+        multiprocessing.cpu_count() - 1, 8
+    )  # Cap at 8 CPUs max, not min 16
+    out_file: Optional[Path] = None
     datatype: int = gdal.GDT_Int16
 
     def work(self):
@@ -235,8 +300,24 @@ class CutTiles:
             y_block_size,
         )
 
+        # Adaptive CPU usage based on data size
+        n_pixels = width * height
+        effective_cpus = self.n_cpus
+
+        if n_pixels > 100_000_000:  # 100M pixels - very large
+            effective_cpus = min(self.n_cpus, 6)  # Limit to prevent memory issues
+            logger.info(
+                f"Very large dataset ({n_pixels} pixels): "
+                f"limiting to {effective_cpus} CPUs"
+            )
+        elif n_pixels < 5_000_000:  # 5M pixels - small dataset
+            effective_cpus = min(self.n_cpus, 2)  # Use fewer CPUs to reduce overhead
+            logger.info(
+                f"Small dataset ({n_pixels} pixels): using {effective_cpus} CPUs"
+            )
+
         tile_size = _get_tile_size(
-            width, height, x_block_size, y_block_size, self.n_cpus
+            width, height, x_block_size, y_block_size, effective_cpus
         )
         logger.info("Chose tile size %s", tile_size)
 
@@ -268,13 +349,19 @@ class CutTiles:
         logger.info("Reprojecting into %s tile(s)", len(src_wins))
         logger.debug("Tile src_wins are %s ", src_wins)
 
+        # Handle output file naming
+        if self.out_file is None:
+            base_out_file = self.in_file.with_suffix(".tif")
+        else:
+            base_out_file = self.out_file
+
         if len(src_wins) > 1:
             out_files = [
-                self.out_file.parent / (self.out_file.stem + f"_tiles_{n}.tif")
+                base_out_file.parent / (base_out_file.stem + f"_tiles_{n}.tif")
                 for n in range(len(src_wins))
             ]
         else:
-            out_files = [self.out_file]
+            out_files = [base_out_file]
 
         params = [
             CutParams(
@@ -283,8 +370,8 @@ class CutTiles:
             for src_win, out_file in zip(src_wins, out_files)
         ]
 
-        if self.n_cpus > 1:
-            _cut_tiles_multiprocess(self.n_cpus, params)
+        if effective_cpus > 1:
+            _cut_tiles_multiprocess(effective_cpus, params)
         else:
             _cut_tiles_sequential(params)
 
@@ -386,7 +473,8 @@ class Mask:
             y_res = None
 
         logger.debug(
-            f"Using output resolution {x_res}, {y_res}, and output bounds {output_bounds}"
+            f"Using output resolution {x_res}, {y_res}, "
+            f"and output bounds {output_bounds}"
         )
 
         res = gdal.Rasterize(
@@ -478,7 +566,7 @@ class Translate:
         res = gdal.Translate(
             self.out_file,
             self.in_file,
-            creationOptions=["COMPRESS=LZW", "NUM_THREADS=ALL_CPUs", "TILED=YES"],
+            creationOptions=["COMPRESS=LZW", "NUM_THREADS=ALL_CPUS", "TILED=YES"],
             callback=self.progress_callback,
         )
 

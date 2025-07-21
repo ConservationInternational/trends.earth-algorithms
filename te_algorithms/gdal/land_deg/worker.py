@@ -80,7 +80,35 @@ class DegradationSummary:
         y_blocks = (ysize + y_block_size - 1) // y_block_size  # Ceiling division
         n_blocks = x_blocks * y_blocks
 
-        # Pre-calculate all cell areas for the entire raster to avoid repeated computation
+        # Use adaptive block sizing for better parallelism
+        n_pixels = xsize * ysize
+        if n_pixels > 10_000_000:  # 10M pixels
+            # Use larger blocks for efficiency
+            x_block_size = min(x_block_size * 2, 1024)
+            y_block_size = min(y_block_size * 2, 1024)
+            # Recalculate block counts
+            x_blocks = (xsize + x_block_size - 1) // x_block_size
+            y_blocks = (ysize + y_block_size - 1) // y_block_size
+            n_blocks = x_blocks * y_blocks
+            logger.info(
+                f"Large dataset: Using {x_block_size}x{y_block_size} blocks "
+                f"({n_blocks} total)"
+            )
+        elif n_pixels < 1_000_000:  # 1M pixels
+            # Use smaller blocks for better granularity
+            x_block_size = max(x_block_size // 2, 256)
+            y_block_size = max(y_block_size // 2, 256)
+            # Recalculate block counts
+            x_blocks = (xsize + x_block_size - 1) // x_block_size
+            y_blocks = (ysize + y_block_size - 1) // y_block_size
+            n_blocks = x_blocks * y_blocks
+            logger.info(
+                f"Small dataset: Using {x_block_size}x{y_block_size} blocks "
+                f"({n_blocks} total)"
+            )
+
+        # Pre-calculate all cell areas for the entire raster to avoid repeated
+        # computation
         all_cell_areas = np.empty(ysize, dtype=np.float64)
         current_lat = lat
         for row in range(ysize):
