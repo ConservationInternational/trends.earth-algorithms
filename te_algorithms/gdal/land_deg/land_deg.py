@@ -1419,7 +1419,7 @@ def _process_region(
         # For very large datasets, reduce CPU count to avoid memory pressure
         # For small datasets, use fewer CPUs to reduce overhead
         if n_pixels > 50_000_000:  # 50M pixels
-            effective_cpus = min(n_cpus, 8)  # Cap at 8 for very large data
+            effective_cpus = min(n_cpus, 16)  # Cap at 16 for very large data
             logger.info(
                 f"Large dataset detected ({n_pixels} pixels), "
                 f"using {effective_cpus} CPUs for tiling"

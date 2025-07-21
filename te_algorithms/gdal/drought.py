@@ -603,6 +603,23 @@ def summarise_drought_vulnerability(
 ) -> Job:
     logger.debug("at top of summarise_drought_vulnerability")
 
+    # Adaptive CPU scaling based on data characteristics
+    import psutil
+
+    # Check available memory and adjust CPU count accordingly
+    available_memory_gb = psutil.virtual_memory().available / (1024**3)
+
+    # Estimate memory per CPU core needed (rough heuristic)
+    memory_per_core_gb = 2.0  # Conservative estimate for raster processing
+    max_cpus_by_memory = int(available_memory_gb / memory_per_core_gb)
+
+    # Use the minimum of requested CPUs and memory-constrained CPUs
+    effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
+    logger.info(
+        f"Using {effective_n_cpus} CPUs (requested: {n_cpus}, "
+        f"memory-limited: {max_cpus_by_memory})"
+    )
+
     params = drought_job.params
 
     drought_period = 4
@@ -642,7 +659,7 @@ def summarise_drought_vulnerability(
         output_job_path=job_output_path.parent / f"{job_output_path.stem}.json",
         in_dfs=spi_dfs + population_dfs + jrc_df + water_df,
         drought_period=drought_period,
-        n_cpus=n_cpus,
+        n_cpus=effective_n_cpus,
     )
 
     out_bands = []
@@ -834,8 +851,32 @@ def _summarize_over_aoi(
         )
 
     else:
+        # Intelligent tiling: adjust CPU count based on data size
+        # Open the VRT to get dimensions
+        temp_ds = gdal.Open(str(indic_vrt))
+        width, height = temp_ds.RasterXSize, temp_ds.RasterYSize
+        n_pixels = width * height
+        del temp_ds
+
+        # For very large datasets, reduce CPU count to avoid memory pressure
+        # For small datasets, use fewer CPUs to reduce overhead
+        if n_pixels > 50_000_000:  # 50M pixels
+            effective_cpus = min(n_cpus, 16)  # Cap at 16 for very large data
+            logger.info(
+                f"Large dataset detected ({n_pixels} pixels), "
+                f"using {effective_cpus} CPUs for tiling"
+            )
+        elif n_pixels < 1_000_000:  # 1M pixels
+            effective_cpus = min(n_cpus, 2)  # Use fewer CPUs for small data
+            logger.info(
+                f"Small dataset detected ({n_pixels} pixels), "
+                f"using {effective_cpus} CPUs for tiling"
+            )
+        else:
+            effective_cpus = n_cpus
+
         translate_worker = workers.CutTiles(
-            indic_vrt, n_cpus, indic_reproj, gdal.GDT_Int32
+            indic_vrt, effective_cpus, indic_reproj, gdal.GDT_Int32
         )
         tiles = translate_worker.work()
         logger.debug("Tiles are %s", tiles)
