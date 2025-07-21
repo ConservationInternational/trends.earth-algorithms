@@ -507,8 +507,9 @@ class DroughtSummary:
 
     def emit_progress(self, *args):
         """Reimplement to display progress messages"""
+        tile_name = Path(self.params.in_df.path).name
         util.log_progress(
-            *args, message=f"Processing drought summary for {self.params.in_df.path}"
+            *args, message=f"Processing drought summary for tile {tile_name}"
         )
 
     def get_line_params(self):
@@ -766,16 +767,24 @@ def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
 def _aoi_process_multiprocess(inputs, n_cpus):
     with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
         n = 0
+        total_tiles = len(inputs)
+        logger.info(
+            f"Processing {total_tiles} tiles in parallel with {n_cpus} processes"
+        )
 
         results = []
 
         for output in p.imap_unordered(_summarize_tile, inputs):
+            completed_tiles = n + 1
+            progress_percent = (completed_tiles / total_tiles) * 100
             util.log_progress(
-                n / len(inputs), message="Processing drought summaries overall progress"
+                completed_tiles / total_tiles,
+                message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
             )
             error_message = output[1]
 
             if error_message is not None:
+                logger.error("Error %s", error_message)
                 p.terminate()
 
                 break
@@ -788,20 +797,26 @@ def _aoi_process_multiprocess(inputs, n_cpus):
 
 def _aoi_process_sequential(inputs):
     results = []
+    total_tiles = len(inputs)
+    logger.info(f"Processing {total_tiles} tiles sequentially")
 
-    for item in inputs:
-        n = 0
+    for n, item in enumerate(inputs):
+        tile_num = n + 1
+        logger.info(f"Starting tile {tile_num}/{total_tiles}: {item.tile.name}")
         output = _summarize_tile(item)
+        completed_tiles = tile_num
+        progress_percent = (completed_tiles / total_tiles) * 100
         util.log_progress(
-            n / len(inputs), message="Processing drought summaries overall progress"
+            completed_tiles / total_tiles,
+            message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
         )
         error_message = output[1]
 
         if error_message is not None:
+            logger.error("Error %s", error_message)
             break
 
         results.append(output[0])
-        n += 1
 
     return results
 
@@ -882,6 +897,12 @@ def _summarize_over_aoi(
         logger.debug("Tiles are %s", tiles)
 
     if tiles:
+        total_tiles = len(tiles)
+        processing_strategy = "parallel" if n_cpus > 1 else "sequential"
+        logger.info(
+            f"Created {total_tiles} tiles for processing using {processing_strategy} strategy"
+        )
+
         out_files = [
             output_tif_path.parent / (output_tif_path.stem + f"_{n}.tif")
             for n in range(len(tiles))
@@ -928,7 +949,8 @@ class SummarizeTileInputs:
 
 
 def _summarize_tile(tile_input):
-    logger.info("Processing tile %s", tile_input.tile)
+    tile_name = tile_input.tile.name
+    logger.info("Processing tile: %s", tile_name)
     # Compute a mask layer that will be used in the tabulation code to
     # mask out areas outside of the AOI. Do this instead of using
     # gdal.Clip to save having to clip and rewrite all of the layers in
@@ -937,7 +959,7 @@ def _summarize_tile(tile_input):
         suffix="_drought_mask.tif", delete=False
     ).name
 
-    logger.info(f"Saving mask to {mask_tif}")
+    logger.debug(f"Saving mask to {mask_tif}")
     geojson = util.wkt_geom_to_geojson_file_string(tile_input.aoi)
 
     error_message = None
@@ -953,6 +975,7 @@ def _summarize_tile(tile_input):
         mask_result = mask_worker.work()
 
     if mask_result:
+        logger.info("Computing drought summary for tile: %s", tile_name)
         # Combine all in_dfs together and update path to refer to indicator
         # VRT
         in_df = DataFile(
@@ -965,7 +988,7 @@ def _summarize_tile(tile_input):
             drought_period=tile_input.drought_period,
         )
 
-        logger.info(
+        logger.debug(
             f"Calculating summary table and saving rasters to {tile_input.out_file}"
         )
 
@@ -980,17 +1003,16 @@ def _summarize_tile(tile_input):
         if not result:
             if result.is_killed():
                 error_message = (
-                    f"Cancelled calculation of summary table for {tile_input.tile}."
+                    f"Cancelled calculation of summary table for tile {tile_name}."
                 )
             else:
-                error_message = (
-                    f"Error calculating summary table for  {tile_input.tile}."
-                )
+                error_message = f"Error calculating summary table for tile {tile_name}."
                 result = None
         else:
+            logger.info("Completed processing tile: %s", tile_name)
             result.cast_to_cpython()
     else:
-        error_message = f"Error creating mask for tile {tile_input.tile}."
+        error_message = f"Error creating mask for tile {tile_name}."
         result = None
 
     return result, error_message

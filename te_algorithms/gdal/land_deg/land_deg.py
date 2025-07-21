@@ -1186,7 +1186,8 @@ class SummarizeTileInputs:
 
 def _summarize_tile(inputs: SummarizeTileInputs):
     error_message = None
-    logger.info("Processing tile %s", inputs.in_file)
+    tile_name = inputs.in_file.name
+    logger.info("Processing tile: %s", tile_name)
 
     # Compute a mask layer that will be used in the tabulation code to
     # mask out areas outside of the AOI. Do this instead of using
@@ -1195,7 +1196,7 @@ def _summarize_tile(inputs: SummarizeTileInputs):
     mask_tif = tempfile.NamedTemporaryFile(
         suffix="_ld_summary_mask.tif", delete=False
     ).name
-    logger.info("Saving mask to %s", mask_tif)
+    logger.debug("Saving mask to %s", mask_tif)
     geojson = util.wkt_geom_to_geojson_file_string(inputs.wkt_aoi)
 
     if inputs.mask_worker_function:
@@ -1209,15 +1210,16 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         mask_result = mask_worker.work()
 
     if not mask_result:
-        error_message = "Error creating mask."
+        error_message = f"Error creating mask for tile {tile_name}."
         result = None
 
     else:
+        logger.info("Computing degradation summary for tile: %s", tile_name)
         in_df = combine_data_files(inputs.in_file, inputs.in_dfs)
         n_out_bands = 2  # 1 band for SDG, and 1 band for total pop affected
 
         if _have_pop_by_sex(inputs.in_dfs):
-            logger.info("Have population broken down by sex - adding 2 output bands")
+            logger.debug("Have population broken down by sex - adding 2 output bands")
             n_out_bands += 2
 
         if inputs.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -1230,7 +1232,7 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         out_file = inputs.in_file.parent / (
             inputs.in_file.stem + "_sdg" + inputs.in_file.suffix
         )
-        logger.info("Calculating summary table and saving to %s", out_file)
+        logger.debug("Calculating summary table and saving to %s", out_file)
 
         params = models.DegradationSummaryParams(
             in_df=in_df,
@@ -1255,11 +1257,14 @@ def _summarize_tile(inputs: SummarizeTileInputs):
 
         if not result:
             if result.is_killed():
-                error_message = "Cancelled calculation of summary table."
+                error_message = (
+                    f"Cancelled calculation of summary table for tile {tile_name}."
+                )
             else:
-                error_message = "Error calculating summary table."
+                error_message = f"Error calculating summary table for tile {tile_name}."
                 result = None
         else:
+            logger.info("Completed processing tile: %s", tile_name)
             result = models.accumulate_summarytableld(result)
             result.cast_to_cpython()  # needed for multiprocessing
 
@@ -1280,14 +1285,20 @@ def _aoi_process_multiprocess(inputs, n_cpus):
         with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
             summary_tables = []
             out_files = []
+            total_tiles = len(inputs)
+            logger.info(
+                f"Processing {total_tiles} tiles in parallel with {n_cpus} processes"
+            )
 
             # Use chunksize for better load distribution
             for n, output in enumerate(
                 p.imap_unordered(_summarize_tile, inputs, chunksize=chunksize)
             ):
+                completed_tiles = n + 1
+                progress_percent = (completed_tiles / total_tiles) * 100
                 util.log_progress(
-                    n / len(inputs),
-                    message="Processing land degradation summaries overall progress",
+                    completed_tiles / total_tiles,
+                    message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
                 )
                 error_message = output[2]
 
@@ -1307,16 +1318,21 @@ def _aoi_process_multiprocess(inputs, n_cpus):
             }
             summary_tables = []
             out_files = []
+            total_tiles = len(inputs)
+            logger.info(
+                f"Processing {total_tiles} tiles with {n_cpus} concurrent processes"
+            )
 
             for n, future in enumerate(
                 concurrent.futures.as_completed(future_to_input)
             ):
                 try:
                     output = future.result(timeout=3600)  # 1 hour timeout per tile
+                    completed_tiles = n + 1
+                    progress_percent = (completed_tiles / total_tiles) * 100
                     util.log_progress(
-                        n / len(inputs),
-                        message="Processing land degradation summaries "
-                        "overall progress",
+                        completed_tiles / total_tiles,
+                        message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
                     )
                     error_message = output[2]
 
@@ -1343,12 +1359,18 @@ def _aoi_process_multiprocess(inputs, n_cpus):
 def _aoi_process_sequential(inputs):
     summary_tables = []
     out_files = []
+    total_tiles = len(inputs)
+    logger.info(f"Processing {total_tiles} tiles sequentially")
 
     for n, item in enumerate(inputs):
+        tile_num = n + 1
+        logger.info(f"Starting tile {tile_num}/{total_tiles}: {item.in_file.name}")
         output = _summarize_tile(item)
+        completed_tiles = tile_num
+        progress_percent = (completed_tiles / total_tiles) * 100
         util.log_progress(
-            n / len(inputs),
-            message="Processing land degradation summaries overall progress",
+            completed_tiles / total_tiles,
+            message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
         )
         error_message = output[2]
 
@@ -1440,6 +1462,12 @@ def _process_region(
 
     logger.info("Calculating summaries for each tile")
     if tiles:
+        total_tiles = len(tiles)
+        processing_strategy = "parallel" if n_cpus > 1 else "sequential"
+        logger.info(
+            f"Created {total_tiles} tiles for processing using {processing_strategy} strategy"
+        )
+
         inputs = [
             SummarizeTileInputs(
                 in_file=tile,
