@@ -331,16 +331,27 @@ def _process_block(
         }
 
         if pop_by_sex and period_number == (len(first_rows) - 1):
-            # Only write out population disaggregated by sex for the last
-            # period
-            pop_female_max_drought[pop_female_max_drought == NODATA_VALUE] = 0
-            pop_female_max_drought[max_drought < -1000] = -pop_female_max_drought[
-                max_drought < -1000
+            pop_female_max_drought[
+                (pop_female_max_drought == NODATA_VALUE) | (max_drought == NODATA_VALUE)
+            ] = NODATA_VALUE
+            exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
+            pop_female_max_drought[exposed_areas] = -pop_female_max_drought[
+                exposed_areas
             ]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
-
             if mask_water:
+                logger.debug("a_water_mask.shape %s", a_water_mask.shape)
                 pop_female_max_drought[a_water_mask == 1] = NODATA_VALUE
+
+            pop_male_max_drought[
+                (pop_male_max_drought == NODATA_VALUE) | (max_drought == NODATA_VALUE)
+            ] = NODATA_VALUE
+            exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
+            pop_male_max_drought[exposed_areas] = -pop_male_max_drought[exposed_areas]
+            # Set water to NODATA_VALUE as requested by UNCCD for Prais
+            if mask_water:
+                logger.debug("a_water_mask.shape %s", a_water_mask.shape)
+                pop_male_max_drought[a_water_mask == 1] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the third band for this period
@@ -349,15 +360,6 @@ def _process_block(
                 "xoff": xoff,
                 "yoff": yoff,
             }
-
-            pop_male_max_drought[pop_male_max_drought == NODATA_VALUE] = 0
-            pop_male_max_drought[max_drought < -1000] = -pop_male_max_drought[
-                max_drought < -1000
-            ]
-            # Set water to NODATA_VALUE as requested by UNCCD for Prais
-
-            if mask_water:
-                pop_male_max_drought[a_water_mask == 1] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the fourth band for this period
