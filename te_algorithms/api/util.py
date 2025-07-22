@@ -220,7 +220,7 @@ def get_job_json_from_s3(
         Bucket=s3_bucket,
         Prefix=s3_prefix,
     )
-    logger.info(f"Looking in bucket {s3_bucket} for key prefix: {s3_prefix}")
+    logger.debug(f"Looking in bucket {s3_bucket} for key prefix: {s3_prefix}")
 
     if objects.get("Contents", []) == []:
         logger.exception(f"No objects found for {s3_prefix}")
@@ -637,7 +637,7 @@ def _get_raster_tile(
         hash_matches = False
 
     if path_exists and hash_matches:
-        logger.info(f"No download necessary, result already present in {out_file}")
+        logger.debug(f"No download necessary, result already present in {out_file}")
         result = out_file
     else:
         if "vsis3" not in str(uri.uri) and "amazonaws.com" not in str(uri.uri):
@@ -748,7 +748,7 @@ def download_cloud_results(
             raster.tile_uris = tile_uris
 
             vrt_file = base_output_path.parent / f"{file_out_base}.vrt"
-            logger.info("Saving vrt file to %s", vrt_file)
+            logger.debug("Saving vrt file to %s", vrt_file)
             _get_raster_vrt(
                 tiles=[str(uri.uri) for uri in tile_uris],
                 out_file=vrt_file,
@@ -794,7 +794,7 @@ def download_cloud_results(
         == results.RasterType.TILED_RASTER
     ):
         vrt_file = base_output_path.parent / f"{base_output_path.name}.vrt"
-        logger.info("Saving vrt file to %s", vrt_file)
+        logger.debug("Saving vrt file to %s", vrt_file)
         main_raster_file_paths = [raster.uri.uri for raster in out_rasters]
         combine_all_bands_into_vrt(main_raster_file_paths, vrt_file)
         job.results.uri = results.URI(uri=vrt_file)

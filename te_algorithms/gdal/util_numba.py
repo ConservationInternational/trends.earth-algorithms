@@ -77,19 +77,20 @@ def calc_cell_area(ymin, ymax, x_width):
 @numba.jit(nopython=True)
 @cc.export("zonal_total", "DictType(i2, f8)(i2[:,:], f8[:,:], b1[:,:])")
 def zonal_total(z, d, mask):
-    z = z.copy().ravel()
-    d = d.copy().ravel()
+    z = z.copy().ravel().astype(np.int16)  # Ensure int16 type
+    d = d.copy().ravel().astype(np.float64)  # Ensure float64 type
     mask = mask.ravel()
     z[mask] = MASK_VALUE
     d[d == NODATA_VALUE] = 0  # ignore nodata values
-    # totals = numba.typed.Dict.empty(numba.types.int16, numba.types.float64)
+    # Use regular dict and let NumBA infer types from consistent usage
     totals = dict()
 
     for i in range(z.shape[0]):
-        if z[i] not in totals:
-            totals[z[i]] = d[i]
+        zone_key = z[i]  # Already int16 from astype above
+        if zone_key not in totals:
+            totals[zone_key] = d[i]  # Already float64 from astype above
         else:
-            totals[z[i]] += d[i]
+            totals[zone_key] += d[i]
 
     return totals
 
@@ -99,43 +100,47 @@ def zonal_total(z, d, mask):
     "zonal_total_weighted", "DictType(i2, f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])"
 )
 def zonal_total_weighted(z, d, weights, mask):
-    z = z.copy().ravel()
-    d = d.copy().ravel()
-    weights = weights.ravel()
+    z = z.copy().ravel().astype(np.int16)  # Ensure int16 type
+    d = d.copy().ravel().astype(np.float64)  # Ensure float64 type
+    weights = weights.ravel().astype(np.float64)  # Ensure float64 type
     mask = mask.ravel()
     z[mask] = MASK_VALUE
     d[d == NODATA_VALUE] = 0  # ignore nodata values
-    # totals = numba.typed.Dict.empty(numba.types.int16, numba.types.float64)
+    # Use regular dict and let NumBA infer types from consistent usage
     totals = dict()
 
     for i in range(z.shape[0]):
-        if z[i] not in totals:
-            totals[z[i]] = d[i] * weights[i]
+        zone_key = z[i]  # Already int16 from astype above
+        if zone_key not in totals:
+            totals[zone_key] = (
+                d[i] * weights[i]
+            )  # Both already float64 from astype above
         else:
-            totals[z[i]] += d[i] * weights[i]
+            totals[zone_key] += d[i] * weights[i]
 
     return totals
 
 
 @numba.jit(nopython=True)
 @cc.export(
-    "bizonal_total", "DictType(UniTuple(i8, 2), f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])"
+    "bizonal_total", "DictType(UniTuple(i2, 2), f8)(i2[:,:], i2[:,:], f8[:,:], b1[:,:])"
 )
 def bizonal_total(z1, z2, d, mask):
-    z1 = z1.copy().ravel()
-    z2 = z2.copy().ravel()
-    d = d.ravel()
+    z1 = z1.copy().ravel().astype(np.int16)  # Ensure int16 type
+    z2 = z2.copy().ravel().astype(np.int16)  # Ensure int16 type
+    d = d.ravel().astype(np.float64)  # Ensure float64 type
     mask = mask.ravel()
     z1[mask] = MASK_VALUE
     z2[mask] = MASK_VALUE
-    # tab = numba.typed.Dict.empty(numba.types.int64, numba.types.float64)
+    # Use regular dict and let NumBA infer types from consistent usage
     tab = dict()
 
     for i in range(z1.shape[0]):
-        key = (z1[i], z2[i])
+        # Ensure both elements are consistently int16
+        key = (z1[i], z2[i])  # Both are already int16 from astype above
 
         if key not in tab:
-            tab[key] = d[i]
+            tab[key] = d[i]  # Already float64 from astype above
         else:
             tab[key] += d[i]
 

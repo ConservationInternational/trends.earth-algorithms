@@ -1,4 +1,3 @@
-import concurrent.futures
 import dataclasses
 import datetime as dt
 import json
@@ -38,6 +37,10 @@ from .land_deg_numba import (
 )
 from .land_deg_progress import compute_status_summary
 from .land_deg_report import save_reporting_json, save_summary_table_excel
+
+# Timeout constants for land degradation processing
+TOTAL_PROCESSING_TIMEOUT = 24 * 3600  # 24 hours in seconds
+PER_TILE_TIMEOUT = 4 * 3600  # 4 hours in seconds
 
 if TYPE_CHECKING:
     from te_schemas.aoi import AOI
@@ -705,6 +708,7 @@ def summarise_land_degradation(
                 compute_bbs_from,
                 ldn_job.params["periods"],
                 baseline_nesting,
+                n_cpus=effective_n_cpus,
             )
         )
         period_vrts.append(reporting_df.path)
@@ -715,8 +719,8 @@ def summarise_land_degradation(
 
     logger.info("Finalizing layers")
     overall_vrt_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
-    logging.info("Combining all period VRTs into %s", overall_vrt_path)
-    logging.info("Period VRTs are: %s", period_vrts)
+    logging.debug("Combining all period VRTs into %s", overall_vrt_path)
+    logging.debug("Period VRTs are: %s", period_vrts)
     util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
     out_df = combine_data_files(overall_vrt_path, period_dfs)
     out_df.path = overall_vrt_path.name
@@ -1152,7 +1156,7 @@ def _have_pop_by_sex(pop_dfs):
     n_female_pop_bands = _get_n_pop_band_for_type(pop_dfs, "female")
     n_male_pop_bands = _get_n_pop_band_for_type(pop_dfs, "male")
 
-    logger.info(
+    logger.debug(
         "n_total_pop_bands %s, n_female_pop_bands %s, n_male_pop_bands %s",
         n_total_pop_bands,
         n_female_pop_bands,
@@ -1201,7 +1205,9 @@ class SummarizeTileInputs:
 def _summarize_tile(inputs: SummarizeTileInputs):
     error_message = None
     tile_name = inputs.in_file.name
-    logger.info("Processing tile: %s", tile_name)
+    logger.debug(
+        "Processing tile: %s", tile_name
+    )  # Changed to debug to reduce verbosity
 
     # Compute a mask layer that will be used in the tabulation code to
     # mask out areas outside of the AOI. Do this instead of using
@@ -1228,7 +1234,9 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         result = None
 
     else:
-        logger.info("Computing degradation summary for tile: %s", tile_name)
+        logger.debug(
+            "Computing degradation summary for tile: %s", tile_name
+        )  # Changed to debug to reduce verbosity
         in_df = combine_data_files(inputs.in_file, inputs.in_dfs)
         n_out_bands = 2  # 1 band for SDG, and 1 band for total pop affected
 
@@ -1278,7 +1286,9 @@ def _summarize_tile(inputs: SummarizeTileInputs):
                 error_message = f"Error calculating summary table for tile {tile_name}."
                 result = None
         else:
-            logger.info("Completed processing tile: %s", tile_name)
+            logger.debug(
+                "Completed processing tile: %s", tile_name
+            )  # Changed to debug to reduce verbosity
             result = models.accumulate_summarytableld(result)
             result.cast_to_cpython()  # needed for multiprocessing
 
@@ -1319,10 +1329,15 @@ def _aoi_process_multiprocess(inputs, n_cpus):
                 ):
                     completed_tiles = n + 1
                     progress_percent = (completed_tiles / total_tiles) * 100
-                    util.log_progress(
-                        completed_tiles / total_tiles,
-                        message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
-                    )
+
+                    # Only log progress at significant milestones to reduce log spam
+                    if (
+                        completed_tiles % max(5, total_tiles // 20) == 0
+                    ) or completed_tiles == total_tiles:
+                        util.log_progress(
+                            completed_tiles / total_tiles,
+                            message=f"Land degradation tiles: {completed_tiles}/{total_tiles} ({progress_percent:.1f}%)",
+                        )
                     error_message = output[2]
 
                     if error_message is not None:
@@ -1354,89 +1369,104 @@ def _aoi_process_multiprocess(inputs, n_cpus):
                 f"Processing {total_tiles} tiles in parallel with {n_cpus} processes"
             )
 
-            # Use chunksize for better load distribution
-            for n, output in enumerate(
-                p.imap_unordered(_summarize_tile, inputs, chunksize=chunksize)
-            ):
-                completed_tiles = n + 1
-                progress_percent = (completed_tiles / total_tiles) * 100
-                util.log_progress(
-                    completed_tiles / total_tiles,
-                    message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
-                )
-                error_message = output[2]
+            try:
+                # Use map_async with timeout for better control
+                async_result = p.map_async(_summarize_tile, inputs, chunksize=chunksize)
 
-                if error_message is not None:
-                    logger.error("Error %s", error_message)
-                    p.terminate()
-                    return None
+                # Wait for results with timeout
+                results = async_result.get(timeout=TOTAL_PROCESSING_TIMEOUT)
 
-                summary_tables.append(output[0])
-                out_files.append(output[1])
-    else:
-        # For smaller datasets, use concurrent.futures for better control
-        logger.info(f"Creating ProcessPoolExecutor with {n_cpus} workers")
-        try:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=n_cpus) as executor:
-                # Submit all tasks at once for better scheduling
-                future_to_input = {
-                    executor.submit(_summarize_tile, inp): inp for inp in inputs
-                }
-                summary_tables = []
-                out_files = []
-                total_tiles = len(inputs)
+                # Process results with progress tracking
+                for n, output in enumerate(results):
+                    completed_tiles = n + 1
+                    progress_percent = (completed_tiles / total_tiles) * 100
+                    util.log_progress(
+                        completed_tiles / total_tiles,
+                        message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
+                    )
+                    error_message = output[2]
+
+                    if error_message is not None:
+                        logger.error("Error %s", error_message)
+                        p.terminate()
+                        return None
+
+                    summary_tables.append(output[0])
+                    out_files.append(output[1])
+
                 logger.info(
-                    f"Processing {total_tiles} tiles with {n_cpus} concurrent processes"
+                    f"Successfully completed {len(results)}/{total_tiles} tiles with large dataset processing"
                 )
 
-                completed = 0
-                for n, future in enumerate(
-                    concurrent.futures.as_completed(
-                        future_to_input, timeout=7200
-                    )  # 2 hour total timeout
-                ):
-                    try:
-                        output = future.result(timeout=3600)  # 1 hour timeout per tile
-                        completed_tiles = n + 1
-                        progress_percent = (completed_tiles / total_tiles) * 100
-                        util.log_progress(
-                            completed_tiles / total_tiles,
-                            message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
-                        )
-                        error_message = output[2]
+            except multiprocessing.TimeoutError as e:
+                logger.error(
+                    f"Large dataset processing timed out after {TOTAL_PROCESSING_TIMEOUT // 3600} hours: {e}"
+                )
+                p.terminate()
+                p.join()
+                return None
+            except Exception as e:
+                logger.error(f"Error in large dataset processing: {e}")
+                p.terminate()
+                p.join()
+                return None
+    else:
+        # For smaller datasets, prefer multiprocessing.Pool for reliability
+        # ProcessPoolExecutor can have deadlock issues in complex processing workflows
+        logger.info(
+            f"Using multiprocessing.Pool with {n_cpus} workers for reliable processing"
+        )
+        chunksize = max(1, len(inputs) // (n_cpus * 2))
 
-                        if error_message is not None:
-                            logger.error("Error %s", error_message)
-                            # Cancel remaining tasks
-                            for f in future_to_input:
-                                f.cancel()
-                            return None
+        with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
+            summary_tables = []
+            out_files = []
+            total_tiles = len(inputs)
+            logger.info(
+                f"Processing {total_tiles} tiles with {n_cpus} processes using multiprocessing.Pool"
+            )
 
-                        summary_tables.append(output[0])
-                        out_files.append(output[1])
-                        completed += 1
-                    except concurrent.futures.TimeoutError as e:
-                        logger.error(f"Tile processing timed out after 1 hour: {e}")
-                        # Cancel remaining tasks
-                        for f in future_to_input:
-                            f.cancel()
+            try:
+                # Use map_async with timeout for better control
+                async_result = p.map_async(_summarize_tile, inputs, chunksize=chunksize)
+
+                # Wait for results with timeout
+                results = async_result.get(timeout=TOTAL_PROCESSING_TIMEOUT)
+
+                # Process results
+                for n, output in enumerate(results):
+                    completed_tiles = n + 1
+                    progress_percent = (completed_tiles / total_tiles) * 100
+                    util.log_progress(
+                        completed_tiles / total_tiles,
+                        message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
+                    )
+                    error_message = output[2]
+
+                    if error_message is not None:
+                        logger.error("Error %s", error_message)
+                        p.terminate()
                         return None
-                    except Exception as e:
-                        logger.error(f"Error processing tile: {e}")
-                        # Cancel remaining tasks
-                        for f in future_to_input:
-                            f.cancel()
-                        return None
 
-                logger.info(f"Successfully completed {completed}/{total_tiles} tiles")
+                    summary_tables.append(output[0])
+                    out_files.append(output[1])
 
-        except concurrent.futures.TimeoutError as e:
-            logger.error(f"Overall tile processing timed out after 2 hours: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"ProcessPoolExecutor failed: {e}")
-            logger.exception("ProcessPoolExecutor exception details:", exc_info=True)
-            return None
+                logger.info(
+                    f"Successfully completed {len(results)}/{total_tiles} tiles with multiprocessing.Pool"
+                )
+
+            except multiprocessing.TimeoutError as e:
+                logger.error(
+                    f"Tile processing timed out after {TOTAL_PROCESSING_TIMEOUT // 3600} hours: {e}"
+                )
+                p.terminate()
+                p.join()
+                return None
+            except Exception as e:
+                logger.error(f"Error in multiprocessing.Pool: {e}")
+                p.terminate()
+                p.join()
+                return None
 
     summary_table = models.accumulate_summarytableld(summary_tables)
     return summary_table, out_files

@@ -18,6 +18,16 @@ MASK_VALUE = -32767
 
 logger = logging.getLogger(__name__)
 
+# Set global GDAL optimizations for faster tile processing
+gdal.SetConfigOption("GDAL_CACHEMAX", "1024")  # Larger cache for better performance
+gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")  # Use all CPU threads
+gdal.SetConfigOption(
+    "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR"
+)  # Skip directory scanning
+gdal.SetConfigOption("VSI_CACHE", "TRUE")  # Enable VSI caching
+gdal.SetConfigOption("VSI_CACHE_SIZE", "50000000")  # 50MB VSI cache
+gdal.SetConfigOption("GDAL_MAX_DATASET_POOL_SIZE", "100")  # Increase dataset pool
+
 
 # Function to get a temporary filename that handles closing the file created by
 # NamedTemporaryFile - necessary when the file is for usage in another process
@@ -116,8 +126,8 @@ def _get_tile_size(
     x_bs_initial,
     y_bs_initial,
     n_cpus,
-    min_tile_size=1024 * 4,
-    max_tile_size=2048 * 6,
+    min_tile_size=1024 * 2,  # Reduced from 4KB to 2KB for faster processing
+    max_tile_size=2048 * 4,  # Reduced from 6KB to 4KB for faster processing
 ):
     """Optimized tile size calculation using smart algorithm"""
     n_pixels = img_width * img_height
@@ -127,8 +137,8 @@ def _get_tile_size(
         import psutil
 
         available_memory_gb = psutil.virtual_memory().available / (1024**3)
-        # Conservative estimate: 1.5GB per CPU for raster processing
-        memory_per_cpu_gb = 1.5
+        # More aggressive memory usage: 1GB per CPU for faster processing
+        memory_per_cpu_gb = 1.0
         max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_cpu_gb))
         effective_cpus = min(n_cpus, max_cpus_by_memory)
         if effective_cpus < n_cpus:
@@ -138,8 +148,11 @@ def _get_tile_size(
     except ImportError:
         effective_cpus = n_cpus
 
-    # Target pixels per tile (not per CPU to account for overhead)
-    target_pixels_per_tile = n_pixels / (effective_cpus * 0.8)  # 20% overhead buffer
+    # More aggressive tiling: smaller tiles for better parallelization
+    # Target more tiles per CPU for better load balancing
+    target_pixels_per_tile = n_pixels / (
+        effective_cpus * 1.5
+    )  # 50% more tiles for better parallelization
 
     # Smart tile size calculation using geometric approach
     # Start with square tiles close to target size
@@ -196,13 +209,16 @@ def _optimize_tile_size_for_balance(img_dimension, tile_size, block_size):
 
 def _cut_tiles_multiprocess(n_cpus, params):
     """Optimized multiprocessing with chunking and error handling"""
-    logger.debug("Using multiprocessing with %d CPUs", n_cpus)
-    logger.debug("Processing %d tiles", len(params))
+    logger.info(
+        "Using multiprocessing with %d CPUs to process %d tiles", n_cpus, len(params)
+    )
 
-    # Use chunking for better load balancing
-    # Smaller chunks for better granularity, but not too small to avoid overhead
-    chunk_size = max(1, len(params) // (n_cpus * 4))
-    logger.debug("Using chunk size: %d", chunk_size)
+    # Optimize chunking for faster tile processing
+    # Use smaller chunks to improve responsiveness and load balancing
+    chunk_size = max(
+        1, min(len(params) // (n_cpus * 6), 4)
+    )  # More chunks, better balance
+    logger.info("Using chunk size: %d for faster processing", chunk_size)
 
     results = []
     failed_tiles = []
@@ -218,9 +234,11 @@ def _cut_tiles_multiprocess(n_cpus, params):
                     logger.debug("Finished processing %s", result)
                 results.append(result)
 
-                # Log progress every 10 tiles or 10% completion
-                if (i + 1) % max(10, len(params) // 10) == 0:
-                    logger.info(f"Processed {i + 1}/{len(params)} tiles")
+                # More frequent progress updates for better visibility
+                if (i + 1) % max(5, len(params) // 20) == 0:
+                    logger.info(
+                        f"Tile splitting progress: {i + 1}/{len(params)} tiles ({100 * (i + 1) / len(params):.1f}%)"
+                    )
 
     except Exception as e:
         logger.error(f"Multiprocessing failed: {e}")
@@ -229,6 +247,9 @@ def _cut_tiles_multiprocess(n_cpus, params):
     if failed_tiles:
         logger.warning(f"Failed to process {len(failed_tiles)} tiles: {failed_tiles}")
 
+    logger.info(
+        f"Completed tile splitting: {len(results)} tiles processed successfully"
+    )
     return results
 
 
@@ -246,8 +267,18 @@ def _cut_tiles_sequential(params):
 
 
 def cut_tile(params):
-    logger.info("Starting tile %s", str(params.out_file))
-    gdal.SetConfigOption("GDAL_CACHEMAX", "500")
+    logger.debug(
+        "Starting tile %s", str(params.out_file)
+    )  # Reduced to debug level for less verbose output
+    # Optimize GDAL memory usage for faster processing
+    gdal.SetConfigOption(
+        "GDAL_CACHEMAX", "1024"
+    )  # Increased cache for better performance
+    gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")  # Use all available threads
+    gdal.SetConfigOption(
+        "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR"
+    )  # Skip directory scanning
+
     res = gdal.Translate(
         str(params.out_file),
         str(params.in_file),
@@ -255,18 +286,19 @@ def cut_tile(params):
         outputType=params.datatype,
         resampleAlg=gdal.GRA_NearestNeighbour,
         creationOptions=[
-            "BIGTIFF=YES",
+            "BIGTIFF=IF_SAFER",  # Only use BIGTIFF when necessary
             "COMPRESS=LZW",
             "NUM_THREADS=ALL_CPUS",
             "TILED=YES",
-            "BLOCKXSIZE=512",  # Optimize block size for better I/O
-            "BLOCKYSIZE=512",
+            "BLOCKXSIZE=256",  # Smaller block size for faster I/O with smaller tiles
+            "BLOCKYSIZE=256",
+            "PREDICTOR=2",  # Better compression for integer data
         ],
         callback=params.progress_callback,
         callback_data=[str(params.in_file), str(params.out_file)],
     )
 
-    logger.info("Finished tile %s", str(params.out_file))
+    logger.debug("Finished tile %s", str(params.out_file))  # Reduced to debug level
 
     if res:
         return params.out_file
@@ -300,20 +332,29 @@ class CutTiles:
             y_block_size,
         )
 
-        # Adaptive CPU usage based on data size
+        # Adaptive CPU usage based on data size - more aggressive for better performance
         n_pixels = width * height
         effective_cpus = self.n_cpus
 
         if n_pixels > 100_000_000:  # 100M pixels - very large
-            effective_cpus = min(self.n_cpus, 6)  # Limit to prevent memory issues
+            effective_cpus = min(
+                self.n_cpus, 8
+            )  # Increased from 6 to 8 for better performance
             logger.info(
                 f"Very large dataset ({n_pixels} pixels): "
-                f"limiting to {effective_cpus} CPUs"
+                f"using {effective_cpus} CPUs for faster processing"
             )
         elif n_pixels < 5_000_000:  # 5M pixels - small dataset
-            effective_cpus = min(self.n_cpus, 2)  # Use fewer CPUs to reduce overhead
+            effective_cpus = min(
+                self.n_cpus, 4
+            )  # Increased from 2 to 4 for small datasets
             logger.info(
                 f"Small dataset ({n_pixels} pixels): using {effective_cpus} CPUs"
+            )
+        else:  # Medium dataset
+            effective_cpus = self.n_cpus  # Use all available CPUs for medium datasets
+            logger.info(
+                f"Medium dataset ({n_pixels} pixels): using all {effective_cpus} CPUs"
             )
 
         tile_size = _get_tile_size(
@@ -378,11 +419,13 @@ class CutTiles:
         return out_files
 
     def progress_callback(self, fraction, message, callback_data):
-        logger.info(
-            "%s - %.2f%%",
-            f"Splitting {callback_data[0]} into tile {callback_data[1]}",
-            100 * fraction,
-        )
+        # Only log significant progress milestones to reduce overhead
+        if fraction in [0.25, 0.5, 0.75, 1.0]:
+            logger.info(
+                "%s - %.0f%%",
+                f"Splitting {callback_data[0]} into tile {callback_data[1]}",
+                100 * fraction,
+            )
 
 
 @dataclasses.dataclass()

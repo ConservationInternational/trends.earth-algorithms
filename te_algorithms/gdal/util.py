@@ -268,4 +268,5 @@ def accumulate_dicts(z):
 
 
 def log_progress(fraction, message=None, data=None):
-    logger.info("%s - %.2f%%", message, 100 * fraction)
+    # Add more informative progress logging with reduced precision for cleaner output
+    logger.info("%s - %.1f%%", message, 100 * fraction)

@@ -29,8 +29,12 @@ class DegradationSummary:
         return False
 
     def emit_progress(self, *args, **kwargs):
-        """Reimplement to display progress messages"""
-        util.log_progress(*args, message="Processing land degradation summary")
+        """Reimplement to display progress messages - only log significant milestones"""
+        if len(args) > 0:
+            fraction = args[0]
+            # Only log at significant progress milestones to reduce overhead
+            if fraction in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+                util.log_progress(*args, message="Processing land degradation summary")
 
     def work(self):
         gdal.UseExceptions()
