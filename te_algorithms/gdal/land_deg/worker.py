@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 from typing import Union
 
 import numpy as np
@@ -32,9 +33,13 @@ class DegradationSummary:
         """Reimplement to display progress messages - only log significant milestones"""
         if len(args) > 0:
             fraction = args[0]
-            # Only log at significant progress milestones to reduce overhead
-            if fraction in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
-                util.log_progress(*args, message="Processing land degradation summary")
+            # Only log at major milestones to reduce log spam since tile-level progress is now tracked
+            if fraction in [0.25, 0.5, 0.75, 1.0]:
+                tile_name = Path(self.params.in_file).name
+                util.log_progress(
+                    *args,
+                    message=f"Processing blocks in tile: {tile_name} ({fraction * 100:.0f}%)",
+                )
 
     def work(self):
         gdal.UseExceptions()
