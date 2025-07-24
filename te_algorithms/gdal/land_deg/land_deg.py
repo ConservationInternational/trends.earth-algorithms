@@ -721,87 +721,37 @@ def summarise_land_degradation(
 
     logger.info("Finalizing layers")
 
-    # Add detailed logging and timeout for finalization steps
-    FINALIZATION_TIMEOUT = 30 * 60  # 30 minutes timeout
     finalization_start_time = time.time()
 
-    class FinalizationTimeoutError(Exception):
-        pass
-
-    # Cross-platform timeout using threading
-    timeout_occurred = threading.Event()
-
-    def timeout_handler():
-        time.sleep(FINALIZATION_TIMEOUT)
-        if not timeout_occurred.is_set():
-            timeout_occurred.set()
-            logger.error(
-                "Finalization phase timed out after %s seconds", FINALIZATION_TIMEOUT
-            )
-
-    timeout_thread = threading.Thread(target=timeout_handler, daemon=True)
-    timeout_thread.start()
-
     try:
-        logger.info("Step 1: Starting VRT combination at %s", time.strftime("%H:%M:%S"))
         overall_vrt_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
         logging.debug("Combining all period VRTs into %s", overall_vrt_path)
         logging.debug("Period VRTs are: %s", period_vrts)
 
         # Log VRT file sizes to check for issues
         for i, vrt_path in enumerate(period_vrts):
-            if timeout_occurred.is_set():
-                raise FinalizationTimeoutError("Finalization phase timed out")
             if os.path.exists(vrt_path):
                 size_mb = os.path.getsize(vrt_path) / (1024 * 1024)
                 logger.info("VRT file %d: %s (size: %.1f MB)", i + 1, vrt_path, size_mb)
             else:
                 logger.warning("VRT file %d does not exist: %s", i + 1, vrt_path)
 
-        if timeout_occurred.is_set():
-            raise FinalizationTimeoutError("Finalization phase timed out")
-
         vrt_start = time.time()
         util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
         vrt_time = time.time() - vrt_start
-        logger.info("Step 1: VRT combination completed in %.1f seconds", vrt_time)
 
-        if timeout_occurred.is_set():
-            raise FinalizationTimeoutError("Finalization phase timed out")
-
-        logger.info(
-            "Step 2: Starting data file combination at %s", time.strftime("%H:%M:%S")
-        )
         datafile_start = time.time()
         out_df = combine_data_files(overall_vrt_path, period_dfs)
         out_df.path = overall_vrt_path.name
         datafile_time = time.time() - datafile_start
-        logger.info(
-            "Step 2: Data file combination completed in %.1f seconds", datafile_time
-        )
 
-        if timeout_occurred.is_set():
-            raise FinalizationTimeoutError("Finalization phase timed out")
-
-        logger.info(
-            "Step 3: Starting band key JSON creation at %s", time.strftime("%H:%M:%S")
-        )
         json_start = time.time()
         # Also save bands to a key file for ease of use in PRAIS
         key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
         with open(key_json, "w") as f:
             json.dump(DataFile.Schema().dump(out_df), f, indent=4)
         json_time = time.time() - json_start
-        logger.info(
-            "Step 3: Band key JSON creation completed in %.1f seconds", json_time
-        )
 
-        if timeout_occurred.is_set():
-            raise FinalizationTimeoutError("Finalization phase timed out")
-
-        logger.info(
-            "Step 4: Starting summary JSON report at %s", time.strftime("%H:%M:%S")
-        )
         report_start = time.time()
         summary_json_output_path = (
             job_output_path.parent / f"{job_output_path.stem}_summary.json"
@@ -817,16 +767,7 @@ def summarise_land_degradation(
             summary_table_stable_kwargs,
         )
         report_time = time.time() - report_start
-        logger.info(
-            "Step 4: Summary JSON report completed in %.1f seconds", report_time
-        )
 
-        if timeout_occurred.is_set():
-            raise FinalizationTimeoutError("Finalization phase timed out")
-
-        logger.info(
-            "Step 5: Creating final results object at %s", time.strftime("%H:%M:%S")
-        )
         results_start = time.time()
         results = RasterResults(
             name="land_condition_summary",
@@ -842,12 +783,6 @@ def summarise_land_degradation(
             data={"report": report_json},
         )
         results_time = time.time() - results_start
-        logger.info(
-            "Step 5: Results object creation completed in %.1f seconds", results_time
-        )
-
-        # Signal completion to stop timeout thread
-        timeout_occurred.set()
 
         total_finalization_time = time.time() - finalization_start_time
         logger.info(
@@ -855,13 +790,7 @@ def summarise_land_degradation(
             total_finalization_time,
         )
 
-    except FinalizationTimeoutError:
-        logger.error(
-            "Finalization phase timed out after %s seconds", FINALIZATION_TIMEOUT
-        )
-        raise
     except Exception as e:
-        timeout_occurred.set()  # Stop timeout thread
         logger.error("Error during finalization: %s", e)
         logger.exception("Full exception details:")
         raise
