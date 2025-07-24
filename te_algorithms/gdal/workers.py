@@ -228,8 +228,14 @@ def _cut_tiles_multiprocess(n_cpus, params):
             # Use imap with chunking for better memory efficiency and load balancing
             for i, result in enumerate(p.imap(cut_tile, params, chunksize=chunk_size)):
                 if result is None:
-                    logger.warning(f"Failed to process tile {i}")
+                    logger.error(f"Failed to process tile {i}: {params[i].out_file}")
                     failed_tiles.append(i)
+                    # Terminate pool immediately on first failure
+                    p.terminate()
+                    p.join()
+                    raise RuntimeError(
+                        f"Tile processing failed for tile {i}. This indicates a critical error in tile boundary calculation or GDAL processing. All tiles must be processed successfully to ensure complete analysis."
+                    )
                 else:
                     logger.debug("Finished processing %s", result)
                 results.append(result)
@@ -244,9 +250,6 @@ def _cut_tiles_multiprocess(n_cpus, params):
         logger.error(f"Multiprocessing failed: {e}")
         raise
 
-    if failed_tiles:
-        logger.warning(f"Failed to process {len(failed_tiles)} tiles: {failed_tiles}")
-
     logger.info(
         f"Completed tile splitting: {len(results)} tiles processed successfully"
     )
@@ -260,7 +263,13 @@ def _cut_tiles_sequential(params):
     logger.debug("Params are %s ", params)
     results = []
     for param in params:
-        results.append(cut_tile(param))
+        result = cut_tile(param)
+        if result is None:
+            logger.error(f"Failed to process tile {n - 1}: {param.out_file}")
+            raise RuntimeError(
+                f"Tile processing failed for tile {n - 1}. This indicates a critical error in tile boundary calculation or GDAL processing. All tiles must be processed successfully to ensure complete analysis."
+            )
+        results.append(result)
         n += 1
 
     return results
@@ -303,6 +312,13 @@ def cut_tile(params):
     if res:
         return params.out_file
     else:
+        # Log detailed error information for debugging
+        logger.error(
+            f"gdal.Translate failed for tile: {params.out_file}\n"
+            f"  Source file: {params.in_file}\n"
+            f"  Source window (x_off, y_off, x_size, y_size): {params.src_win}\n"
+            f"  This usually indicates invalid tile boundaries that extend beyond the raster extent."
+        )
         return None
 
 
@@ -374,16 +390,35 @@ class CutTiles:
         for x_start in x_starts:
             for y_start in y_starts:
                 if x_start == x_starts[-1]:
-                    x_width = in_ds.RasterXSize
+                    x_width = (
+                        width - x_start
+                    )  # Calculate remaining pixels from current position
                 else:
                     x_width = tile_size[0]
 
                 if y_start == y_starts[-1]:
-                    y_height = in_ds.RasterYSize
+                    y_height = (
+                        height - y_start
+                    )  # Calculate remaining pixels from current position
                 else:
                     y_height = tile_size[1]
 
                 src_wins.append((x_start, y_start, x_width, y_height))
+
+        # Validate all tile boundaries before processing
+        for i, (x_start, y_start, x_width, y_height) in enumerate(src_wins):
+            if x_start + x_width > width or y_start + y_height > height:
+                raise ValueError(
+                    f"Invalid tile {i}: boundaries extend beyond raster extent.\n"
+                    f"  Raster size: {width}x{height}\n"
+                    f"  Tile window: x={x_start}, y={y_start}, width={x_width}, height={y_height}\n"
+                    f"  Tile end: x={x_start + x_width}, y={y_start + y_height}"
+                )
+            if x_width <= 0 or y_height <= 0:
+                raise ValueError(
+                    f"Invalid tile {i}: negative or zero dimensions.\n"
+                    f"  Tile window: x={x_start}, y={y_start}, width={x_width}, height={y_height}"
+                )
 
         del in_ds
 

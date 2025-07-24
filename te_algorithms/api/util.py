@@ -154,7 +154,7 @@ def md5_checksum(filename):
     file_size_mb = file_size / (1024 * 1024)
     bytes_read = 0
 
-    logger.info(
+    logger.debug(
         f"Computing MD5 checksum for {Path(filename).name} ({file_size_mb:.1f} MB)"
     )
     start_time = time.time()
@@ -265,7 +265,7 @@ def etag_checksum_multipart(filename, chunk_size=8 * 1024 * 1024):
 
 
 def etag_compare(filename, et):
-    logger.info(
+    logger.debug(
         f"Comparing file checksum for {Path(filename).name} to verify if S3 upload is needed"
     )
     try:
