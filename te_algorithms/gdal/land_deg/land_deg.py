@@ -468,7 +468,7 @@ def summarise_land_degradation(
     ldn_job: "Job",
     aoi: "AOI",
     job_output_path: Path,
-    n_cpus: int = multiprocessing.cpu_count() - 1,
+    n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
 ) -> "Job":
     """Calculate final SDG 15.3.1 indicator and save to disk"""
     logger.debug("at top of compute_ldn")

@@ -611,7 +611,7 @@ def summarise_drought_vulnerability(
     drought_job: Job,
     aoi: AOI,
     job_output_path: Path,
-    n_cpus: int = multiprocessing.cpu_count() - 1,
+    n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
 ) -> Job:
     logger.debug("at top of summarise_drought_vulnerability")
 
