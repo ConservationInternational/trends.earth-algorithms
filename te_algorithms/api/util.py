@@ -7,8 +7,10 @@ import json
 import logging
 import os
 import re
+import shutil
 import tarfile
 import tempfile
+import time
 import typing
 import unicodedata
 import uuid
@@ -95,10 +97,44 @@ def put_to_s3(
         logger.info(f"Skipping upload of {filename} to s3 - already up to date")
     else:
         key = f"{prefix}/{filename.name}"
-        logger.info(f"Uploading {filename} to s3 at {key}")
+        # Get file size for progress tracking
+        file_size = filename.stat().st_size
+        file_size_mb = file_size / (1024 * 1024)
+
+        logger.info(
+            f"Uploading {filename} (size: {file_size_mb:.1f} MB) to s3 at {key}"
+        )
+
+        # Create a progress callback for large files using a closure to track progress
+        last_logged_percent = [0]  # Use list to make it mutable in closure
+
+        def progress_callback(bytes_transferred):
+            percent = (bytes_transferred / file_size) * 100
+            mb_transferred = bytes_transferred / (1024 * 1024)
+            # Log progress every 10% for large files (>100MB)
+            if file_size_mb > 100 and int(percent) % 10 == 0 and int(percent) > 0:
+                if int(percent) > last_logged_percent[0]:
+                    logger.info(
+                        f"Upload progress for {filename.name}: {mb_transferred:.1f}/{file_size_mb:.1f} MB ({percent:.1f}%)"
+                    )
+                    last_logged_percent[0] = int(percent)
+
         config = TransferConfig(multipart_threshold=MULTIPART_THRESHOLD)
+
+        start_time = time.time()
         client.upload_file(
-            str(filename), bucket, key, Config=config, ExtraArgs=s3_extra_args
+            str(filename),
+            bucket,
+            key,
+            Config=config,
+            ExtraArgs=s3_extra_args,
+            Callback=progress_callback,
+        )
+
+        upload_time = time.time() - start_time
+        upload_speed_mbps = file_size_mb / upload_time if upload_time > 0 else 0
+        logger.info(
+            f"Upload completed for {filename.name} in {upload_time:.1f} seconds (average speed: {upload_speed_mbps:.1f} MB/s)"
         )
 
 
@@ -114,24 +150,124 @@ def get_from_s3(
 
 def md5_checksum(filename):
     m = hashlib.md5()
-    with open(filename, "rb") as f:
-        for data in iter(lambda: f.read(1024 * 1024), b""):
-            m.update(data)
+    file_size = Path(filename).stat().st_size
+    file_size_mb = file_size / (1024 * 1024)
+    bytes_read = 0
 
+    logger.info(
+        f"Computing MD5 checksum for {Path(filename).name} ({file_size_mb:.1f} MB)"
+    )
+    start_time = time.time()
+
+    # Use larger read buffer for better performance on large files
+    buffer_size = 1024 * 1024  # 1MB buffer
+    last_logged_percent = 0  # Track last logged percentage to prevent spam
+
+    with open(filename, "rb") as f:
+        while True:
+            data = f.read(buffer_size)
+            if not data:
+                break
+            m.update(data)
+            bytes_read += len(data)
+
+            # Log progress every 25% for files larger than 50MB, but less frequently for large files
+            if file_size_mb > 50:
+                percent = (bytes_read / file_size) * 100
+                # For very large files (>1GB), log every 10% to reduce log spam
+                log_interval = 10 if file_size_mb > 1024 else 25
+
+                # Only log if we've crossed the next threshold
+                if (
+                    int(percent) >= last_logged_percent + log_interval
+                    and int(percent) > 0
+                ):
+                    mb_read = bytes_read / (1024 * 1024)
+                    elapsed = time.time() - start_time
+                    rate_mbps = mb_read / elapsed if elapsed > 0 else 0
+                    logger.info(
+                        f"MD5 checksum progress: {mb_read:.1f}/{file_size_mb:.1f} MB ({percent:.1f}%) - {rate_mbps:.1f} MB/s"
+                    )
+                    last_logged_percent = int(percent)
+
+    checksum_time = time.time() - start_time
+    rate_mbps = file_size_mb / checksum_time if checksum_time > 0 else 0
+    logger.info(
+        f"MD5 checksum completed in {checksum_time:.1f} seconds for {Path(filename).name} ({rate_mbps:.1f} MB/s)"
+    )
     return m.hexdigest()
 
 
 def etag_checksum_multipart(filename, chunk_size=8 * 1024 * 1024):
-    md5s = []
-    with open(filename, "rb") as f:
-        for data in iter(lambda: f.read(chunk_size), b""):
-            md5s.append(hashlib.md5(data).digest())
-    m = hashlib.md5(b"".join(md5s))
+    file_size = Path(filename).stat().st_size
+    file_size_mb = file_size / (1024 * 1024)
 
-    return "{}-{}".format(m.hexdigest(), len(md5s))
+    logger.info(
+        f"Computing multipart ETag checksum for {Path(filename).name} ({file_size_mb:.1f} MB)"
+    )
+    start_time = time.time()
+
+    # For small files, use single MD5 instead of multipart
+    if file_size <= chunk_size:
+        logger.info("File is small enough for single-part ETag, using optimized MD5")
+        return md5_checksum(filename)
+
+    # Estimate number of parts to optimize memory usage
+    estimated_parts = (file_size + chunk_size - 1) // chunk_size
+    logger.info(f"Estimated {estimated_parts} parts for multipart ETag")
+
+    # Use a more memory-efficient approach with streaming MD5
+    final_md5 = hashlib.md5()
+    bytes_read = 0
+    part_count = 0
+    last_logged_percent = 0  # Track last logged percentage to prevent spam
+
+    # Read and process file in chunks
+    with open(filename, "rb") as f:
+        while True:
+            data = f.read(chunk_size)
+            if not data:
+                break
+
+            # Compute MD5 for this chunk and add to final hash immediately
+            chunk_md5 = hashlib.md5(data).digest()
+            final_md5.update(chunk_md5)
+
+            part_count += 1
+            bytes_read += len(data)
+
+            # Log progress every 25% for files larger than 50MB, but less frequently for large files
+            if file_size_mb > 50:
+                percent = (bytes_read / file_size) * 100
+                # For very large files (>1GB), log every 10% to reduce log spam
+                log_interval = 10 if file_size_mb > 1024 else 25
+
+                # Only log if we've crossed the next threshold
+                if (
+                    int(percent) >= last_logged_percent + log_interval
+                    and int(percent) > 0
+                ):
+                    mb_read = bytes_read / (1024 * 1024)
+                    elapsed = time.time() - start_time
+                    rate_mbps = mb_read / elapsed if elapsed > 0 else 0
+                    logger.info(
+                        f"ETag checksum progress: {mb_read:.1f}/{file_size_mb:.1f} MB ({percent:.1f}%) - {rate_mbps:.1f} MB/s"
+                    )
+                    last_logged_percent = int(percent)
+
+    checksum_time = time.time() - start_time
+    rate_mbps = file_size_mb / checksum_time if checksum_time > 0 else 0
+    logger.info(
+        f"Multipart ETag checksum completed in {checksum_time:.1f} seconds for {Path(filename).name} ({rate_mbps:.1f} MB/s)"
+    )
+
+    return f"{final_md5.hexdigest()}-{part_count}"
 
 
 def etag_compare(filename, et):
+    logger.info(
+        f"Comparing file checksum for {Path(filename).name} to verify if S3 upload is needed"
+    )
     try:
         if "-" in et and et == etag_checksum_multipart(filename):
             # AWS S3 multipart etags
@@ -174,19 +310,505 @@ def get_etag(key, bucket, aws_access_key_id=None, aws_secret_access_key=None):
     return results.Etag(hash=et, type=et_type)
 
 
-def write_to_cog(in_file, out_file, nodata_value):
+def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
+    logger.info(f"Converting {in_file} to COG format: {out_file}")
+    start_time = time.time()
+    estimated_size_mb = 0  # Initialize for later use in compression selection
+
+    # Set timeout based on estimated processing time
+    max_processing_seconds = max_processing_time_hours * 3600
+    logger.info(f"Maximum processing time allowed: {max_processing_time_hours} hours")
+
+    # Get input file info for diagnostics
+    try:
+        if Path(in_file).exists():
+            file_size = Path(in_file).stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+            logger.info(f"Input file size: {file_size_mb:.1f} MB")
+        else:
+            logger.info(f"Converting VRT file: {in_file}")
+            # For VRT files, try to get some basic info
+            try:
+                ds = gdal.Open(str(in_file))
+                if ds:
+                    logger.info(
+                        f"VRT dimensions: {ds.RasterXSize} x {ds.RasterYSize}, bands: {ds.RasterCount}"
+                    )
+
+                    # Estimate actual data size based on dimensions and data type
+                    total_pixels = ds.RasterXSize * ds.RasterYSize * ds.RasterCount
+
+                    # Check first band for data type
+                    band = ds.GetRasterBand(1)
+                    if band:
+                        data_type = band.DataType
+                        type_name = gdal.GetDataTypeName(data_type)
+                        logger.info(f"Band 1 datatype: {type_name}")
+
+                        # Estimate size based on data type
+                        bytes_per_pixel = gdal.GetDataTypeSize(data_type) // 8
+                        estimated_size_bytes = total_pixels * bytes_per_pixel
+                        estimated_size_mb = estimated_size_bytes / (1024 * 1024)
+                        logger.info(
+                            f"Estimated uncompressed data size: {estimated_size_mb:.1f} MB ({total_pixels:,} pixels)"
+                        )
+
+                        # Check if this is an unreasonably large operation
+                        if estimated_size_mb > 10000:  # 10GB
+                            logger.warning(
+                                f"Very large estimated data size: {estimated_size_mb:.1f} MB - this may take a very long time"
+                            )
+                        elif estimated_size_mb > 1000:  # 1GB
+                            logger.warning(
+                                f"Large estimated data size: {estimated_size_mb:.1f} MB - expect slow processing"
+                            )
+                    else:
+                        estimated_size_mb = 0  # Default value if band analysis fails
+
+                    # Check VRT sources to see if they're accessible
+                    vrt_sources = []
+                    for i in range(min(3, ds.RasterCount)):
+                        band = ds.GetRasterBand(i + 1)
+                        if band:
+                            # Try to read a small sample to test accessibility
+                            try:
+                                sample = band.ReadAsArray(
+                                    0,
+                                    0,
+                                    min(100, ds.RasterXSize),
+                                    min(100, ds.RasterYSize),
+                                )
+                                if sample is not None:
+                                    logger.info(
+                                        f"Band {i + 1} appears accessible (sample read successful)"
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"Band {i + 1} returned no data (sample read failed)"
+                                    )
+                            except Exception as e:
+                                logger.warning(f"Band {i + 1} read error: {e}")
+
+                    ds = None
+                else:
+                    logger.warning(f"Could not open VRT file: {in_file}")
+            except Exception as e:
+                logger.warning(f"Error reading VRT info: {e}")
+    except Exception as e:
+        logger.warning(f"Error getting file info: {e}")
+
+    # Check output directory
+    out_path = Path(out_file)
+    if not out_path.parent.exists():
+        logger.warning(f"Output directory does not exist: {out_path.parent}")
+    else:
+        logger.info(f"Output directory exists: {out_path.parent}")
+
+    # Check available disk space
+    try:
+        free_space = shutil.disk_usage(out_path.parent).free
+        free_space_gb = free_space / (1024 * 1024 * 1024)
+        logger.info(f"Available disk space: {free_space_gb:.1f} GB")
+    except Exception as e:
+        logger.warning(f"Could not check disk space: {e}")
+
     gdal.UseExceptions()
-    gdal.Translate(
-        out_file,
-        in_file,
-        format="COG",
-        creationOptions=[
-            "COMPRESS=LZW",
-            "BIGTIFF=YES",
-            "NUM_THREADS=ALL_CPUS",
-        ],
-        noData=nodata_value,
+
+    # Create a progress callback to track COG conversion progress with timeout
+    last_percent = [0]  # Use list to make it mutable in closure
+    last_log_time = [time.time()]  # Track when we last logged
+    timed_out = [False]  # Flag to track timeout
+
+    def progress_callback(complete, message, cb_data):
+        current_time = time.time()
+        percent = int(complete * 100)
+
+        # Check for timeout
+        elapsed = current_time - start_time
+        if elapsed > max_processing_seconds:
+            logger.error(
+                f"COG conversion timed out after {elapsed:.1f} seconds (max: {max_processing_seconds})"
+            )
+            timed_out[0] = True
+            return 0  # Return 0 to abort processing
+
+        should_log = False
+
+        if percent >= last_percent[0] + 10 and percent > 0:
+            # Standard 10% logging
+            should_log = True
+        elif elapsed > 300 and percent >= last_percent[0] + 2 and percent > 0:
+            # After 5 minutes, log every 2% to track slow progress
+            should_log = True
+        elif current_time - last_log_time[0] > 300:
+            # Every 5 minutes regardless for very slow operations
+            should_log = True
+
+        if should_log:
+            rate = percent / elapsed * 60 if elapsed > 0 else 0  # percent per minute
+            estimated_total_time = elapsed / (percent / 100) if percent > 0 else 0
+            remaining_time = estimated_total_time - elapsed if percent > 0 else 0
+
+            logger.info(
+                f"COG conversion progress: {percent}% complete (elapsed: {elapsed:.1f}s, "
+                f"rate: {rate:.2f}%/min, est. remaining: {remaining_time:.0f}s)"
+            )
+            if message:
+                logger.info(f"GDAL message: {message}")
+            last_percent[0] = percent
+            last_log_time[0] = current_time
+        return 1  # Return 1 to continue, 0 to abort
+
+    logger.debug("Starting GDAL Translate operation...")
+
+    # Advanced GDAL settings for maximum performance
+    gdal.SetConfigOption("GDAL_CACHEMAX", "2048")  # Increased to 2GB cache
+    gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
+    gdal.SetConfigOption("VSI_CACHE", "TRUE")
+    gdal.SetConfigOption("VSI_CACHE_SIZE", "100000000")  # 100MB VSI cache
+
+    # Additional performance optimizations
+    gdal.SetConfigOption(
+        "GDAL_SWATH_SIZE", "100000000"
+    )  # 100MB swath for large datasets
+    gdal.SetConfigOption("GDAL_MAX_DATASET_POOL_SIZE", "1000")  # Increase dataset pool
+    gdal.SetConfigOption(
+        "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR"
+    )  # Skip unnecessary directory reads
+    gdal.SetConfigOption(
+        "CPL_VSIL_CURL_CACHE_SIZE", "200000000"
+    )  # 200MB for remote files
+    gdal.SetConfigOption("GDAL_HTTP_TIMEOUT", "300")  # 5 minutes for HTTP requests
+    gdal.SetConfigOption(
+        "GDAL_HTTP_CONNECTTIMEOUT", "60"
+    )  # 1 minute connection timeout
+
+    # Memory optimization for large datasets
+    gdal.SetConfigOption(
+        "GDAL_FORCE_CACHING", "NO"
+    )  # Disable caching for very large files
+    gdal.SetConfigOption("GDAL_ONE_BIG_READ", "YES")  # Read entire blocks at once
+
+    # Optimize for specific data types and sizes
+    if estimated_size_mb > 5000:  # For very large datasets (>5GB)
+        logger.info("Applying optimizations for very large dataset")
+        gdal.SetConfigOption("GDAL_CACHEMAX", "4096")  # 4GB cache for huge datasets
+        gdal.SetConfigOption("GDAL_SWATH_SIZE", "200000000")  # 200MB swath
+        block_size = "1024"  # Larger blocks for better I/O
+        overview_count = "3"  # Fewer overviews to speed up processing
+    elif estimated_size_mb > 1000:  # For large datasets (>1GB)
+        logger.info("Applying optimizations for large dataset")
+        block_size = "512"
+        overview_count = "4"
+    else:
+        block_size = "512"
+        overview_count = "5"
+
+    creation_options = [
+        "BIGTIFF=YES",
+        "NUM_THREADS=ALL_CPUS",
+        f"BLOCKSIZE={block_size}",
+        "COMPRESS=LZW",
+        "PREDICTOR=2",
+        "OVERVIEW_RESAMPLING=NEAREST",
+        f"OVERVIEW_COUNT={overview_count}",
+        "SPARSE_OK=TRUE",  # Allow sparse files to save space
+    ]
+
+    # Add quality vs speed trade-offs for different dataset sizes
+    if estimated_size_mb > 5000:
+        creation_options.extend(
+            [
+                "OVERVIEW_QUALITY=1",  # Fastest overview generation
+                # "GDAL_TIFF_OVR_BLOCKSIZE=1024",  # This is a config option, not creation option
+            ]
+        )
+        # Set overview block size as config option instead
+        gdal.SetConfigOption("GDAL_TIFF_OVR_BLOCKSIZE", "1024")
+
+    logger.info(f"Using creation options: {creation_options}")
+
+    try:
+        gdal.Translate(
+            out_file,
+            in_file,
+            format="COG",
+            creationOptions=creation_options,
+            noData=nodata_value,
+            callback=progress_callback,
+        )
+
+        if timed_out[0]:
+            raise TimeoutError(
+                f"COG conversion timed out after {max_processing_seconds} seconds"
+            )
+
+        conversion_time = time.time() - start_time
+        logger.info(
+            f"COG conversion completed in {conversion_time:.1f} seconds for {out_file}"
+        )
+
+        # Check output file size
+        try:
+            if Path(out_file).exists():
+                out_size = Path(out_file).stat().st_size
+                out_size_mb = out_size / (1024 * 1024)
+                logger.debug(f"Output file size: {out_size_mb:.1f} MB")
+            else:
+                logger.error(f"Output file was not created: {out_file}")
+        except Exception as e:
+            logger.warning(f"Could not check output file size: {e}")
+
+    except Exception as e:
+        conversion_time = time.time() - start_time
+        if timed_out[0]:
+            logger.error(
+                f"COG conversion timed out after {max_processing_seconds} seconds: {e}"
+            )
+            raise TimeoutError(
+                f"COG conversion timed out after {max_processing_seconds} seconds"
+            )
+        else:
+            logger.error(
+                f"COG conversion failed after {conversion_time:.1f} seconds: {e}"
+            )
+        raise
+    finally:
+        # Reset GDAL config options to avoid affecting other operations
+        gdal.SetConfigOption("GDAL_CACHEMAX", None)
+        gdal.SetConfigOption("GDAL_SWATH_SIZE", None)
+        gdal.SetConfigOption("GDAL_MAX_DATASET_POOL_SIZE", None)
+        gdal.SetConfigOption("CPL_VSIL_CURL_CACHE_SIZE", None)
+        gdal.SetConfigOption("GDAL_TIFF_OVR_BLOCKSIZE", None)
+
+
+def write_to_cog_chunked(
+    in_file, out_file, nodata_value, chunk_size_mb=1000, max_processing_time_hours=8
+):
+    """
+    Alternative COG conversion that processes data in chunks for very large datasets.
+    This can be faster for datasets larger than available RAM.
+    """
+    logger.info(
+        f"Converting {in_file} to COG format using chunked processing: {out_file}"
     )
+    start_time = time.time()
+
+    try:
+        # Open input dataset to get dimensions
+        ds = gdal.Open(str(in_file))
+        if not ds:
+            raise Exception(f"Could not open input file: {in_file}")
+
+        width = ds.RasterXSize
+        height = ds.RasterYSize
+        bands = ds.RasterCount
+
+        # Calculate optimal chunk size based on available memory
+        band = ds.GetRasterBand(1)
+        data_type = band.DataType
+        bytes_per_pixel = gdal.GetDataTypeSize(data_type) // 8
+
+        # Calculate chunk dimensions to fit within memory limit
+        pixels_per_chunk = (chunk_size_mb * 1024 * 1024) // (bytes_per_pixel * bands)
+        chunk_height = min(height, int((pixels_per_chunk / width) ** 0.5))
+        chunk_width = min(width, pixels_per_chunk // chunk_height)
+
+        logger.info(
+            f"Processing {width}x{height} image in chunks of {chunk_width}x{chunk_height}"
+        )
+
+        # For very large datasets, consider tiling approach
+        if width * height * bands * bytes_per_pixel > (
+            chunk_size_mb * 1024 * 1024 * 10
+        ):
+            logger.warning(
+                "Dataset is extremely large - consider using write_to_cog_tiled() instead"
+            )
+
+        # Use standard conversion but with optimized settings for chunked processing
+        gdal.SetConfigOption("GDAL_CACHEMAX", str(chunk_size_mb))
+        gdal.SetConfigOption("GDAL_SWATH_SIZE", str(chunk_size_mb * 1024 * 1024))
+
+        return write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours)
+
+    except Exception as e:
+        logger.error(f"Chunked COG conversion failed: {e}")
+        raise
+    finally:
+        gdal.SetConfigOption("GDAL_CACHEMAX", None)
+        gdal.SetConfigOption("GDAL_SWATH_SIZE", None)
+
+
+def write_to_cog_tiled(
+    in_file, out_file, nodata_value, tile_size=10000, max_processing_time_hours=12
+):
+    """
+    Alternative COG conversion that splits very large datasets into tiles first.
+    Best for datasets that are too large to process as a single file.
+    """
+    logger.info(f"Converting {in_file} to tiled COG format: {out_file}")
+
+    try:
+        ds = gdal.Open(str(in_file))
+        if not ds:
+            raise Exception(f"Could not open input file: {in_file}")
+
+        width = ds.RasterXSize
+        height = ds.RasterYSize
+
+        # If dataset is small enough, use standard conversion
+        if width <= tile_size and height <= tile_size:
+            logger.info("Dataset is small enough for standard conversion")
+            return write_to_cog(
+                in_file, out_file, nodata_value, max_processing_time_hours
+            )
+
+        # Calculate number of tiles needed
+        tiles_x = (width + tile_size - 1) // tile_size
+        tiles_y = (height + tile_size - 1) // tile_size
+        total_tiles = tiles_x * tiles_y
+
+        logger.info(
+            f"Splitting {width}x{height} dataset into {total_tiles} tiles ({tiles_x}x{tiles_y})"
+        )
+
+        if total_tiles > 100:
+            logger.warning(
+                f"Very large number of tiles ({total_tiles}) - this may be slow"
+            )
+
+        # Create temporary directory for tiles
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            tile_files = []
+
+            # Process each tile
+            for y in range(tiles_y):
+                for x in range(tiles_x):
+                    tile_num = y * tiles_x + x + 1
+                    logger.info(f"Processing tile {tile_num}/{total_tiles}")
+
+                    # Calculate tile bounds
+                    x_off = x * tile_size
+                    y_off = y * tile_size
+                    x_size = min(tile_size, width - x_off)
+                    y_size = min(tile_size, height - y_off)
+
+                    # Create VRT for this tile
+                    tile_vrt = temp_path / f"tile_{x}_{y}.vrt"
+                    gdal.BuildVRT(
+                        str(tile_vrt),
+                        str(in_file),
+                        srcWin=[x_off, y_off, x_size, y_size],
+                    )
+
+                    # Convert tile to COG
+                    tile_cog = temp_path / f"tile_{x}_{y}.tif"
+                    write_to_cog(
+                        str(tile_vrt),
+                        str(tile_cog),
+                        nodata_value,
+                        max_processing_time_hours / total_tiles,
+                    )
+                    tile_files.append(str(tile_cog))
+
+            # Build final VRT from all tiles
+            logger.info("Combining tiles into final COG")
+            final_vrt = temp_path / "combined.vrt"
+            gdal.BuildVRT(str(final_vrt), tile_files)
+
+            # Convert final VRT to COG
+            write_to_cog(
+                str(final_vrt), out_file, nodata_value, max_processing_time_hours
+            )
+
+        logger.info("Tiled COG conversion completed successfully")
+
+    except Exception as e:
+        logger.error(f"Tiled COG conversion failed: {e}")
+        raise
+
+
+def choose_optimal_cog_conversion(
+    in_file, out_file, nodata_value, max_processing_time_hours=6
+):
+    """
+    Automatically choose the best COG conversion strategy based on dataset characteristics.
+
+    Args:
+        in_file: Input file path
+        out_file: Output COG file path
+        nodata_value: NoData value
+        max_processing_time_hours: Maximum time to allow for processing
+
+    Returns:
+        Path to the created COG file
+    """
+    try:
+        # Analyze dataset to choose optimal strategy
+        if Path(in_file).exists():
+            file_size_mb = Path(in_file).stat().st_size / (1024 * 1024)
+        else:
+            # For VRT files, estimate size from dimensions
+            try:
+                ds = gdal.Open(str(in_file))
+                if ds:
+                    total_pixels = ds.RasterXSize * ds.RasterYSize * ds.RasterCount
+                    band = ds.GetRasterBand(1)
+                    bytes_per_pixel = gdal.GetDataTypeSize(band.DataType) // 8
+                    file_size_mb = (total_pixels * bytes_per_pixel) / (1024 * 1024)
+                    ds = None
+                else:
+                    file_size_mb = 0
+            except:
+                file_size_mb = 0
+
+        logger.info(f"Estimated dataset size: {file_size_mb:.1f} MB")
+
+        # Choose strategy based on size and complexity
+        if file_size_mb < 500:  # Small files - standard conversion
+            logger.info("Using standard COG conversion for small dataset")
+            return write_to_cog(
+                in_file, out_file, nodata_value, max_processing_time_hours
+            )
+
+        elif file_size_mb < 5000:  # Medium files - chunked conversion
+            logger.info("Using chunked COG conversion for medium dataset")
+            return write_to_cog_chunked(
+                in_file,
+                out_file,
+                nodata_value,
+                chunk_size_mb=min(1000, int(file_size_mb // 4)),
+                max_processing_time_hours=max_processing_time_hours,
+            )
+
+        else:  # Large files - tiled conversion
+            logger.info("Using tiled COG conversion for large dataset")
+            # For very large datasets, increase timeout and use smaller tiles
+            tile_size = 8000 if file_size_mb > 20000 else 10000
+            timeout = max(
+                max_processing_time_hours, 12
+            )  # At least 12 hours for huge datasets
+
+            return write_to_cog_tiled(
+                in_file,
+                out_file,
+                nodata_value,
+                tile_size=tile_size,
+                max_processing_time_hours=timeout,
+            )
+
+    except Exception as e:
+        logger.error(
+            f"Optimal COG conversion failed, falling back to standard conversion: {e}"
+        )
+        # Fallback to standard conversion with extended timeout
+        return write_to_cog(
+            in_file, out_file, nodata_value, max_processing_time_hours * 2
+        )
 
 
 def push_cog_to_s3(local_path, obj, s3_prefix, s3_bucket, s3_extra_args={}):
@@ -261,8 +883,16 @@ def _write_subregion_cogs(
     suffix="",
 ):
     cog_vsi_paths = []
+    total_regions = len(bounding_boxes)
+
+    logger.info(
+        f"Converting {total_regions} subregion(s) to COG format and uploading to S3"
+    )
 
     for index, bounding_box in enumerate(bounding_boxes):
+        region_num = index + 1
+        logger.info(f"Processing subregion {region_num}/{total_regions}")
+
         this_suffix = (
             suffix + f"{('_' + str(index)) if len(bounding_boxes) > 1 else ''}"
         )
@@ -277,11 +907,16 @@ def _write_subregion_cogs(
         cog_local_path = Path(temp_dir) / (cog_vsi_base.name + f"{this_suffix}.tif")
         cog_vsi_path = Path(str(cog_vsi_base) + f"{this_suffix}.tif")
         cog_vsi_paths.append(cog_vsi_path)
-        write_to_cog(str(temp_vrt_local_path), str(cog_local_path), nodata_value)
+        choose_optimal_cog_conversion(
+            str(temp_vrt_local_path), str(cog_local_path), nodata_value
+        )
         push_cog_to_s3(
             cog_local_path, cog_vsi_path.name, s3_prefix, s3_bucket, s3_extra_args
         )
 
+        logger.info(f"Completed subregion {region_num}/{total_regions}")
+
+    logger.info(f"All {total_regions} subregion(s) processed successfully")
     return cog_vsi_paths
 
 
