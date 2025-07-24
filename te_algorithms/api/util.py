@@ -192,7 +192,7 @@ def md5_checksum(filename):
 
     checksum_time = time.time() - start_time
     rate_mbps = file_size_mb / checksum_time if checksum_time > 0 else 0
-    logger.info(
+    logger.debug(
         f"MD5 checksum completed in {checksum_time:.1f} seconds for {Path(filename).name} ({rate_mbps:.1f} MB/s)"
     )
     return m.hexdigest()
@@ -202,19 +202,19 @@ def etag_checksum_multipart(filename, chunk_size=8 * 1024 * 1024):
     file_size = Path(filename).stat().st_size
     file_size_mb = file_size / (1024 * 1024)
 
-    logger.info(
+    logger.debug(
         f"Computing multipart ETag checksum for {Path(filename).name} ({file_size_mb:.1f} MB)"
     )
     start_time = time.time()
 
     # For small files, use single MD5 instead of multipart
     if file_size <= chunk_size:
-        logger.info("File is small enough for single-part ETag, using optimized MD5")
+        logger.debug("File is small enough for single-part ETag, using optimized MD5")
         return md5_checksum(filename)
 
     # Estimate number of parts to optimize memory usage
     estimated_parts = (file_size + chunk_size - 1) // chunk_size
-    logger.info(f"Estimated {estimated_parts} parts for multipart ETag")
+    logger.debug(f"Estimated {estimated_parts} parts for multipart ETag")
 
     # Use a more memory-efficient approach with streaming MD5
     final_md5 = hashlib.md5()
@@ -399,18 +399,6 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
 
     # Check output directory
     out_path = Path(out_file)
-    if not out_path.parent.exists():
-        logger.warning(f"Output directory does not exist: {out_path.parent}")
-    else:
-        logger.info(f"Output directory exists: {out_path.parent}")
-
-    # Check available disk space
-    try:
-        free_space = shutil.disk_usage(out_path.parent).free
-        free_space_gb = free_space / (1024 * 1024 * 1024)
-        logger.info(f"Available disk space: {free_space_gb:.1f} GB")
-    except Exception as e:
-        logger.warning(f"Could not check disk space: {e}")
 
     gdal.UseExceptions()
 
