@@ -76,7 +76,7 @@ def _get_population_list_by_degradation_class(pop_by_deg_class, pop_type):
 def save_reporting_json(
     output_path: Path,
     summary_tables: Dict[str, models.SummaryTableLD],
-    summary_table_status: Union[None, models.SummaryTableLD],
+    summary_table_status: Union[None, models.SummaryTableLDStatus],
     summary_table_change: Union[None, models.SummaryTableLDChange],
     params: dict,
     task_name: str,
@@ -649,7 +649,7 @@ def _write_soc_sheet(
     # Exclude any codes that are nested under IPCC class 7 (water)
     excluded_codes = lc_legend_nesting.nesting[7]
 
-    logger.info("Excluding land cover codes nested under water (%s)", excluded_codes)
+    logger.debug("Excluding land cover codes nested under water (%s)", excluded_codes)
 
     classes = [
         c.get_name() for c in lc_trans_matrix.legend.key if c.code not in excluded_codes

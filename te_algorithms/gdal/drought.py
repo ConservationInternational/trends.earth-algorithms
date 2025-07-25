@@ -331,16 +331,27 @@ def _process_block(
         }
 
         if pop_by_sex and period_number == (len(first_rows) - 1):
-            # Only write out population disaggregated by sex for the last
-            # period
-            pop_female_max_drought[pop_female_max_drought == NODATA_VALUE] = 0
-            pop_female_max_drought[max_drought < -1000] = -pop_female_max_drought[
-                max_drought < -1000
+            pop_female_max_drought[
+                (pop_female_max_drought == NODATA_VALUE) | (max_drought == NODATA_VALUE)
+            ] = NODATA_VALUE
+            exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
+            pop_female_max_drought[exposed_areas] = -pop_female_max_drought[
+                exposed_areas
             ]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
-
             if mask_water:
+                logger.debug("a_water_mask.shape %s", a_water_mask.shape)
                 pop_female_max_drought[a_water_mask == 1] = NODATA_VALUE
+
+            pop_male_max_drought[
+                (pop_male_max_drought == NODATA_VALUE) | (max_drought == NODATA_VALUE)
+            ] = NODATA_VALUE
+            exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
+            pop_male_max_drought[exposed_areas] = -pop_male_max_drought[exposed_areas]
+            # Set water to NODATA_VALUE as requested by UNCCD for Prais
+            if mask_water:
+                logger.debug("a_water_mask.shape %s", a_water_mask.shape)
+                pop_male_max_drought[a_water_mask == 1] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the third band for this period
@@ -349,15 +360,6 @@ def _process_block(
                 "xoff": xoff,
                 "yoff": yoff,
             }
-
-            pop_male_max_drought[pop_male_max_drought == NODATA_VALUE] = 0
-            pop_male_max_drought[max_drought < -1000] = -pop_male_max_drought[
-                max_drought < -1000
-            ]
-            # Set water to NODATA_VALUE as requested by UNCCD for Prais
-
-            if mask_water:
-                pop_male_max_drought[a_water_mask == 1] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the fourth band for this period
@@ -507,8 +509,9 @@ class DroughtSummary:
 
     def emit_progress(self, *args):
         """Reimplement to display progress messages"""
+        tile_name = Path(self.params.in_df.path).name
         util.log_progress(
-            *args, message=f"Processing drought summary for {self.params.in_df.path}"
+            *args, message=f"Processing drought summary for tile {tile_name}"
         )
 
     def get_line_params(self):
@@ -545,17 +548,26 @@ class DroughtSummary:
 
         out = []
 
-        for n, line_params in enumerate(line_params_list):
-            self.emit_progress(n / len(line_params_list))
-            results = _process_line(line_params)
+        try:
+            for n, line_params in enumerate(line_params_list):
+                self.emit_progress(n / len(line_params_list))
+                results = _process_line(line_params)
 
-            for result in results:
-                out.append(result[0])
+                for result in results:
+                    out.append(result[0])
 
-                for key, value in result[1].items():
-                    out_ds.GetRasterBand(key).WriteArray(**value)
+                    for key, value in result[1].items():
+                        out_ds.GetRasterBand(key).WriteArray(**value)
 
-        out = _accumulate_drought_summary_tables(out)
+            out = _accumulate_drought_summary_tables(out)
+        finally:
+            # Ensure the output dataset is properly closed to flush data to disk
+            if out_ds is not None:
+                out_ds.FlushCache()
+                out_ds = None
+                logger.info(
+                    f"Output dataset closed successfully for file: {self.params.out_file}"
+                )
 
         return out
 
@@ -599,9 +611,26 @@ def summarise_drought_vulnerability(
     drought_job: Job,
     aoi: AOI,
     job_output_path: Path,
-    n_cpus: int = multiprocessing.cpu_count() - 1,
+    n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
 ) -> Job:
     logger.debug("at top of summarise_drought_vulnerability")
+
+    # Adaptive CPU scaling based on data characteristics
+    import psutil
+
+    # Check available memory and adjust CPU count accordingly
+    available_memory_gb = psutil.virtual_memory().available / (1024**3)
+
+    # Estimate memory per CPU core needed (rough heuristic)
+    memory_per_core_gb = 4.0  # Conservative estimate for raster processing
+    max_cpus_by_memory = int(available_memory_gb / memory_per_core_gb)
+
+    # Use the minimum of requested CPUs and memory-constrained CPUs
+    effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
+    logger.info(
+        f"Using {effective_n_cpus} CPUs (requested: {n_cpus}, "
+        f"memory-limited: {max_cpus_by_memory})"
+    )
 
     params = drought_job.params
 
@@ -642,7 +671,7 @@ def summarise_drought_vulnerability(
         output_job_path=job_output_path.parent / f"{job_output_path.stem}.json",
         in_dfs=spi_dfs + population_dfs + jrc_df + water_df,
         drought_period=drought_period,
-        n_cpus=n_cpus,
+        n_cpus=effective_n_cpus,
     )
 
     out_bands = []
@@ -749,16 +778,24 @@ def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
 def _aoi_process_multiprocess(inputs, n_cpus):
     with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
         n = 0
+        total_tiles = len(inputs)
+        logger.info(
+            f"Processing {total_tiles} tiles in parallel with {n_cpus} processes"
+        )
 
         results = []
 
         for output in p.imap_unordered(_summarize_tile, inputs):
+            completed_tiles = n + 1
+            progress_percent = (completed_tiles / total_tiles) * 100
             util.log_progress(
-                n / len(inputs), message="Processing drought summaries overall progress"
+                completed_tiles / total_tiles,
+                message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
             )
             error_message = output[1]
 
             if error_message is not None:
+                logger.error("Error %s", error_message)
                 p.terminate()
 
                 break
@@ -771,20 +808,26 @@ def _aoi_process_multiprocess(inputs, n_cpus):
 
 def _aoi_process_sequential(inputs):
     results = []
+    total_tiles = len(inputs)
+    logger.info(f"Processing {total_tiles} tiles sequentially")
 
-    for item in inputs:
-        n = 0
+    for n, item in enumerate(inputs):
+        tile_num = n + 1
+        logger.info(f"Starting tile {tile_num}/{total_tiles}: {item.tile.name}")
         output = _summarize_tile(item)
+        completed_tiles = tile_num
+        progress_percent = (completed_tiles / total_tiles) * 100
         util.log_progress(
-            n / len(inputs), message="Processing drought summaries overall progress"
+            completed_tiles / total_tiles,
+            message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
         )
         error_message = output[1]
 
         if error_message is not None:
+            logger.error("Error %s", error_message)
             break
 
         results.append(output[0])
-        n += 1
 
     return results
 
@@ -804,7 +847,7 @@ def _summarize_over_aoi(
     mask_worker_params: dict = None,
     drought_worker_function: Callable = None,
     drought_worker_params: dict = None,
-) -> Tuple[Optional[SummaryTableDrought], str]:
+) -> Tuple[Optional[SummaryTableDrought], List[Path], str]:
     # Combine all raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(
         suffix="_drought_indicators.vrt", delete=False
@@ -827,6 +870,7 @@ def _summarize_over_aoi(
     logger.info(f"Reprojecting inputs and saving to {indic_reproj}")
 
     error_message = ""
+    out_files = []
 
     if translate_worker_function:
         tiles = translate_worker_function(
@@ -834,13 +878,43 @@ def _summarize_over_aoi(
         )
 
     else:
+        # Intelligent tiling: adjust CPU count based on data size
+        # Open the VRT to get dimensions
+        temp_ds = gdal.Open(str(indic_vrt))
+        width, height = temp_ds.RasterXSize, temp_ds.RasterYSize
+        n_pixels = width * height
+        del temp_ds
+
+        # For very large datasets, reduce CPU count to avoid memory pressure
+        # For small datasets, use fewer CPUs to reduce overhead
+        if n_pixels > 50_000_000:  # 50M pixels
+            effective_cpus = min(n_cpus, 8)  # Cap at 8 for very large data
+            logger.info(
+                f"Large dataset detected ({n_pixels} pixels), "
+                f"using {effective_cpus} CPUs for tiling"
+            )
+        elif n_pixels < 1_000_000:  # 1M pixels
+            effective_cpus = min(n_cpus, 2)  # Use fewer CPUs for small data
+            logger.info(
+                f"Small dataset detected ({n_pixels} pixels), "
+                f"using {effective_cpus} CPUs for tiling"
+            )
+        else:
+            effective_cpus = n_cpus
+
         translate_worker = workers.CutTiles(
-            indic_vrt, n_cpus, indic_reproj, gdal.GDT_Int32
+            indic_vrt, effective_cpus, indic_reproj, gdal.GDT_Int32
         )
         tiles = translate_worker.work()
         logger.debug("Tiles are %s", tiles)
 
     if tiles:
+        total_tiles = len(tiles)
+        processing_strategy = "parallel" if n_cpus > 1 else "sequential"
+        logger.info(
+            f"Created {total_tiles} tiles for processing using {processing_strategy} strategy"
+        )
+
         out_files = [
             output_tif_path.parent / (output_tif_path.stem + f"_{n}.tif")
             for n in range(len(tiles))
@@ -887,7 +961,8 @@ class SummarizeTileInputs:
 
 
 def _summarize_tile(tile_input):
-    logger.info("Processing tile %s", tile_input.tile)
+    tile_name = tile_input.tile.name
+    logger.info("Processing tile: %s", tile_name)
     # Compute a mask layer that will be used in the tabulation code to
     # mask out areas outside of the AOI. Do this instead of using
     # gdal.Clip to save having to clip and rewrite all of the layers in
@@ -896,7 +971,7 @@ def _summarize_tile(tile_input):
         suffix="_drought_mask.tif", delete=False
     ).name
 
-    logger.info(f"Saving mask to {mask_tif}")
+    logger.debug(f"Saving mask to {mask_tif}")
     geojson = util.wkt_geom_to_geojson_file_string(tile_input.aoi)
 
     error_message = None
@@ -912,6 +987,7 @@ def _summarize_tile(tile_input):
         mask_result = mask_worker.work()
 
     if mask_result:
+        logger.info("Computing drought summary for tile: %s", tile_name)
         # Combine all in_dfs together and update path to refer to indicator
         # VRT
         in_df = DataFile(
@@ -924,7 +1000,7 @@ def _summarize_tile(tile_input):
             drought_period=tile_input.drought_period,
         )
 
-        logger.info(
+        logger.debug(
             f"Calculating summary table and saving rasters to {tile_input.out_file}"
         )
 
@@ -939,17 +1015,27 @@ def _summarize_tile(tile_input):
         if not result:
             if result.is_killed():
                 error_message = (
-                    f"Cancelled calculation of summary table for {tile_input.tile}."
+                    f"Cancelled calculation of summary table for tile {tile_name}."
                 )
             else:
-                error_message = (
-                    f"Error calculating summary table for  {tile_input.tile}."
-                )
+                error_message = f"Error calculating summary table for tile {tile_name}."
                 result = None
         else:
+            logger.info("Completed processing tile: %s", tile_name)
             result.cast_to_cpython()
+
+            # Validate that the output file was created successfully
+            if Path(tile_input.out_file).exists():
+                file_size = Path(tile_input.out_file).stat().st_size
+                logger.info(
+                    f"Output file created successfully: {tile_input.out_file} (size: {file_size} bytes)"
+                )
+            else:
+                logger.error(f"Output file was not created: {tile_input.out_file}")
+                error_message = f"Output file was not created for tile {tile_name}."
+                result = None
     else:
-        error_message = f"Error creating mask for tile {tile_input.tile}."
+        error_message = f"Error creating mask for tile {tile_name}."
         result = None
 
     return result, error_message
@@ -962,7 +1048,7 @@ def _compute_drought_summary_table(
     output_job_path: Path,
     drought_period: int,
     n_cpus: int,
-) -> Tuple[SummaryTableDrought, Path, Path]:
+) -> Tuple[SummaryTableDrought, Path]:
     """Computes summary table and the output tif file(s)"""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     logger.debug(f"len(wkt_aois) is {len(wkt_aois)}")
@@ -1147,7 +1233,8 @@ def save_reporting_json(
                 ),
             ),
             area_of_interest=schemas.AreaOfInterest(
-                name=task_name,  # TODO replace this with area of interest name once implemented in TE
+                # TODO replace this with area of interest name once implemented in TE
+                name=task_name,
                 geojson=aoi.get_geojson(),
                 crs_wkt=aoi.get_crs_wkt(),
             ),

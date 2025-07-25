@@ -3,7 +3,10 @@ import datetime as dt
 import json
 import logging
 import multiprocessing
+import os
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
@@ -36,6 +39,10 @@ from .land_deg_numba import (
 )
 from .land_deg_progress import compute_status_summary
 from .land_deg_report import save_reporting_json, save_summary_table_excel
+
+# Timeout constants for land degradation processing
+TOTAL_PROCESSING_TIMEOUT = 24 * 3600  # 24 hours in seconds
+PER_TILE_TIMEOUT = 4 * 3600  # 4 hours in seconds
 
 if TYPE_CHECKING:
     from te_schemas.aoi import AOI
@@ -150,14 +157,338 @@ def _prepare_precalculated_lpd_df(params: Dict) -> DataFile:
     )
 
 
+def _process_single_period_with_schemas(
+    period, ldn_job, aoi, job_output_path, n_cpus, prepared_schemas
+):
+    """Process a single period with pre-loaded schemas - for parallel processing"""
+    period_name = period["name"]
+    period_params = period["params"]
+    logger.debug("preparing land cover dfs")
+    lc_dfs = _prepare_land_cover_dfs(period_params)
+    logger.debug("preparing soil organic carbon dfs")
+    soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
+    logger.debug("preparing population dfs")
+    population_dfs = _prepare_population_dfs(period_params)
+    logger.debug("len(population_dfs) %s", len(population_dfs))
+    logger.debug("population_dfs %s", population_dfs)
+    sub_job_output_path = (
+        job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
+    )
+    prod_mode = period_params["prod_mode"]
+
+    period_params["periods"] = {
+        "land_cover": period_params["layer_lc_deg_years"],
+        "soc": period_params["layer_soc_deg_years"],
+    }
+
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        period_params["periods"]["productivity"] = period_params["layer_traj_years"]
+    elif prod_mode in (
+        ProductivityMode.JRC_5_CLASS_LPD.value,
+        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+    ):
+        period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
+    else:
+        raise Exception(f"Unknown productivity mode {prod_mode}")
+
+    # Add in period start/end if it isn't already in the parameters
+    if "period" not in period_params:
+        period_params["period"] = {
+            "name": period_name,
+            "year_initial": period_params["periods"]["productivity"]["year_initial"],
+            "year_final": period_params["periods"]["productivity"]["year_final"],
+        }
+
+    # Use pre-loaded schemas instead of loading them here
+    summary_table_stable_kwargs = {
+        "aoi": aoi,
+        "lc_legend_nesting": prepared_schemas["nesting"],
+        "lc_trans_matrix": prepared_schemas["lc_trans_matrix"],
+        "output_job_path": sub_job_output_path,
+        "period_name": period_name,
+        "periods": period_params["periods"],
+        "n_cpus": n_cpus,
+    }
+
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
+        compute_bbs_from = traj.path
+        in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
+        summary_table, output_path, reproj_path = _compute_ld_summary_table(
+            in_dfs=in_dfs,
+            prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
+            compute_bbs_from=compute_bbs_from,
+            **summary_table_stable_kwargs,
+        )
+    elif prod_mode in (
+        ProductivityMode.JRC_5_CLASS_LPD.value,
+        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+    ):
+        lpd_df = _prepare_precalculated_lpd_df(period_params)
+        compute_bbs_from = lpd_df.path
+        in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
+        summary_table, output_path, reproj_path = _compute_ld_summary_table(
+            in_dfs=in_dfs,
+            prod_mode=prod_mode,
+            compute_bbs_from=compute_bbs_from,
+            **summary_table_stable_kwargs,
+        )
+    else:
+        raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
+
+    sdg_band = Band(
+        name=config.SDG_BAND_NAME,
+        no_data_value=config.NODATA_VALUE.item(),
+        metadata={
+            "year_initial": period_params["period"]["year_initial"],
+            "year_final": period_params["period"]["year_final"],
+        },
+        activated=True,
+    )
+    output_df = DataFile(output_path, [sdg_band])
+
+    so3_band_total = _get_so3_band_instance(
+        "total", period_params["periods"]["productivity"]
+    )
+    output_df.bands.append(so3_band_total)
+
+    if _have_pop_by_sex(population_dfs):
+        so3_band_female = _get_so3_band_instance(
+            "female", period_params["periods"]["productivity"]
+        )
+        output_df.bands.append(so3_band_female)
+        so3_band_male = _get_so3_band_instance(
+            "male", period_params["periods"]["productivity"]
+        )
+        output_df.bands.append(so3_band_male)
+
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        prod_band = Band(
+            name=config.TE_LPD_BAND_NAME,
+            no_data_value=config.NODATA_VALUE.item(),
+            metadata={
+                "year_initial": period_params["periods"]["productivity"][
+                    "year_initial"
+                ],
+                "year_final": period_params["periods"]["productivity"]["year_final"],
+            },
+            activated=True,
+        )
+        output_df.bands.append(prod_band)
+
+    reproj_df = combine_data_files(reproj_path, in_dfs)
+    for band in reproj_df.bands:
+        band.add_to_map = False
+
+    period_vrt = job_output_path.parent / f"{sub_job_output_path.stem}_rasterdata.vrt"
+    util.combine_all_bands_into_vrt([output_path, reproj_path], period_vrt)
+
+    period_df = combine_data_files(period_vrt, [output_df, reproj_df])
+    for band in period_df.bands:
+        band.metadata["period"] = period_name
+
+    summary_table_output_path = (
+        sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
+    )
+    save_summary_table_excel(
+        summary_table_output_path,
+        summary_table,
+        period_params["periods"],
+        period_params["layer_lc_years"],
+        period_params["layer_soc_years"],
+        summary_table_stable_kwargs["lc_legend_nesting"],
+        summary_table_stable_kwargs["lc_trans_matrix"],
+        period_name,
+    )
+
+    return period_df, period_vrt, summary_table, period_name
+
+
+def _process_single_period(
+    period, ldn_job, aoi, job_output_path, n_cpus, prepared_schemas=None
+):
+    """Process a single period - updated to accept pre-loaded schemas for thread safety"""
+    if prepared_schemas is not None:
+        # Use pre-loaded schemas (for threaded execution)
+        return _process_single_period_with_schemas(
+            period, ldn_job, aoi, job_output_path, n_cpus, prepared_schemas
+        )
+
+    # Original non-threaded execution path (load schemas here)
+    period_name = period["name"]
+    period_params = period["params"]
+    logger.debug("preparing land cover dfs")
+    lc_dfs = _prepare_land_cover_dfs(period_params)
+    logger.debug("preparing soil organic carbon dfs")
+    soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
+    logger.debug("preparing population dfs")
+    population_dfs = _prepare_population_dfs(period_params)
+    logger.debug("len(population_dfs) %s", len(population_dfs))
+    logger.debug("population_dfs %s", population_dfs)
+    sub_job_output_path = (
+        job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
+    )
+    prod_mode = period_params["prod_mode"]
+
+    period_params["periods"] = {
+        "land_cover": period_params["layer_lc_deg_years"],
+        "soc": period_params["layer_soc_deg_years"],
+    }
+
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        period_params["periods"]["productivity"] = period_params["layer_traj_years"]
+    elif prod_mode in (
+        ProductivityMode.JRC_5_CLASS_LPD.value,
+        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+    ):
+        period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
+    else:
+        raise Exception(f"Unknown productivity mode {prod_mode}")
+
+    # Add in period start/end if it isn't already in the parameters
+    if "period" not in period_params:
+        period_params["period"] = {
+            "name": period_name,
+            "year_initial": period_params["periods"]["productivity"]["year_initial"],
+            "year_final": period_params["periods"]["productivity"]["year_final"],
+        }
+
+    # Load schemas in main thread (non-threaded execution)
+    nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
+    if nesting:
+        nesting = LCLegendNesting.Schema().loads(nesting)
+
+    trans_matrix_data = period_params["layer_lc_deg_band"]["metadata"]["trans_matrix"]
+
+    summary_table_stable_kwargs = {
+        "aoi": aoi,
+        "lc_legend_nesting": nesting,
+        "lc_trans_matrix": LCTransitionDefinitionDeg.Schema().loads(trans_matrix_data),
+        "output_job_path": sub_job_output_path,
+        "period_name": period_name,
+        "periods": period_params["periods"],
+        "n_cpus": n_cpus,
+    }
+
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
+        compute_bbs_from = traj.path
+        in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
+        summary_table, output_path, reproj_path = _compute_ld_summary_table(
+            in_dfs=in_dfs,
+            prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
+            compute_bbs_from=compute_bbs_from,
+            **summary_table_stable_kwargs,
+        )
+    elif prod_mode in (
+        ProductivityMode.JRC_5_CLASS_LPD.value,
+        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+    ):
+        lpd_df = _prepare_precalculated_lpd_df(period_params)
+        compute_bbs_from = lpd_df.path
+        in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
+        summary_table, output_path, reproj_path = _compute_ld_summary_table(
+            in_dfs=in_dfs,
+            prod_mode=prod_mode,
+            compute_bbs_from=compute_bbs_from,
+            **summary_table_stable_kwargs,
+        )
+    else:
+        raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
+
+    sdg_band = Band(
+        name=config.SDG_BAND_NAME,
+        no_data_value=config.NODATA_VALUE.item(),
+        metadata={
+            "year_initial": period_params["period"]["year_initial"],
+            "year_final": period_params["period"]["year_final"],
+        },
+        activated=True,
+    )
+    output_df = DataFile(output_path, [sdg_band])
+
+    so3_band_total = _get_so3_band_instance(
+        "total", period_params["periods"]["productivity"]
+    )
+    output_df.bands.append(so3_band_total)
+
+    if _have_pop_by_sex(population_dfs):
+        so3_band_female = _get_so3_band_instance(
+            "female", period_params["periods"]["productivity"]
+        )
+        output_df.bands.append(so3_band_female)
+        so3_band_male = _get_so3_band_instance(
+            "male", period_params["periods"]["productivity"]
+        )
+        output_df.bands.append(so3_band_male)
+
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        prod_band = Band(
+            name=config.TE_LPD_BAND_NAME,
+            no_data_value=config.NODATA_VALUE.item(),
+            metadata={
+                "year_initial": period_params["periods"]["productivity"][
+                    "year_initial"
+                ],
+                "year_final": period_params["periods"]["productivity"]["year_final"],
+            },
+            activated=True,
+        )
+        output_df.bands.append(prod_band)
+
+    reproj_df = combine_data_files(reproj_path, in_dfs)
+    for band in reproj_df.bands:
+        band.add_to_map = False
+
+    period_vrt = job_output_path.parent / f"{sub_job_output_path.stem}_rasterdata.vrt"
+    util.combine_all_bands_into_vrt([output_path, reproj_path], period_vrt)
+
+    period_df = combine_data_files(period_vrt, [output_df, reproj_df])
+    for band in period_df.bands:
+        band.metadata["period"] = period_name
+
+    summary_table_output_path = (
+        sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
+    )
+    save_summary_table_excel(
+        summary_table_output_path,
+        summary_table,
+        period_params["periods"],
+        period_params["layer_lc_years"],
+        period_params["layer_soc_years"],
+        summary_table_stable_kwargs["lc_legend_nesting"],
+        summary_table_stable_kwargs["lc_trans_matrix"],
+        period_name,
+    )
+
+    return period_df, period_vrt, summary_table, period_name
+
+
 def summarise_land_degradation(
     ldn_job: "Job",
     aoi: "AOI",
     job_output_path: Path,
-    n_cpus: int = multiprocessing.cpu_count() - 1,
+    n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
 ) -> "Job":
     """Calculate final SDG 15.3.1 indicator and save to disk"""
     logger.debug("at top of compute_ldn")
+
+    # Adaptive CPU scaling based on data characteristics
+    import psutil
+
+    # Check available memory and adjust CPU count accordingly
+    available_memory_gb = psutil.virtual_memory().available / (1024**3)
+
+    # Estimate memory per CPU core needed (rough heuristic)
+    memory_per_core_gb = 4.0  # Conservative estimate for raster processing
+    max_cpus_by_memory = int(available_memory_gb / memory_per_core_gb)
+
+    # Use the minimum of requested CPUs and memory-constrained CPUs
+    effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
+    logger.info(
+        f"Using {effective_n_cpus} CPUs (requested: {n_cpus}, "
+        f"memory-limited: {max_cpus_by_memory})"
+    )
 
     summary_tables = {}
     summary_table_stable_kwargs = {}
@@ -165,184 +496,166 @@ def summarise_land_degradation(
     period_dfs = []
     period_vrts = []
 
-    for period in ldn_job.params["periods"]:
-        period_name = period["name"]
-        period_params = period["params"]
-        logger.debug("preparing land cover dfs")
-        lc_dfs = _prepare_land_cover_dfs(period_params)
-        logger.debug("preparing soil organic carbon dfs")
-        soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
-        logger.debug("preparing population dfs")
-        population_dfs = _prepare_population_dfs(period_params)
-        logger.debug("len(population_dfs) %s", len(population_dfs))
-        logger.debug("population_dfs %s", population_dfs)
-        sub_job_output_path = (
-            job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
+    # Process periods in parallel when there are multiple periods
+    if len(ldn_job.params["periods"]) > 1 and effective_n_cpus > 2:
+        # Reserve CPUs for period-level parallelization
+        cpus_per_period = max(1, effective_n_cpus // len(ldn_job.params["periods"]))
+        period_cpus = min(
+            cpus_per_period, effective_n_cpus // 2
+        )  # Don't use all CPUs for periods
+
+        logger.info(
+            f"Processing {len(ldn_job.params['periods'])} periods in parallel "
+            f"with {period_cpus} CPUs each"
         )
-        prod_mode = period_params["prod_mode"]
 
-        period_params["periods"] = {
-            "land_cover": period_params["layer_lc_deg_years"],
-            "soc": period_params["layer_soc_deg_years"],
-        }
+        import concurrent.futures
 
-        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-            period_params["periods"]["productivity"] = period_params["layer_traj_years"]
-        elif prod_mode in (
-            ProductivityMode.JRC_5_CLASS_LPD.value,
-            ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        def process_period_wrapper_with_thread_marker(period_data):
+            """Wrapper that marks the current thread as being in a ThreadPoolExecutor"""
+            current_thread = threading.current_thread()
+            current_thread._is_in_thread_pool = True
+            try:
+                return process_period_wrapper(period_data)
+            finally:
+                # Clean up the marker
+                if hasattr(current_thread, "_is_in_thread_pool"):
+                    delattr(current_thread, "_is_in_thread_pool")
+
+        def process_period_wrapper(period_data):
+            period, cpus, prepared_schemas = period_data
+            # Process single period with allocated CPU count and pre-loaded schemas
+            return _process_single_period_with_schemas(
+                period, ldn_job, aoi, job_output_path, cpus, prepared_schemas
+            )
+
+        # Pre-load schemas in main thread to avoid thread-safety issues
+        prepared_schemas_list = []
+        for period in ldn_job.params["periods"]:
+            period_params = period["params"]
+            nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
+            if nesting:
+                nesting = LCLegendNesting.Schema().loads(nesting)
+
+            # Use .loads() for JSON string data
+            trans_matrix_data = period_params["layer_lc_deg_band"]["metadata"][
+                "trans_matrix"
+            ]
+            lc_trans_matrix = LCTransitionDefinitionDeg.Schema().loads(
+                trans_matrix_data
+            )
+
+            prepared_schemas_list.append(
+                {"nesting": nesting, "lc_trans_matrix": lc_trans_matrix}
+            )
+
+        period_data = [
+            (period, period_cpus, schemas)
+            for period, schemas in zip(ldn_job.params["periods"], prepared_schemas_list)
+        ]
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(ldn_job.params["periods"])
+        ) as executor:
+            period_results = list(
+                executor.map(process_period_wrapper_with_thread_marker, period_data)
+            )
+
+        for result, period, prepared_schemas in zip(
+            period_results, ldn_job.params["periods"], prepared_schemas_list
         ):
-            period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
-        else:
-            raise Exception(f"Unknown productivity mode {prod_mode}")
+            if result is None:
+                raise RuntimeError("Error processing period in parallel")
+            period_df, period_vrt, summary_table, period_name = result
+            period_dfs.append(period_df)
+            period_vrts.append(period_vrt)
+            summary_tables[period_name] = summary_table
 
-        # Add in period start/end if it isn't already in the parameters
-        # (wouldn't be if these layers were all run individually and not
-        # with the all-in-one tool)
+            # Populate summary_table_stable_kwargs for each period (needed for reporting)
+            sub_job_output_path = (
+                job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
+            )
+            period_params = period["params"]
 
-        if "period" not in period_params:
-            period_params["period"] = {
-                "name": period_name,
-                "year_initial": period_params["periods"]["productivity"][
-                    "year_initial"
-                ],
-                "year_final": period_params["periods"]["productivity"]["year_final"],
+            # Set up periods dictionary like in _process_single_period
+            periods = {
+                "land_cover": period_params["layer_lc_deg_years"],
+                "soc": period_params["layer_soc_deg_years"],
             }
-        nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
 
-        if nesting:
-            # TODO: Below can likely be removed - nesting is now always included,
-            # even for local data imports
+            prod_mode = period_params["prod_mode"]
+            if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+                periods["productivity"] = period_params["layer_traj_years"]
+            elif prod_mode in (
+                ProductivityMode.JRC_5_CLASS_LPD.value,
+                ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+            ):
+                periods["productivity"] = period_params["layer_lpd_years"]
 
-            # Nesting is included only to ensure it goes into output, so if
-            # missing (as it might be for local data), it will be set to None
-            nesting = LCLegendNesting.Schema().loads(nesting)
-
-        summary_table_stable_kwargs[period_name] = {
-            "aoi": aoi,
-            "lc_legend_nesting": nesting,
-            "lc_trans_matrix": LCTransitionDefinitionDeg.Schema().loads(
-                period_params["layer_lc_deg_band"]["metadata"]["trans_matrix"],
-            ),
-            # "soc_legend_nesting":
-            # LCLegendNesting.Schema().loads(
-            #     period_params["layer_soc_deg_band"]["metadata"]['nesting'], ),
-            # "soc_trans_matrix":
-            # LCTransitionDefinitionDeg.Schema().loads(
-            #     period_params["layer_soc_deg_band"]["metadata"]
-            #     ['trans_matrix'], ),
-            "output_job_path": sub_job_output_path,
-            "period_name": period_name,
-            "periods": period_params["periods"],
-            "n_cpus": n_cpus,
-        }
-
-        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-            traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
-            compute_bbs_from = traj.path
-            in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-            summary_table, output_path, reproj_path = _compute_ld_summary_table(
-                in_dfs=in_dfs,
-                prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
-                compute_bbs_from=compute_bbs_from,
-                **summary_table_stable_kwargs[period_name],
+            summary_table_stable_kwargs[period_name] = {
+                "aoi": aoi,
+                "lc_legend_nesting": prepared_schemas["nesting"],
+                "lc_trans_matrix": prepared_schemas["lc_trans_matrix"],
+                "output_job_path": sub_job_output_path,
+                "period_name": period_name,
+                "periods": periods,
+                "n_cpus": period_cpus,
+            }
+    else:
+        # Sequential processing for single period or when CPU count is low
+        for period in ldn_job.params["periods"]:
+            result = _process_single_period(
+                period, ldn_job, aoi, job_output_path, effective_n_cpus
             )
-        elif prod_mode in (
-            ProductivityMode.JRC_5_CLASS_LPD.value,
-            ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
-        ):
-            lpd_df = _prepare_precalculated_lpd_df(period_params)
-            compute_bbs_from = lpd_df.path
-            in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-            summary_table, output_path, reproj_path = _compute_ld_summary_table(
-                in_dfs=in_dfs,
-                prod_mode=prod_mode,
-                compute_bbs_from=compute_bbs_from,
-                **summary_table_stable_kwargs[period_name],
+            if result is None:
+                raise RuntimeError("Error processing period")
+            period_df, period_vrt, summary_table, period_name = result
+            period_dfs.append(period_df)
+            period_vrts.append(period_vrt)
+            summary_tables[period_name] = summary_table
+
+            # Populate summary_table_stable_kwargs for each period (needed for reporting)
+            sub_job_output_path = (
+                job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
             )
-        else:
-            raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
+            period_params = period["params"]
 
-        summary_tables[period_name] = summary_table
+            # Load schemas for this period
+            nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
+            if nesting:
+                nesting = LCLegendNesting.Schema().loads(nesting)
 
-        sdg_band = Band(
-            name=config.SDG_BAND_NAME,
-            no_data_value=config.NODATA_VALUE.item(),  # write as python type
-            metadata={
-                "year_initial": period_params["period"]["year_initial"],
-                "year_final": period_params["period"]["year_final"],
-            },
-            activated=True,
-        )
-        output_df = DataFile(output_path, [sdg_band])
-
-        so3_band_total = _get_so3_band_instance(
-            "total", period_params["periods"]["productivity"]
-        )
-        output_df.bands.append(so3_band_total)
-
-        if _have_pop_by_sex(population_dfs):
-            so3_band_female = _get_so3_band_instance(
-                "female", period_params["periods"]["productivity"]
+            trans_matrix_data = period_params["layer_lc_deg_band"]["metadata"][
+                "trans_matrix"
+            ]
+            lc_trans_matrix = LCTransitionDefinitionDeg.Schema().loads(
+                trans_matrix_data
             )
-            output_df.bands.append(so3_band_female)
-            so3_band_male = _get_so3_band_instance(
-                "male", period_params["periods"]["productivity"]
-            )
-            output_df.bands.append(so3_band_male)
 
-        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-            prod_band = Band(
-                name=config.TE_LPD_BAND_NAME,
-                no_data_value=config.NODATA_VALUE.item(),  # write as python type
-                metadata={
-                    "year_initial": period_params["periods"]["productivity"][
-                        "year_initial"
-                    ],
-                    "year_final": period_params["periods"]["productivity"][
-                        "year_final"
-                    ],
-                },
-                activated=True,
-            )
-            output_df.bands.append(prod_band)
+            # Set up periods dictionary like in _process_single_period
+            periods = {
+                "land_cover": period_params["layer_lc_deg_years"],
+                "soc": period_params["layer_soc_deg_years"],
+            }
 
-        reproj_df = combine_data_files(reproj_path, in_dfs)
-        # Don't add any of the input layers to the map by default - only SDG,
-        # prod, and SO3, which are already marked add_to_map=True
+            prod_mode = period_params["prod_mode"]
+            if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+                periods["productivity"] = period_params["layer_traj_years"]
+            elif prod_mode in (
+                ProductivityMode.JRC_5_CLASS_LPD.value,
+                ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+            ):
+                periods["productivity"] = period_params["layer_lpd_years"]
 
-        for band in reproj_df.bands:
-            band.add_to_map = False
-
-        period_vrt = (
-            job_output_path.parent / f"{sub_job_output_path.stem}_rasterdata.vrt"
-        )
-        util.combine_all_bands_into_vrt([output_path, reproj_path], period_vrt)
-
-        # Now that there is a single VRT with all files in it, combine the DFs
-        # into it so that it can be used to source band names/metadata for the
-        # job bands list
-        period_df = combine_data_files(period_vrt, [output_df, reproj_df])
-
-        for band in period_df.bands:
-            band.metadata["period"] = period_name
-        period_dfs.append(period_df)
-
-        period_vrts.append(period_vrt)
-
-        summary_table_output_path = (
-            sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
-        )
-        save_summary_table_excel(
-            summary_table_output_path,
-            summary_table,
-            period_params["periods"],
-            period_params["layer_lc_years"],
-            period_params["layer_soc_years"],
-            summary_table_stable_kwargs[period_name]["lc_legend_nesting"],
-            summary_table_stable_kwargs[period_name]["lc_trans_matrix"],
-            period_name,
-        )
+            summary_table_stable_kwargs[period_name] = {
+                "aoi": aoi,
+                "lc_legend_nesting": nesting,
+                "lc_trans_matrix": lc_trans_matrix,
+                "output_job_path": sub_job_output_path,
+                "period_name": period_name,
+                "periods": periods,
+                "n_cpus": effective_n_cpus,
+            }
 
     if len(ldn_job.params["periods"]) > 1:
         # Make temporary combined VRT and DataFile just for this reporting period
@@ -373,6 +686,21 @@ def summarise_land_degradation(
 
         logger.debug(f"Computing reporting period {period_number} summary")
 
+        # Get prod_mode and compute_bbs_from from the first period
+        first_period_params = ldn_job.params["periods"][0]["params"]
+        prod_mode = first_period_params["prod_mode"]
+
+        # Determine compute_bbs_from based on productivity mode
+        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+            compute_bbs_from = first_period_params["layer_traj_path"]
+        elif prod_mode in (
+            ProductivityMode.JRC_5_CLASS_LPD.value,
+            ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ):
+            compute_bbs_from = first_period_params["layer_lpd_path"]
+        else:
+            raise Exception(f"Unknown productivity mode {prod_mode}")
+
         summary_table_status, summary_table_change, reporting_df = (
             compute_status_summary(
                 temp_df,
@@ -382,6 +710,7 @@ def summarise_land_degradation(
                 compute_bbs_from,
                 ldn_job.params["periods"],
                 baseline_nesting,
+                n_cpus=effective_n_cpus,
             )
         )
         period_vrts.append(reporting_df.path)
@@ -391,45 +720,80 @@ def summarise_land_degradation(
         summary_table_change = None
 
     logger.info("Finalizing layers")
-    overall_vrt_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
-    logging.info("Combining all period VRTs into %s", overall_vrt_path)
-    logging.info("Period VRTs are: %s", period_vrts)
-    util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
-    out_df = combine_data_files(overall_vrt_path, period_dfs)
-    out_df.path = overall_vrt_path.name
 
-    # Also save bands to a key file for ease of use in PRAIS
-    key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
-    with open(key_json, "w") as f:
-        json.dump(DataFile.Schema().dump(out_df), f, indent=4)
+    finalization_start_time = time.time()
 
-    summary_json_output_path = (
-        job_output_path.parent / f"{job_output_path.stem}_summary.json"
-    )
-    report_json = save_reporting_json(
-        summary_json_output_path,
-        summary_tables,
-        summary_table_status,
-        summary_table_change,
-        ldn_job.params,
-        ldn_job.task_name,
-        aoi,
-        summary_table_stable_kwargs,
-    )
+    try:
+        overall_vrt_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
+        logging.debug("Combining all period VRTs into %s", overall_vrt_path)
+        logging.debug("Period VRTs are: %s", period_vrts)
 
-    results = RasterResults(
-        name="land_condition_summary",
-        uri=URI(uri=overall_vrt_path),
-        rasters={
-            DataType.INT16.value: Raster(
-                uri=URI(uri=overall_vrt_path),
-                bands=out_df.bands,
-                datatype=DataType.INT16,
-                filetype=RasterFileType.COG,
-            ),
-        },
-        data={"report": report_json},
-    )
+        # Log VRT file sizes to check for issues
+        for i, vrt_path in enumerate(period_vrts):
+            if os.path.exists(vrt_path):
+                size_mb = os.path.getsize(vrt_path) / (1024 * 1024)
+                logger.info("VRT file %d: %s (size: %.1f MB)", i + 1, vrt_path, size_mb)
+            else:
+                logger.warning("VRT file %d does not exist: %s", i + 1, vrt_path)
+
+        vrt_start = time.time()
+        util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
+        vrt_time = time.time() - vrt_start
+
+        datafile_start = time.time()
+        out_df = combine_data_files(overall_vrt_path, period_dfs)
+        out_df.path = overall_vrt_path.name
+        datafile_time = time.time() - datafile_start
+
+        json_start = time.time()
+        # Also save bands to a key file for ease of use in PRAIS
+        key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
+        with open(key_json, "w") as f:
+            json.dump(DataFile.Schema().dump(out_df), f, indent=4)
+        json_time = time.time() - json_start
+
+        report_start = time.time()
+        summary_json_output_path = (
+            job_output_path.parent / f"{job_output_path.stem}_summary.json"
+        )
+        report_json = save_reporting_json(
+            summary_json_output_path,
+            summary_tables,
+            summary_table_status,
+            summary_table_change,
+            ldn_job.params,
+            ldn_job.task_name,
+            aoi,
+            summary_table_stable_kwargs,
+        )
+        report_time = time.time() - report_start
+
+        results_start = time.time()
+        results = RasterResults(
+            name="land_condition_summary",
+            uri=URI(uri=overall_vrt_path),
+            rasters={
+                DataType.INT16.value: Raster(
+                    uri=URI(uri=overall_vrt_path),
+                    bands=out_df.bands,
+                    datatype=DataType.INT16,
+                    filetype=RasterFileType.COG,
+                ),
+            },
+            data={"report": report_json},
+        )
+        results_time = time.time() - results_start
+
+        total_finalization_time = time.time() - finalization_start_time
+        logger.info(
+            "All finalization steps completed successfully in %.1f seconds total",
+            total_finalization_time,
+        )
+
+    except Exception as e:
+        logger.error("Error during finalization: %s", e)
+        logger.exception("Full exception details:")
+        raise
 
     ldn_job.end_date = dt.datetime.now(dt.timezone.utc)
     ldn_job.progress = 100
@@ -450,20 +814,48 @@ def _process_block_summary(
     class_codes = sorted([c.code for c in params.nesting.child.key])
     class_positions = [*range(1, len(class_codes) + 1)]
 
+    # Cache expensive lookups once at the start
+    lc_indices = params.in_df.indices_for_name(config.LC_BAND_NAME)
     lc_band_years = params.in_df.metadata_for_name(config.LC_BAND_NAME, "year")
-    lc_bands = [
-        (band, year)
-        for band, year in zip(
-            params.in_df.indices_for_name(config.LC_BAND_NAME), lc_band_years
-        )
-    ]
-    soc_bands = [
-        (band, year)
-        for band, year in zip(
-            params.in_df.indices_for_name(config.SOC_BAND_NAME),
-            params.in_df.metadata_for_name(config.SOC_BAND_NAME, "year"),
-        )
-    ]
+    soc_indices = params.in_df.indices_for_name(config.SOC_BAND_NAME)
+    soc_band_years = params.in_df.metadata_for_name(config.SOC_BAND_NAME, "year")
+
+    lc_bands = [(band, year) for band, year in zip(lc_indices, lc_band_years)]
+    soc_bands = [(band, year) for band, year in zip(soc_indices, soc_band_years)]
+
+    # Create lookup dictionaries for O(1) year-to-row mapping
+    lc_year_to_row = {year: row for row, year in lc_bands}
+    lc_years_set = set(lc_band_years)  # For faster membership testing
+
+    # Cache all band index lookups at the start for efficiency
+    traj_band_idx = (
+        params.in_df.index_for_name(config.TRAJ_BAND_NAME)
+        if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value
+        else None
+    )
+    state_band_idx = (
+        params.in_df.index_for_name(config.STATE_BAND_NAME)
+        if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value
+        else None
+    )
+    perf_band_idx = (
+        params.in_df.index_for_name(config.PERF_BAND_NAME)
+        if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value
+        else None
+    )
+    soc_deg_band_idx = params.in_df.index_for_name(config.SOC_DEG_BAND_NAME)
+    lc_deg_band_idx = params.in_df.index_for_name(config.LC_DEG_BAND_NAME)
+
+    # Pre-compute population band indices
+    pop_rows_total = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field="type", field_filter="total"
+    )
+    pop_rows_male = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field="type", field_filter="male"
+    )
+    pop_rows_female = params.in_df.indices_for_name(
+        config.POPULATION_BAND_NAME, field="type", field_filter="female"
+    )
 
     # Create container for output arrays (will write later in main thread)
     write_arrays = []
@@ -479,15 +871,13 @@ def _process_block_summary(
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1).astype(np.float64)
 
     if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        traj_array = in_array[params.in_df.index_for_name(config.TRAJ_BAND_NAME), :, :]
+        traj_array = in_array[traj_band_idx, :, :]
         traj_recode = recode_traj(traj_array)
 
-        state_array = in_array[
-            params.in_df.index_for_name(config.STATE_BAND_NAME), :, :
-        ]
+        state_array = in_array[state_band_idx, :, :]
         state_recode = recode_state(state_array)
 
-        perf_array = in_array[params.in_df.index_for_name(config.PERF_BAND_NAME), :, :]
+        perf_array = in_array[perf_band_idx, :, :]
 
         deg_prod5 = calc_prod5(traj_recode, state_recode, perf_array)
 
@@ -499,7 +889,9 @@ def _process_block_summary(
             band_name = config.JRC_LPD_BAND_NAME
         elif params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
             band_name = config.FAO_WOCAT_LPD_BAND_NAME
-        deg_prod5 = in_array[params.in_df.index_for_name(band_name), :, :]
+
+        band_idx = params.in_df.index_for_name(band_name)
+        deg_prod5 = in_array[band_idx, :, :]
         # TODO: Below is temporary until missing data values are
         # fixed in LPD layer on GEE and missing data values are
         # fixed in LPD layer made by UNCCD for SIDS
@@ -519,12 +911,11 @@ def _process_block_summary(
     ###########################################################
     # Calculate LC transition arrays
     lc_deg_band_period = params.periods["land_cover"]
-    lc_deg_initial_cover_row = [
-        row for row, year in lc_bands if year == lc_deg_band_period["year_initial"]
-    ][0]
-    lc_deg_final_cover_row = [
-        row for row, year in lc_bands if year == lc_deg_band_period["year_final"]
-    ][0]
+
+    # Use cached lookup dictionaries for O(1) access
+    lc_deg_initial_cover_row = lc_year_to_row[lc_deg_band_period["year_initial"]]
+    lc_deg_final_cover_row = lc_year_to_row[lc_deg_band_period["year_final"]]
+
     # a_lc_trans_lc_deg is an array land cover transitions over the time period
     # used in the land cover degradation layer
     a_lc_trans_lc_deg = calc_lc_trans(
@@ -548,17 +939,13 @@ def _process_block_summary(
     if prod_deg_band_period == lc_deg_band_period:
         a_lc_trans_prod_deg = a_lc_trans_lc_deg
     elif (
-        prod_deg_band_period["year_initial"] in lc_band_years
-        and prod_deg_band_period["year_final"] in lc_band_years
+        prod_deg_band_period["year_initial"] in lc_years_set
+        and prod_deg_band_period["year_final"] in lc_years_set
     ):
-        prod_deg_initial_cover_row = [
-            row
-            for row, year in lc_bands
-            if year == prod_deg_band_period["year_initial"]
-        ][0]
-        prod_deg_final_cover_row = [
-            row for row, year in lc_bands if year == prod_deg_band_period["year_final"]
-        ][0]
+        prod_deg_initial_cover_row = lc_year_to_row[
+            prod_deg_band_period["year_initial"]
+        ]
+        prod_deg_final_cover_row = lc_year_to_row[prod_deg_band_period["year_final"]]
         a_lc_trans_prod_deg = calc_lc_trans(
             in_array[prod_deg_initial_cover_row, :, :],
             in_array[prod_deg_final_cover_row, :, :],
@@ -580,15 +967,11 @@ def _process_block_summary(
     elif soc_deg_band_period == prod_deg_band_period:
         a_lc_trans_soc_deg = a_lc_trans_prod_deg
     elif (
-        soc_deg_band_period["year_initial"] in lc_band_years
-        and soc_deg_band_period["year_final"] in lc_band_years
+        soc_deg_band_period["year_initial"] in lc_years_set
+        and soc_deg_band_period["year_final"] in lc_years_set
     ):
-        soc_deg_initial_cover_row = [
-            row for row, year in lc_bands if year == soc_deg_band_period["year_initial"]
-        ][0]
-        soc_deg_final_cover_row = [
-            row for row, year in lc_bands if year == soc_deg_band_period["year_final"]
-        ][0]
+        soc_deg_initial_cover_row = lc_year_to_row[soc_deg_band_period["year_initial"]]
+        soc_deg_final_cover_row = lc_year_to_row[soc_deg_band_period["year_final"]]
         a_lc_trans_soc_deg = calc_lc_trans(
             in_array[soc_deg_initial_cover_row, :, :],
             in_array[soc_deg_final_cover_row, :, :],
@@ -604,15 +987,13 @@ def _process_block_summary(
     # tables are tons C (summed over the total area of each class).
 
     # First filter the SOC years to only those years for which land cover is
-    # available.
-    lc_years = [year for _, year in lc_bands]
+    # available. Use cached lookup for efficiency.
     soc_bands_with_lc_avail = [
-        (band, year) for band, year in soc_bands if year in lc_years
+        (band, year) for band, year in soc_bands if year in lc_years_set
     ]
-    lc_rows_for_soc = [
-        params.in_df.index_for_name(config.LC_BAND_NAME, "year", year)
-        for _, year in soc_bands_with_lc_avail
-    ]
+
+    # Pre-compute LC row indices for SOC years using cached lookup
+    lc_rows_for_soc = [lc_year_to_row[year] for _, year in soc_bands_with_lc_avail]
     soc_by_lc_annual_totals = []
 
     for index, (soc_row, _) in enumerate(soc_bands_with_lc_avail):
@@ -660,7 +1041,7 @@ def _process_block_summary(
     water = np.isin(in_array[lc_deg_initial_cover_row, :, :], params.nesting.nesting[7])
     water = water.astype(bool, copy=False)
 
-    deg_soc = in_array[params.in_df.index_for_name(config.SOC_DEG_BAND_NAME), :, :]
+    deg_soc = in_array[soc_deg_band_idx, :, :]
     deg_soc = recode_deg_soc(deg_soc, water)
 
     if "soc" in params.error_recode:
@@ -669,7 +1050,7 @@ def _process_block_summary(
         ]
         deg_soc = recode_indicator_errors(deg_soc, soc_error_recode)
 
-    deg_lc = in_array[params.in_df.index_for_name(config.LC_DEG_BAND_NAME), :, :]
+    deg_lc = in_array[lc_deg_band_idx, :, :]
 
     if "lc" in params.error_recode:
         lc_error_recode = in_array[
@@ -708,16 +1089,6 @@ def _process_block_summary(
 
     ###########################################################
     # Population affected by degradation
-
-    pop_rows_total = params.in_df.indices_for_name(
-        config.POPULATION_BAND_NAME, field="type", field_filter="total"
-    )
-    pop_rows_male = params.in_df.indices_for_name(
-        config.POPULATION_BAND_NAME, field="type", field_filter="male"
-    )
-    pop_rows_female = params.in_df.indices_for_name(
-        config.POPULATION_BAND_NAME, field="type", field_filter="female"
-    )
 
     if len(pop_rows_total) == 1:
         assert len(pop_rows_male) == 0 and len(pop_rows_female) == 0
@@ -817,11 +1188,12 @@ def _get_n_pop_band_for_type(dfs, pop_type):
 
 
 def _have_pop_by_sex(pop_dfs):
+    # Cache the function calls to avoid repeated lookups
     n_total_pop_bands = _get_n_pop_band_for_type(pop_dfs, "total")
     n_female_pop_bands = _get_n_pop_band_for_type(pop_dfs, "female")
     n_male_pop_bands = _get_n_pop_band_for_type(pop_dfs, "male")
 
-    logger.info(
+    logger.debug(
         "n_total_pop_bands %s, n_female_pop_bands %s, n_male_pop_bands %s",
         n_total_pop_bands,
         n_female_pop_bands,
@@ -830,12 +1202,10 @@ def _have_pop_by_sex(pop_dfs):
 
     if n_total_pop_bands == 1:
         assert n_female_pop_bands == 0 and n_male_pop_bands == 0
-
         return False
     else:
         assert n_total_pop_bands == 0
         assert n_female_pop_bands == 1 and n_male_pop_bands == 1
-
         return True
 
 
@@ -863,15 +1233,18 @@ class SummarizeTileInputs:
     lc_trans_matrix: LCTransitionDefinitionDeg
     period_name: str
     periods: dict
-    mask_worker_function: Callable = None
-    mask_worker_params: dict = None
-    deg_worker_function: Callable = None
-    deg_worker_params: dict = None
+    mask_worker_function: Optional[Callable] = None
+    mask_worker_params: Optional[dict] = None
+    deg_worker_function: Optional[Callable] = None
+    deg_worker_params: Optional[dict] = None
 
 
 def _summarize_tile(inputs: SummarizeTileInputs):
     error_message = None
-    logger.info("Processing tile %s", inputs.in_file)
+    tile_name = inputs.in_file.name
+    logger.debug(
+        "Processing tile: %s", tile_name
+    )  # Changed to debug to reduce verbosity
 
     # Compute a mask layer that will be used in the tabulation code to
     # mask out areas outside of the AOI. Do this instead of using
@@ -880,12 +1253,13 @@ def _summarize_tile(inputs: SummarizeTileInputs):
     mask_tif = tempfile.NamedTemporaryFile(
         suffix="_ld_summary_mask.tif", delete=False
     ).name
-    logger.info("Saving mask to %s", mask_tif)
+    logger.debug("Saving mask to %s", mask_tif)
     geojson = util.wkt_geom_to_geojson_file_string(inputs.wkt_aoi)
 
     if inputs.mask_worker_function:
+        mask_worker_params = inputs.mask_worker_params or {}
         mask_result = inputs.mask_worker_function(
-            mask_tif, geojson, str(inputs.in_file), **inputs.mask_worker_params
+            mask_tif, geojson, str(inputs.in_file), **mask_worker_params
         )
 
     else:
@@ -893,15 +1267,18 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         mask_result = mask_worker.work()
 
     if not mask_result:
-        error_message = "Error creating mask."
+        error_message = f"Error creating mask for tile {tile_name}."
         result = None
 
     else:
+        logger.debug(
+            "Computing degradation summary for tile: %s", tile_name
+        )  # Changed to debug to reduce verbosity
         in_df = combine_data_files(inputs.in_file, inputs.in_dfs)
         n_out_bands = 2  # 1 band for SDG, and 1 band for total pop affected
 
         if _have_pop_by_sex(inputs.in_dfs):
-            logger.info("Have population broken down by sex - adding 2 output bands")
+            logger.debug("Have population broken down by sex - adding 2 output bands")
             n_out_bands += 2
 
         if inputs.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -914,7 +1291,7 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         out_file = inputs.in_file.parent / (
             inputs.in_file.stem + "_sdg" + inputs.in_file.suffix
         )
-        logger.info("Calculating summary table and saving to %s", out_file)
+        logger.debug("Calculating summary table and saving to %s", out_file)
 
         params = models.DegradationSummaryParams(
             in_df=in_df,
@@ -931,18 +1308,24 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         )
 
         if inputs.deg_worker_function:
-            result = inputs.deg_worker_function(params, **inputs.deg_worker_params)
+            deg_worker_params = inputs.deg_worker_params or {}
+            result = inputs.deg_worker_function(params, **deg_worker_params)
         else:
             summarizer = worker.DegradationSummary(params, _process_block_summary)
             result = summarizer.work()
 
         if not result:
             if result.is_killed():
-                error_message = "Cancelled calculation of summary table."
+                error_message = (
+                    f"Cancelled calculation of summary table for tile {tile_name}."
+                )
             else:
-                error_message = "Error calculating summary table."
+                error_message = f"Error calculating summary table for tile {tile_name}."
                 result = None
         else:
+            logger.debug(
+                "Completed processing tile: %s", tile_name
+            )  # Changed to debug to reduce verbosity
             result = models.accumulate_summarytableld(result)
             result.cast_to_cpython()  # needed for multiprocessing
 
@@ -952,40 +1335,195 @@ def _summarize_tile(inputs: SummarizeTileInputs):
 def _aoi_process_multiprocess(inputs, n_cpus):
     from .. import util
 
-    with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
-        summary_tables = []
-        out_files = []
+    # Use ThreadPoolExecutor for I/O bound tasks + ProcessPoolExecutor for CPU bound
+    # This hybrid approach can improve throughput when tasks have mixed characteristics
 
-        for n, output in enumerate(p.imap_unordered(_summarize_tile, inputs)):
-            util.log_progress(
-                n / len(inputs),
-                message="Processing land degradation summaries overall progress",
+    # Check if we're already in a ThreadPoolExecutor thread to avoid deadlocks
+    current_thread = threading.current_thread()
+    is_in_thread_pool = getattr(
+        current_thread, "_is_in_thread_pool", False
+    ) or current_thread.name.startswith("ThreadPoolExecutor")
+
+    if is_in_thread_pool:
+        logger.info(
+            "Running in ThreadPoolExecutor thread - using multiprocessing.Pool instead of ProcessPoolExecutor to avoid deadlock"
+        )
+        # Use multiprocessing.Pool instead of ProcessPoolExecutor when in a thread
+        # This avoids the deadlock while maintaining parallel processing
+        chunksize = max(1, len(inputs) // (n_cpus * 2))
+
+        with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
+            summary_tables = []
+            out_files = []
+            total_tiles = len(inputs)
+            logger.info(
+                f"Processing {total_tiles} tiles with {n_cpus} processes using multiprocessing.Pool"
             )
-            error_message = output[2]
 
-            if error_message is not None:
-                logger.error("Error %s", error_message)
+            try:
+                for n, output in enumerate(
+                    p.imap_unordered(_summarize_tile, inputs, chunksize=chunksize)
+                ):
+                    completed_tiles = n + 1
+                    progress_percent = (completed_tiles / total_tiles) * 100
+
+                    # Only log progress at significant milestones to reduce log spam
+                    if (
+                        completed_tiles % max(5, total_tiles // 20) == 0
+                    ) or completed_tiles == total_tiles:
+                        util.log_progress(
+                            completed_tiles / total_tiles,
+                            message=f"Land degradation processing: {completed_tiles}/{total_tiles} tiles completed ({progress_percent:.1f}%) - {total_tiles - completed_tiles} remaining",
+                        )
+                    error_message = output[2]
+
+                    if error_message is not None:
+                        logger.error("Error %s", error_message)
+                        p.terminate()
+                        return None
+
+                    summary_tables.append(output[0])
+                    out_files.append(output[1])
+
+                logger.info(
+                    f"Successfully completed {total_tiles}/{total_tiles} tiles with multiprocessing.Pool"
+                )
+            except Exception as e:
+                logger.error(f"Error in multiprocessing.Pool: {e}")
                 p.terminate()
-
                 return None
 
-            summary_tables.append(output[0])
-            out_files.append(output[1])
+    # For very large datasets, use more aggressive parallelization
+    elif len(inputs) > n_cpus * 2:
+        # Use process pool with larger chunksize for better load balancing
+        chunksize = max(1, len(inputs) // (n_cpus * 4))
+
+        with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
+            summary_tables = []
+            out_files = []
+            total_tiles = len(inputs)
+            logger.info(
+                f"Processing {total_tiles} tiles in parallel with {n_cpus} processes"
+            )
+
+            try:
+                # Use map_async with timeout for better control
+                async_result = p.map_async(_summarize_tile, inputs, chunksize=chunksize)
+
+                # Wait for results with timeout
+                results = async_result.get(timeout=TOTAL_PROCESSING_TIMEOUT)
+
+                # Process results with progress tracking
+                for n, output in enumerate(results):
+                    completed_tiles = n + 1
+                    progress_percent = (completed_tiles / total_tiles) * 100
+                    util.log_progress(
+                        completed_tiles / total_tiles,
+                        message=f"Land degradation processing: {completed_tiles}/{total_tiles} tiles completed ({progress_percent:.1f}%) - {total_tiles - completed_tiles} remaining",
+                    )
+                    error_message = output[2]
+
+                    if error_message is not None:
+                        logger.error("Error %s", error_message)
+                        p.terminate()
+                        return None
+
+                    summary_tables.append(output[0])
+                    out_files.append(output[1])
+
+                logger.info(
+                    f"Successfully completed {len(results)}/{total_tiles} tiles with large dataset processing"
+                )
+
+            except multiprocessing.TimeoutError as e:
+                logger.error(
+                    f"Large dataset processing timed out after {TOTAL_PROCESSING_TIMEOUT // 3600} hours: {e}"
+                )
+                p.terminate()
+                p.join()
+                return None
+            except Exception as e:
+                logger.error(f"Error in large dataset processing: {e}")
+                p.terminate()
+                p.join()
+                return None
+    else:
+        # For smaller datasets, prefer multiprocessing.Pool for reliability
+        # ProcessPoolExecutor can have deadlock issues in complex processing workflows
+        logger.info(
+            f"Using multiprocessing.Pool with {n_cpus} workers for reliable processing"
+        )
+        chunksize = max(1, len(inputs) // (n_cpus * 2))
+
+        with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
+            summary_tables = []
+            out_files = []
+            total_tiles = len(inputs)
+            logger.info(
+                f"Processing {total_tiles} tiles with {n_cpus} processes using multiprocessing.Pool"
+            )
+
+            try:
+                # Use map_async with timeout for better control
+                async_result = p.map_async(_summarize_tile, inputs, chunksize=chunksize)
+
+                # Wait for results with timeout
+                results = async_result.get(timeout=TOTAL_PROCESSING_TIMEOUT)
+
+                # Process results
+                for n, output in enumerate(results):
+                    completed_tiles = n + 1
+                    progress_percent = (completed_tiles / total_tiles) * 100
+                    util.log_progress(
+                        completed_tiles / total_tiles,
+                        message=f"Land degradation processing: {completed_tiles}/{total_tiles} tiles completed ({progress_percent:.1f}%) - {total_tiles - completed_tiles} remaining",
+                    )
+                    error_message = output[2]
+
+                    if error_message is not None:
+                        logger.error("Error %s", error_message)
+                        p.terminate()
+                        return None
+
+                    summary_tables.append(output[0])
+                    out_files.append(output[1])
+
+                logger.info(
+                    f"Successfully completed {len(results)}/{total_tiles} tiles with multiprocessing.Pool"
+                )
+
+            except multiprocessing.TimeoutError as e:
+                logger.error(
+                    f"Tile processing timed out after {TOTAL_PROCESSING_TIMEOUT // 3600} hours: {e}"
+                )
+                p.terminate()
+                p.join()
+                return None
+            except Exception as e:
+                logger.error(f"Error in multiprocessing.Pool: {e}")
+                p.terminate()
+                p.join()
+                return None
 
     summary_table = models.accumulate_summarytableld(summary_tables)
-
     return summary_table, out_files
 
 
 def _aoi_process_sequential(inputs):
     summary_tables = []
     out_files = []
+    total_tiles = len(inputs)
+    logger.info(f"Processing {total_tiles} tiles sequentially")
 
     for n, item in enumerate(inputs):
+        tile_num = n + 1
+        logger.info(f"Starting tile {tile_num}/{total_tiles}: {item.in_file.name}")
         output = _summarize_tile(item)
+        completed_tiles = tile_num
+        progress_percent = (completed_tiles / total_tiles) * 100
         util.log_progress(
-            n / len(inputs),
-            message="Processing land degradation summaries overall progress",
+            completed_tiles / total_tiles,
+            message=f"Land degradation processing: {completed_tiles}/{total_tiles} tiles completed ({progress_percent:.1f}%) - {total_tiles - completed_tiles} remaining",
         )
         error_message = output[2]
 
@@ -1045,13 +1583,44 @@ def _process_region(
         tiles = translate_worker_function(
             indic_vrt, str(output_layers_path), **translate_worker_params
         )
-
     else:
-        translate_worker = workers.CutTiles(indic_vrt, n_cpus, output_layers_path)
+        # Intelligent tiling: adjust CPU count based on data size
+        # Open the VRT to get dimensions
+        temp_ds = gdal.Open(indic_vrt)
+        width, height = temp_ds.RasterXSize, temp_ds.RasterYSize
+        n_pixels = width * height
+        del temp_ds
+
+        # For very large datasets, reduce CPU count to avoid memory pressure
+        # For small datasets, use fewer CPUs to reduce overhead
+        if n_pixels > 50_000_000:  # 50M pixels
+            effective_cpus = min(n_cpus, 8)  # Cap at 8  for very large data
+            logger.info(
+                f"Large dataset detected ({n_pixels} pixels), "
+                f"using {effective_cpus} CPUs for tiling"
+            )
+        elif n_pixels < 1_000_000:  # 1M pixels
+            effective_cpus = min(n_cpus, 2)  # Use fewer CPUs for small data
+            logger.info(
+                f"Small dataset detected ({n_pixels} pixels), "
+                f"using {effective_cpus} CPUs for tiling"
+            )
+        else:
+            effective_cpus = n_cpus
+
+        translate_worker = workers.CutTiles(
+            indic_vrt, effective_cpus, output_layers_path
+        )
         tiles = translate_worker.work()
 
     logger.info("Calculating summaries for each tile")
     if tiles:
+        total_tiles = len(tiles)
+        processing_strategy = "parallel" if n_cpus > 1 else "sequential"
+        logger.info(
+            f"Created {total_tiles} tiles for processing using {processing_strategy} strategy"
+        )
+
         inputs = [
             SummarizeTileInputs(
                 in_file=tile,

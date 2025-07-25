@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 from typing import Union
 
 import numpy as np
@@ -29,8 +30,16 @@ class DegradationSummary:
         return False
 
     def emit_progress(self, *args, **kwargs):
-        """Reimplement to display progress messages"""
-        util.log_progress(*args, message="Processing land degradation summary")
+        """Reimplement to display progress messages - only log significant milestones"""
+        if len(args) > 0:
+            fraction = args[0]
+            # Only log at major milestones to reduce log spam since tile-level progress is now tracked
+            if fraction in [0.25, 0.5, 0.75, 1.0]:
+                tile_name = Path(self.params.in_file).name
+                util.log_progress(
+                    *args,
+                    message=f"Processing blocks in tile: {tile_name} ({fraction * 100:.0f}%)",
+                )
 
     def work(self):
         gdal.UseExceptions()
@@ -76,35 +85,70 @@ class DegradationSummary:
         # Width of cells in latitude
         pixel_height = src_gt[5]
 
-        n_blocks = len(np.arange(0, xsize, x_block_size)) * len(
-            np.arange(0, ysize, y_block_size)
-        )
+        x_blocks = (xsize + x_block_size - 1) // x_block_size  # Ceiling division
+        y_blocks = (ysize + y_block_size - 1) // y_block_size  # Ceiling division
+        n_blocks = x_blocks * y_blocks
 
-        # pr = cProfile.Profile()
-        # pr.enable()
-        n = 0
-        out = []
+        # Use adaptive block sizing for better parallelism
+        n_pixels = xsize * ysize
+        if n_pixels > 10_000_000:  # 10M pixels
+            # Use larger blocks for efficiency
+            x_block_size = min(x_block_size * 2, 1024)
+            y_block_size = min(y_block_size * 2, 1024)
+            # Recalculate block counts
+            x_blocks = (xsize + x_block_size - 1) // x_block_size
+            y_blocks = (ysize + y_block_size - 1) // y_block_size
+            n_blocks = x_blocks * y_blocks
+            logger.info(
+                f"Large dataset: Using {x_block_size}x{y_block_size} blocks "
+                f"({n_blocks} total)"
+            )
+        elif n_pixels < 1_000_000:  # 1M pixels
+            # Use smaller blocks for better granularity
+            x_block_size = max(x_block_size // 2, 256)
+            y_block_size = max(y_block_size // 2, 256)
+            # Recalculate block counts
+            x_blocks = (xsize + x_block_size - 1) // x_block_size
+            y_blocks = (ysize + y_block_size - 1) // y_block_size
+            n_blocks = x_blocks * y_blocks
+            logger.info(
+                f"Small dataset: Using {x_block_size}x{y_block_size} blocks "
+                f"({n_blocks} total)"
+            )
 
-        for y in range(0, ysize, y_block_size):
-            if y + y_block_size < ysize:
-                win_ysize = y_block_size
-            else:
-                win_ysize = ysize - y
-
-            cell_areas = (
-                np.array(
-                    [
-                        calc_cell_area(
-                            lat + pixel_height * n,
-                            lat + pixel_height * (n + 1),
-                            long_width,
-                        )
-                        for n in range(win_ysize)
-                    ]
+        # Pre-calculate all cell areas for the entire raster to avoid repeated
+        # computation
+        all_cell_areas = np.empty(ysize, dtype=np.float64)
+        current_lat = lat
+        for row in range(ysize):
+            all_cell_areas[row] = (
+                calc_cell_area(
+                    current_lat,
+                    current_lat + pixel_height,
+                    long_width,
                 )
                 * 1e-6
-            )  # 1e-6 is to convert from meters to kilometers
-            cell_areas.shape = (cell_areas.size, 1)
+            )  # Convert from meters to kilometers
+            current_lat += pixel_height
+
+        # Cache raster bands to avoid repeated access
+        src_bands = [src_ds.GetRasterBand(i) for i in range(1, src_ds.RasterCount + 1)]
+        dst_bands = [
+            dst_ds.GetRasterBand(i) for i in range(1, self.params.n_out_bands + 1)
+        ]
+
+        progress_increment = 1.0 / n_blocks
+        n = 0
+
+        # Pre-allocate list with None values to avoid repeated memory reallocation
+        out = [None] * n_blocks
+        block_index = 0
+
+        for y in range(0, ysize, y_block_size):
+            win_ysize = min(y_block_size, ysize - y)
+
+            cell_areas = all_cell_areas[y : y + win_ysize].copy()
+            cell_areas = cell_areas.reshape(-1, 1)
 
             for x in range(0, xsize, x_block_size):
                 if self.is_killed():
@@ -114,16 +158,19 @@ class DegradationSummary:
                     )
 
                     break
-                self.emit_progress(n / n_blocks)
+                self.emit_progress(n * progress_increment)
 
-                if x + x_block_size < xsize:
-                    win_xsize = x_block_size
+                win_xsize = min(x_block_size, xsize - x)
+
+                # Use cached bands and more efficient array reading
+                if src_ds.RasterCount == 1:
+                    src_array = src_bands[0].ReadAsArray(
+                        xoff=x, yoff=y, win_xsize=win_xsize, win_ysize=win_ysize
+                    )
                 else:
-                    win_xsize = xsize - x
-
-                src_array = src_ds.ReadAsArray(
-                    xoff=x, yoff=y, xsize=win_xsize, ysize=win_ysize
-                )
+                    src_array = src_ds.ReadAsArray(
+                        xoff=x, yoff=y, xsize=win_xsize, ysize=win_ysize
+                    )
 
                 mask_array = band_mask.ReadAsArray(
                     xoff=x, yoff=y, win_xsize=win_xsize, win_ysize=win_ysize
@@ -134,10 +181,14 @@ class DegradationSummary:
                     self.params, src_array, mask_array, x, y, cell_areas
                 )
 
-                out.append(result[0])
+                out[block_index] = result[0]
+                block_index += 1
 
-                for band_num, data in enumerate(result[1], start=1):
-                    dst_ds.GetRasterBand(band_num).WriteArray(**data)
+                write_arrays = result[1]
+                for band_num, data in enumerate(write_arrays):
+                    dst_bands[band_num].WriteArray(
+                        data["array"], data["xoff"], data["yoff"]
+                    )
 
                 n += 1
 
@@ -145,6 +196,9 @@ class DegradationSummary:
                 break
 
             lat += pixel_height * win_ysize
+
+        # Clean up cached references
+        del src_bands, dst_bands
 
         # pr.disable()
         # pr.dump_stats('calculate_ld_stats')
@@ -156,4 +210,6 @@ class DegradationSummary:
         else:
             self.emit_progress(1)
             del dst_ds
+            # Filter out None values if processing was interrupted
+            out = [item for item in out if item is not None]
             return out
