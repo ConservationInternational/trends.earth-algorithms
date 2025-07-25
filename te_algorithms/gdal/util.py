@@ -17,6 +17,116 @@ logger = logging.getLogger(__name__)
 gdal.UseExceptions()
 
 
+def log_system_resources(
+    context_message="System resource usage",
+    error_logger=None,
+    additional_paths=None,
+    input_file=None,
+    output_file=None,
+    src_win=None,
+):
+    """
+    Log comprehensive system resource information for debugging.
+
+    Args:
+        context_message (str): Context message to include in logs
+        error_logger: Logger instance to use (defaults to module logger)
+        additional_paths (list): Additional paths to check for disk usage
+        input_file (str): Input file path to log information about
+        output_file (str): Output file path to log information about
+        src_win (tuple): Source window information (x_off, y_off, x_size, y_size)
+    """
+    if error_logger is None:
+        error_logger = logger
+
+    error_logger.error(f"{context_message}:")
+
+    try:
+        from pathlib import Path
+
+        import psutil
+
+        # Get memory information
+        memory = psutil.virtual_memory()
+        error_logger.error(f"Memory usage:")
+        error_logger.error(f"  - Total memory: {memory.total / (1024**3):.2f} GB")
+        error_logger.error(
+            f"  - Available memory: {memory.available / (1024**3):.2f} GB"
+        )
+        error_logger.error(
+            f"  - Used memory: {memory.used / (1024**3):.2f} GB ({memory.percent:.1f}%)"
+        )
+        error_logger.error(f"  - Free memory: {memory.free / (1024**3):.2f} GB")
+
+        # Get disk space information for standard paths
+        standard_paths = [
+            ("Working directory", "/work"),
+            ("Tmp", "/tmp"),
+            ("Downloads", "/downloads"),
+        ]
+        if additional_paths:
+            standard_paths.extend(additional_paths)
+
+        for path_name, path_str in standard_paths:
+            path = Path(path_str)
+            if path.exists():
+                try:
+                    disk_usage = shutil.disk_usage(path)
+                    total_gb = disk_usage.total / (1024**3)
+                    free_gb = disk_usage.free / (1024**3)
+                    used_gb = (disk_usage.total - disk_usage.free) / (1024**3)
+                    used_percent = (used_gb / total_gb) * 100
+
+                    error_logger.error(f"Disk usage for {path_name} ({path}):")
+                    error_logger.error(f"  - Total: {total_gb:.2f} GB")
+                    error_logger.error(
+                        f"  - Used: {used_gb:.2f} GB ({used_percent:.1f}%)"
+                    )
+                    error_logger.error(f"  - Free: {free_gb:.2f} GB")
+                except Exception as disk_err:
+                    error_logger.error(
+                        f"Could not get disk usage for {path_name} ({path}): {disk_err}"
+                    )
+
+        # Get CPU information
+        cpu_percent = psutil.cpu_percent(interval=1)
+        cpu_count = psutil.cpu_count()
+        error_logger.error(f"CPU usage: {cpu_percent:.1f}% (cores: {cpu_count})")
+
+        # Log file information if provided
+        if input_file or output_file or src_win:
+            error_logger.error("File/operation details:")
+
+            if input_file:
+                error_logger.error(f"  - Input file: {input_file}")
+                try:
+                    input_path = Path(input_file)
+                    if input_path.exists():
+                        file_size = input_path.stat().st_size / (1024**2)  # MB
+                        error_logger.error(f"  - Input file size: {file_size:.2f} MB")
+                    else:
+                        error_logger.error(f"  - Input file does not exist")
+                except Exception as file_err:
+                    error_logger.error(f"  - Could not get input file info: {file_err}")
+
+            if output_file:
+                error_logger.error(f"  - Output file: {output_file}")
+
+            if src_win:
+                error_logger.error(
+                    f"  - Source window (x_off, y_off, x_size, y_size): {src_win}"
+                )
+
+    except ImportError:
+        error_logger.error(
+            "psutil not available - cannot gather system resource information"
+        )
+    except Exception as resource_err:
+        error_logger.error(
+            f"Could not gather system resource information: {resource_err}"
+        )
+
+
 @marshmallow_dataclass.dataclass
 class ImageInfo:
     x_size: int

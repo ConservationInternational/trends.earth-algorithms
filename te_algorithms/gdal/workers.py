@@ -248,6 +248,14 @@ def _cut_tiles_multiprocess(n_cpus, params):
 
     except Exception as e:
         logger.error(f"Multiprocessing failed: {e}")
+
+        # Log system resource information for debugging GDAL errors
+        util.log_system_resources(
+            context_message="Memory and disk usage at time of GDAL multiprocessing error",
+            error_logger=logger,
+            input_file=params[0].in_file if params and len(params) > 0 else None,
+        )
+
         raise
 
     logger.info(
@@ -276,36 +284,45 @@ def _cut_tiles_sequential(params):
 
 
 def cut_tile(params):
-    logger.debug(
-        "Starting tile %s", str(params.out_file)
-    )  # Reduced to debug level for less verbose output
-    # Optimize GDAL memory usage for faster processing
-    gdal.SetConfigOption(
-        "GDAL_CACHEMAX", "1024"
-    )  # Increased cache for better performance
-    gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")  # Use all available threads
-    gdal.SetConfigOption(
-        "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR"
-    )  # Skip directory scanning
+    logger.debug("Starting tile %s", str(params.out_file))
+    #
+    gdal.SetConfigOption("GDAL_CACHEMAX", "1024")
+    gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
+    gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
 
-    res = gdal.Translate(
-        str(params.out_file),
-        str(params.in_file),
-        srcWin=params.src_win,
-        outputType=params.datatype,
-        resampleAlg=gdal.GRA_NearestNeighbour,
-        creationOptions=[
-            "BIGTIFF=IF_SAFER",  # Only use BIGTIFF when necessary
-            "COMPRESS=LZW",
-            "NUM_THREADS=ALL_CPUS",
-            "TILED=YES",
-            "BLOCKXSIZE=256",  # Smaller block size for faster I/O with smaller tiles
-            "BLOCKYSIZE=256",
-            "PREDICTOR=2",  # Better compression for integer data
-        ],
-        callback=params.progress_callback,
-        callback_data=[str(params.in_file), str(params.out_file)],
-    )
+    try:
+        res = gdal.Translate(
+            str(params.out_file),
+            str(params.in_file),
+            srcWin=params.src_win,
+            outputType=params.datatype,
+            resampleAlg=gdal.GRA_NearestNeighbour,
+            creationOptions=[
+                "BIGTIFF=IF_SAFER",  # Only use BIGTIFF when necessary
+                "COMPRESS=LZW",
+                "NUM_THREADS=ALL_CPUS",
+                "TILED=YES",
+                "BLOCKXSIZE=256",  # Smaller block size for faster I/O with smaller tiles
+                "BLOCKYSIZE=256",
+                "PREDICTOR=2",  # Better compression for integer data
+            ],
+            callback=params.progress_callback,
+            callback_data=[str(params.in_file), str(params.out_file)],
+        )
+    except Exception as gdal_error:
+        logger.error(f"GDAL Translate error for tile {params.out_file}: {gdal_error}")
+
+        # Log system resource information for debugging GDAL errors
+        util.log_system_resources(
+            context_message="Memory and disk usage at time of GDAL Translate error",
+            error_logger=logger,
+            input_file=str(params.in_file),
+            output_file=str(params.out_file),
+            src_win=params.src_win,
+        )
+
+        # Re-raise the original error
+        raise gdal_error
 
     logger.debug("Finished tile %s", str(params.out_file))  # Reduced to debug level
 
