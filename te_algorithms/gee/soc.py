@@ -129,6 +129,13 @@ def soc(
     # Reference all SOC calculations to the year 2000
     soc_t0_year = 2000
 
+    # Validate that the analysis period doesn't start before the SOC baseline year
+    if year_initial < soc_t0_year:
+        raise ValueError(
+            f"SOC analysis cannot start before the baseline year {soc_t0_year}. "
+            f"Provided year_initial is {year_initial}. Please use year_initial >= {soc_t0_year}."
+        )
+
     # First band in the LC layer stack is 1992
     lc_band0_year = 1992
 
@@ -402,6 +409,13 @@ def soc_deg(
 
     # Reference all SOC calculations to the year 2000
     soc_t0_year = 2000
+
+    # Validate that the analysis period doesn't start before the SOC baseline year
+    if year_initial < soc_t0_year:
+        raise ValueError(
+            f"SOC analysis cannot start before the baseline year {soc_t0_year}. "
+            f"Provided year_initial is {year_initial}. Please use year_initial >= {soc_t0_year}."
+        )
 
     # First band in the LC layer stack is 1992
     lc_band0_year = 1992
