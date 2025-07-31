@@ -1466,7 +1466,7 @@ def get_bands_by_name(
     return [BandData(b[0], b[1]) for b in sorted_bands_and_indices]
 
 
-# This version drops the sort_property in favor fr filtering down to a single band based
+# This version drops the sort_property in favor of filtering down to a single band based
 # on metadata
 def get_band_by_name(
     job: jobs.Job, band_name: str, filters: Union[None, List[Dict]] = None
