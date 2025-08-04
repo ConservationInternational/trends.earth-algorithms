@@ -1496,11 +1496,13 @@ def get_band_by_name(
 
     if len(bands_and_indices) == 0:
         raise Exception(
-            f"no bands found when filtering for {band_name} with {filters} "
+            f"no bands found when filtering job {job.id} "
+            f"for {band_name} with {filters} "
         )
     elif len(bands_and_indices) > 1:
         raise Exception(
-            f"multiple bands found when filtering for {band_name} with {filters} "
+            f"multiple bands found when filtering job {job.id} "
+            f"for {band_name} with {filters} "
         )
     else:
         return BandData(*bands_and_indices[0])
