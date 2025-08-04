@@ -616,8 +616,8 @@ class Rasterize:
             # Assumes an image with no rotation
             ds = gdal.Open(self.model_file)
             gt = ds.GetGeoTransform()
-            x_res = gt[1]
-            y_res = gt[5]
+            x_res = abs(gt[1])  # Use absolute value for resolution
+            y_res = abs(gt[5])  # Use absolute value for resolution
             output_bounds = _get_bounding_box(ds)
         else:
             output_bounds = None
