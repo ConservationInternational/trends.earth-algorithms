@@ -148,6 +148,7 @@ def get_serialized_results(st, layer_name):
 
 
 def recode_errors(params) -> Job:
+    logger.debug("Entering recode_errors")
     aoi = AOI.Schema().load(params["aoi"])
     job_output_path = Path(params["output_path"])
     sdg_df = _prepare_df(
@@ -161,10 +162,12 @@ def recode_errors(params) -> Job:
         params["layer_error_recode_band"],
         params["layer_error_recode_band_index"],
     )
+    logger.debug("Loading error polygons")
     error_polygons = ErrorRecodePolygons.Schema().load(params["error_polygons"])
 
     input_band = Band.Schema().load(params["layer_input_band"])
 
+    logger.debug("Running _compute_error_recode")
     summary_table, error_recode_paths = _compute_error_recode(
         sdg_df=sdg_df,
         error_recode_df=error_recode_df,
