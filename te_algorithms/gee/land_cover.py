@@ -15,12 +15,12 @@ def _select_lc(lc, year, logger, fake_data=False):
     except EEException:
         if year < LAND_COVER_INITIAL_YEAR and fake_data:
             image = lc.select(f"y{LAND_COVER_INITIAL_YEAR}")
-            logger.warn(
+            logger.warning(
                 f"Could not select year {year} from land cover asset. Returning data from {LAND_COVER_INITIAL_YEAR}."
             )
         elif year > LAND_COVER_FINAL_YEAR and fake_data:
             image = lc.select(f"y{LAND_COVER_FINAL_YEAR}")
-            logger.warn(
+            logger.warning(
                 f"Could not select year {year} from land cover asset. Returning data from {LAND_COVER_FINAL_YEAR}."
             )
     return image
@@ -122,19 +122,19 @@ def land_cover(
     filtered_years = []
     for year in additional_years:
         if year == year_initial or year == year_final:
-            logger.warn(
+            logger.warning(
                 f"Year {year} is already included as initial or final year. Skipping."
             )
         elif year < LAND_COVER_INITIAL_YEAR or year > LAND_COVER_FINAL_YEAR:
             if fake_data:
                 filtered_years.append(year)
-                logger.warn(
+                logger.warning(
                     f"Year {year} is outside of available land cover data range "
                     f"({LAND_COVER_INITIAL_YEAR}-{LAND_COVER_FINAL_YEAR}) "
                     "Including it anyway because fake_data=True."
                 )
             else:
-                logger.warn(
+                logger.warning(
                     f"Year {year} is outside of available land cover data range. Skipping."
                 )
         else:

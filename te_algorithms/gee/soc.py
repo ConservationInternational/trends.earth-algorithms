@@ -99,7 +99,7 @@ def _select_lc(soc_t0_year, lc_band0_year, year_final, fake_data, logger):
             if index <= 30 or not fake_data:
                 img = img.addBands(lc.select(index))
             else:
-                logger.warn(
+                logger.warning(
                     f"Could not select year {lc_band0_year + index} from land cover asset "
                     "for SOC calculations. Returning data from 2022."
                 )
