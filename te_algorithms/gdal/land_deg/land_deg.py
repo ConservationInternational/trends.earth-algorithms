@@ -929,8 +929,7 @@ def _process_block_summary(
     lc_trans_zonal_areas_periods = [lc_deg_band_period]
 
     # Productivity data might be calculated over a different period than the
-    # land cover degradation data. If this is the case, and land cover layers
-    # are available for the years actually used for productivity, then create
+    # land cover degradation data. If this is the case, then create
     # an array of land cover transition that can be used for productivity, and
     # call that a_lc_trans_prod_deg
     soc_deg_band_period = params.periods["soc"]
@@ -938,14 +937,26 @@ def _process_block_summary(
 
     if prod_deg_band_period == lc_deg_band_period:
         a_lc_trans_prod_deg = a_lc_trans_lc_deg
-    elif (
-        prod_deg_band_period["year_initial"] in lc_years_set
-        and prod_deg_band_period["year_final"] in lc_years_set
-    ):
-        prod_deg_initial_cover_row = lc_year_to_row[
-            prod_deg_band_period["year_initial"]
-        ]
-        prod_deg_final_cover_row = lc_year_to_row[prod_deg_band_period["year_final"]]
+    else:
+        # Find the closest available land cover years to productivity period
+        closest_initial_year = min(
+            lc_years_set, key=lambda x: abs(x - prod_deg_band_period["year_initial"])
+        )
+        closest_final_year = min(
+            lc_years_set, key=lambda x: abs(x - prod_deg_band_period["year_final"])
+        )
+        logger.debug(
+            "Closest initial year for productivity: %s, final year: %s",
+            closest_initial_year,
+            closest_final_year,
+        )
+        assert closest_initial_year < closest_final_year, (
+            f"Initial year {closest_initial_year} must be before final year "
+            f"{closest_final_year} for productivity period {prod_deg_band_period}"
+        )
+        prod_deg_initial_cover_row = lc_year_to_row[closest_initial_year]
+        prod_deg_final_cover_row = lc_year_to_row[closest_final_year]
+
         a_lc_trans_prod_deg = calc_lc_trans(
             in_array[prod_deg_initial_cover_row, :, :],
             in_array[prod_deg_final_cover_row, :, :],
@@ -955,8 +966,7 @@ def _process_block_summary(
         )
         lc_trans_arrays.append(a_lc_trans_prod_deg)
         lc_trans_zonal_areas_periods.append(prod_deg_band_period)
-    else:
-        a_lc_trans_prod_deg = None
+
     # Soil organic carbon data also might be calculated over a different period
     # than the land cover degradation data. Similar to what was done for
     # productivity, if this is the case create an array of land cover
@@ -1016,8 +1026,8 @@ def _process_block_summary(
             a_lc_trans_prod_deg, deg_prod5, cell_areas, mask
         )
     else:
-        # If no land cover data is available for first year of productivity
-        # data, then can't do this bizonal total
+        # If no land cover data is available for first or last year of
+        # productivity data, then can't do this bizonal total
         lc_trans_prod_bizonal = {}
 
     lc_annual_totals = []
