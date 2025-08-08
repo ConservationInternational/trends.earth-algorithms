@@ -48,7 +48,7 @@ def log_system_resources(
 
         # Get memory information
         memory = psutil.virtual_memory()
-        error_logger.error(f"Memory usage:")
+        error_logger.error("Memory usage:")
         error_logger.error(f"  - Total memory: {memory.total / (1024**3):.2f} GB")
         error_logger.error(
             f"  - Available memory: {memory.available / (1024**3):.2f} GB"
@@ -105,7 +105,7 @@ def log_system_resources(
                         file_size = input_path.stat().st_size / (1024**2)  # MB
                         error_logger.error(f"  - Input file size: {file_size:.2f} MB")
                     else:
-                        error_logger.error(f"  - Input file does not exist")
+                        error_logger.error("  - Input file does not exist")
                 except Exception as file_err:
                     error_logger.error(f"  - Could not get input file info: {file_err}")
 

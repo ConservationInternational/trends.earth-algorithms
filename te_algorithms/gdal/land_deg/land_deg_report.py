@@ -151,10 +151,10 @@ def save_reporting_json(
         # Productivity tables
         lc_trans_dict = lc_trans_matrix.get_transition_integers_key()
 
-        crosstab_prod = []
         # If no land cover data was available for first year of productivity
         # data, then won't be able to output these tables, so need to check
         # first if data is available
+        crosstab_prod = []
 
         if len([*st.lc_trans_prod_bizonal.keys()]) > 0:
             for prod_name, prod_code in config.PRODUCTIVITY_CLASS_KEY.items():
@@ -189,6 +189,11 @@ def save_reporting_json(
                         values=crosstab_entries,
                     )
                 )
+        else:
+            logger.warning(
+                "No bizonal statistics found for productivity data, "
+                "so no productivity crosstabs will be generated."
+            )
 
         #######################################################################
         # Land cover tables
