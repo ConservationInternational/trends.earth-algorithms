@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import tarfile
 import tempfile
 import time
