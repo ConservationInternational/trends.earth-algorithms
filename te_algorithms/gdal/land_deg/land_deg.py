@@ -736,23 +736,16 @@ def summarise_land_degradation(
             else:
                 logger.warning("VRT file %d does not exist: %s", i + 1, vrt_path)
 
-        vrt_start = time.time()
         util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
-        vrt_time = time.time() - vrt_start
 
-        datafile_start = time.time()
         out_df = combine_data_files(overall_vrt_path, period_dfs)
         out_df.path = overall_vrt_path.name
-        datafile_time = time.time() - datafile_start
 
-        json_start = time.time()
         # Also save bands to a key file for ease of use in PRAIS
         key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
         with open(key_json, "w") as f:
             json.dump(DataFile.Schema().dump(out_df), f, indent=4)
-        json_time = time.time() - json_start
 
-        report_start = time.time()
         summary_json_output_path = (
             job_output_path.parent / f"{job_output_path.stem}_summary.json"
         )
@@ -766,9 +759,7 @@ def summarise_land_degradation(
             aoi,
             summary_table_stable_kwargs,
         )
-        report_time = time.time() - report_start
 
-        results_start = time.time()
         results = RasterResults(
             name="land_condition_summary",
             uri=URI(uri=overall_vrt_path),
@@ -782,7 +773,6 @@ def summarise_land_degradation(
             },
             data={"report": report_json},
         )
-        results_time = time.time() - results_start
 
         total_finalization_time = time.time() - finalization_start_time
         logger.info(
