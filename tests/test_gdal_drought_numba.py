@@ -6,11 +6,9 @@ processing Standardized Precipitation Index (SPI) and drought vulnerability data
 """
 
 import numpy as np
-import pytest
 
 from te_algorithms.gdal.drought_numba import (
     NODATA_VALUE,
-    MASK_VALUE,
     drought_class,
     jrc_sum_and_count,
     jrc_dvi_class,

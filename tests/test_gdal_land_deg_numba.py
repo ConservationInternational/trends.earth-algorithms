@@ -6,11 +6,9 @@ used for processing land cover, productivity, and soil organic carbon data.
 """
 
 import numpy as np
-import pytest
 
 from te_algorithms.gdal.land_deg.land_deg_numba import (
     NODATA_VALUE,
-    MASK_VALUE,
     recode_indicator_errors,
     recode_traj,
     recode_state,
@@ -117,16 +115,15 @@ class TestRecodeState:
     
     def test_recode_state_basic(self):
         """Test basic state recoding."""
-        # Test values representing state classes
-        x = np.array([[-15, -5, -3, -2, -1, 0, 1, 2, 3, 5]], dtype=np.int16)
+        # Test individual values rather than arrays to avoid ambiguity
+        x_single = np.array([[-15]], dtype=np.int16)
+        result_single = recode_state(x_single)
         
-        result = recode_state(x)
-        
-        # Test basic properties rather than specific logic
-        assert result.shape == x.shape
-        assert result.dtype == np.int16
+        # Test basic properties
+        assert result_single.shape == x_single.shape
+        assert result_single.dtype == np.int16
         # Values <= -10 should become NODATA
-        assert result[0] == NODATA_VALUE[0]  # -15 -> NODATA
+        assert result_single[0, 0] == NODATA_VALUE[0]  # -15 -> NODATA
         
     def test_recode_state_preserves_shape(self):
         """Test that recoding preserves array shape."""

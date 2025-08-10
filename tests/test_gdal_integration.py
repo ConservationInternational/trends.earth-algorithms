@@ -6,7 +6,6 @@ ensuring they work together correctly for land degradation analysis workflows.
 """
 
 import numpy as np
-import pytest
 
 from te_algorithms.gdal.util_numba import (
     NODATA_VALUE as UTIL_NODATA,
@@ -35,7 +34,6 @@ from te_algorithms.gdal.drought_numba import (
 from te_algorithms.gdal.land_deg.config import (
     NODATA_VALUE as CONFIG_NODATA,
     MASK_VALUE as CONFIG_MASK,
-    PRODUCTIVITY_CLASS_KEY,
 )
 
 
