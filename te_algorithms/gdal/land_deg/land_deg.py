@@ -481,7 +481,7 @@ def summarise_land_degradation(
 
     # Estimate memory per CPU core needed (rough heuristic)
     memory_per_core_gb = 4.0  # Conservative estimate for raster processing
-    max_cpus_by_memory = int(available_memory_gb / memory_per_core_gb)
+    max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_core_gb))
 
     # Use the minimum of requested CPUs and memory-constrained CPUs
     effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
