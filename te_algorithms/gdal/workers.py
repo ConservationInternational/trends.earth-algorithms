@@ -140,7 +140,7 @@ def _get_tile_size(
         # More aggressive memory usage: 1GB per CPU for faster processing
         memory_per_cpu_gb = 1.0
         max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_cpu_gb))
-        effective_cpus = min(n_cpus, max_cpus_by_memory)
+        effective_cpus = max(1, min(n_cpus, max_cpus_by_memory))
         if effective_cpus < n_cpus:
             logger.info(
                 f"Memory-limited: using {effective_cpus} CPUs instead of {n_cpus}"
