@@ -5,14 +5,20 @@ This module tests the numba-optimized drought analysis functions used for
 processing Standardized Precipitation Index (SPI) and drought vulnerability data.
 """
 
-import numpy as np
+import pytest
 
-from te_algorithms.gdal.drought_numba import (
-    NODATA_VALUE,
-    drought_class,
-    jrc_sum_and_count,
-    jrc_dvi_class,
-)
+# Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
+np = pytest.importorskip("numpy")
+
+try:
+    from te_algorithms.gdal.drought_numba import (
+        NODATA_VALUE,
+        drought_class,
+        jrc_sum_and_count,
+        jrc_dvi_class,
+    )
+except ImportError:
+    pytest.skip("te_algorithms.gdal modules require numpy and GDAL dependencies", allow_module_level=True)
 
 
 class TestDroughtClass:

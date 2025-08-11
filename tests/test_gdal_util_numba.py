@@ -6,21 +6,27 @@ raster data processing and analysis without requiring GDAL installation.
 """
 
 import math
-import numpy as np
+import pytest
 
-from te_algorithms.gdal.util_numba import (
-    NODATA_VALUE,
-    MASK_VALUE,
-    slice_area,
-    calc_cell_area,
-    zonal_total,
-    zonal_total_weighted,
-    bizonal_total,
-    _accumulate_dicts,
-    _combine_dicts,
-    cast_numba_int_dict_to_cpython,
-    cast_numba_int_dict_list_to_cpython,
-)
+# Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
+np = pytest.importorskip("numpy")
+
+try:
+    from te_algorithms.gdal.util_numba import (
+        NODATA_VALUE,
+        MASK_VALUE,
+        slice_area,
+        calc_cell_area,
+        zonal_total,
+        zonal_total_weighted,
+        bizonal_total,
+        _accumulate_dicts,
+        _combine_dicts,
+        cast_numba_int_dict_to_cpython,
+        cast_numba_int_dict_list_to_cpython,
+    )
+except ImportError:
+    pytest.skip("te_algorithms.gdal modules require numpy and GDAL dependencies", allow_module_level=True)
 
 
 class TestSliceArea:

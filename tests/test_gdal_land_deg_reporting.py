@@ -5,7 +5,10 @@ This module tests the land degradation reporting, progress calculation, and summ
 functions used for generating reports and tracking land degradation status over time.
 """
 
-import numpy as np
+import pytest
+
+# Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
+np = pytest.importorskip("numpy")
 
 # Import te_schemas classes directly (no mocking)
 try:
@@ -18,19 +21,22 @@ except ImportError:
     TE_SCHEMAS_AVAILABLE = False
 
 # Import functions from land_deg_numba that are computational and don't require schemas
-from te_algorithms.gdal.land_deg.land_deg_numba import (
-    NODATA_VALUE,
-    calc_deg_sdg,
-    sdg_status_expanded,
-    sdg_status_expanded_to_simple,
-    calc_lc_trans,
-    calc_prod5,
-    prod5_to_prod3,
-    recode_deg_soc,
-    recode_indicator_errors,
-    recode_state,
-    recode_traj,
-)
+try:
+    from te_algorithms.gdal.land_deg.land_deg_numba import (
+        NODATA_VALUE,
+        calc_deg_sdg,
+        sdg_status_expanded,
+        sdg_status_expanded_to_simple,
+        calc_lc_trans,
+        calc_prod5,
+        prod5_to_prod3,
+        recode_deg_soc,
+        recode_indicator_errors,
+        recode_state,
+        recode_traj,
+    )
+except ImportError:
+    pytest.skip("te_algorithms.gdal modules require numpy and GDAL dependencies", allow_module_level=True)
 
 # Test helper functions that can be implemented without external dependencies
 def _get_population_list_by_degradation_class(pop_by_deg_class, pop_type):

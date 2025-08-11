@@ -5,36 +5,42 @@ This module tests the integration between different GDAL components,
 ensuring they work together correctly for land degradation analysis workflows.
 """
 
-import numpy as np
+import pytest
 
-from te_algorithms.gdal.util_numba import (
-    NODATA_VALUE as UTIL_NODATA,
-    MASK_VALUE as UTIL_MASK,
-    calc_cell_area,
-    zonal_total,
-    zonal_total_weighted,
-    bizonal_total,
-)
-from te_algorithms.gdal.land_deg.land_deg_numba import (
-    NODATA_VALUE as LD_NODATA,
-    MASK_VALUE as LD_MASK,
-    recode_traj,
-    recode_state,
-    calc_deg_sdg,
-    prod5_to_prod3,
-    calc_lc_trans,
-    calc_prod5,
-    sdg_status_expanded,
-)
-from te_algorithms.gdal.drought_numba import (
-    NODATA_VALUE as DROUGHT_NODATA,
-    drought_class,
-    jrc_sum_and_count,
-)
-from te_algorithms.gdal.land_deg.config import (
-    NODATA_VALUE as CONFIG_NODATA,
-    MASK_VALUE as CONFIG_MASK,
-)
+# Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
+np = pytest.importorskip("numpy")
+
+try:
+    from te_algorithms.gdal.util_numba import (
+        NODATA_VALUE as UTIL_NODATA,
+        MASK_VALUE as UTIL_MASK,
+        calc_cell_area,
+        zonal_total,
+        zonal_total_weighted,
+        bizonal_total,
+    )
+    from te_algorithms.gdal.land_deg.land_deg_numba import (
+        NODATA_VALUE as LD_NODATA,
+        MASK_VALUE as LD_MASK,
+        recode_traj,
+        recode_state,
+        calc_deg_sdg,
+        prod5_to_prod3,
+        calc_lc_trans,
+        calc_prod5,
+        sdg_status_expanded,
+    )
+    from te_algorithms.gdal.drought_numba import (
+        NODATA_VALUE as DROUGHT_NODATA,
+        drought_class,
+        jrc_sum_and_count,
+    )
+    from te_algorithms.gdal.land_deg.config import (
+        NODATA_VALUE as CONFIG_NODATA,
+        MASK_VALUE as CONFIG_MASK,
+    )
+except ImportError:
+    pytest.skip("te_algorithms.gdal modules require numpy and GDAL dependencies", allow_module_level=True)
 
 
 class TestConstantConsistency:

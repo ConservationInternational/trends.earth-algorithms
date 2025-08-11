@@ -5,34 +5,40 @@ This module tests the configuration constants and settings used for
 land degradation analysis.
 """
 
-import numpy as np
+import pytest
 
-from te_algorithms.gdal.land_deg.config import (
-    NODATA_VALUE,
-    MASK_VALUE,
-    SDG_BAND_NAME,
-    SDG_STATUS_BAND_NAME,
-    PROD_STATUS_BAND_NAME,
-    LC_STATUS_BAND_NAME,
-    SOC_STATUS_BAND_NAME,
-    ERROR_RECODE_BAND_NAME,
-    PROD_DEG_COMPARISON_BAND_NAME,
-    JRC_LPD_BAND_NAME,
-    FAO_WOCAT_LPD_BAND_NAME,
-    TE_LPD_BAND_NAME,
-    TRAJ_BAND_NAME,
-    PERF_BAND_NAME,
-    STATE_BAND_NAME,
-    LC_DEG_BAND_NAME,
-    LC_DEG_COMPARISON_BAND_NAME,
-    LC_BAND_NAME,
-    LC_TRANS_BAND_NAME,
-    SOC_DEG_BAND_NAME,
-    SOC_BAND_NAME,
-    POPULATION_BAND_NAME,
-    POP_AFFECTED_BAND_NAME,
-    PRODUCTIVITY_CLASS_KEY,
-)
+# Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
+np = pytest.importorskip("numpy")
+
+try:
+    from te_algorithms.gdal.land_deg.config import (
+        NODATA_VALUE,
+        MASK_VALUE,
+        SDG_BAND_NAME,
+        SDG_STATUS_BAND_NAME,
+        PROD_STATUS_BAND_NAME,
+        LC_STATUS_BAND_NAME,
+        SOC_STATUS_BAND_NAME,
+        ERROR_RECODE_BAND_NAME,
+        PROD_DEG_COMPARISON_BAND_NAME,
+        JRC_LPD_BAND_NAME,
+        FAO_WOCAT_LPD_BAND_NAME,
+        TE_LPD_BAND_NAME,
+        TRAJ_BAND_NAME,
+        PERF_BAND_NAME,
+        STATE_BAND_NAME,
+        LC_DEG_BAND_NAME,
+        LC_DEG_COMPARISON_BAND_NAME,
+        LC_BAND_NAME,
+        LC_TRANS_BAND_NAME,
+        SOC_DEG_BAND_NAME,
+        SOC_BAND_NAME,
+        POPULATION_BAND_NAME,
+        POP_AFFECTED_BAND_NAME,
+        PRODUCTIVITY_CLASS_KEY,
+    )
+except ImportError:
+    pytest.skip("te_algorithms.gdal modules require numpy and GDAL dependencies", allow_module_level=True)
 
 
 class TestConstants:

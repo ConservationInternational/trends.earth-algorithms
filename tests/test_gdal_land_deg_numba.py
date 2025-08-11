@@ -5,21 +5,27 @@ This module tests the numba-optimized land degradation calculation functions
 used for processing land cover, productivity, and soil organic carbon data.
 """
 
-import numpy as np
+import pytest
 
-from te_algorithms.gdal.land_deg.land_deg_numba import (
-    NODATA_VALUE,
-    recode_indicator_errors,
-    recode_traj,
-    recode_state,
-    recode_deg_soc,
-    calc_deg_sdg,
-    sdg_status_expanded,
-    sdg_status_expanded_to_simple,
-    prod5_to_prod3,
-    calc_lc_trans,
-    calc_prod5,
-)
+# Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
+np = pytest.importorskip("numpy")
+
+try:
+    from te_algorithms.gdal.land_deg.land_deg_numba import (
+        NODATA_VALUE,
+        recode_indicator_errors,
+        recode_traj,
+        recode_state,
+        recode_deg_soc,
+        calc_deg_sdg,
+        sdg_status_expanded,
+        sdg_status_expanded_to_simple,
+        prod5_to_prod3,
+        calc_lc_trans,
+        calc_prod5,
+    )
+except ImportError:
+    pytest.skip("te_algorithms.gdal modules require numpy and GDAL dependencies", allow_module_level=True)
 
 
 class TestRecodeIndicatorErrors:

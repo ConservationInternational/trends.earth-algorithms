@@ -7,7 +7,10 @@ analyzing degradation indicators across different spatial units and geometries.
 
 import unittest
 from unittest.mock import Mock, patch
-import numpy as np
+import pytest
+
+# Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
+np = pytest.importorskip("numpy")
 
 # Import te_schemas classes directly (no mocking)
 try:
@@ -18,18 +21,21 @@ except ImportError:
     from unittest.mock import Mock
     TE_SCHEMAS_AVAILABLE = False
 
-# Mock GDAL and te_schemas before importing the module under test
-with patch.dict('sys.modules', {
-    'osgeo': Mock(),
-    'osgeo.gdal': Mock(),
-    'osgeo.ogr': Mock(),
-    'te_schemas': Mock(),
-    'te_schemas.jobs': Mock(),
-    'te_schemas.results': Mock()
-}):
-    # Import the module under test
-    from te_algorithms.gdal.land_deg import land_deg_stats
-    from te_algorithms.gdal.land_deg import config
+try:
+    # Mock GDAL and te_schemas before importing the module under test
+    with patch.dict('sys.modules', {
+        'osgeo': Mock(),
+        'osgeo.gdal': Mock(),
+        'osgeo.ogr': Mock(),
+        'te_schemas': Mock(),
+        'te_schemas.jobs': Mock(),
+        'te_schemas.results': Mock()
+    }):
+        # Import the module under test
+        from te_algorithms.gdal.land_deg import land_deg_stats
+        from te_algorithms.gdal.land_deg import config
+except ImportError:
+    pytest.skip("te_algorithms.gdal modules require numpy and GDAL dependencies", allow_module_level=True)
 
 
 class TestLandDegStats(unittest.TestCase):
