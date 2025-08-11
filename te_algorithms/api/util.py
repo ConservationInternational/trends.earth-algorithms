@@ -365,7 +365,6 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
                         estimated_size_mb = 0  # Default value if band analysis fails
 
                     # Check VRT sources to see if they're accessible
-                    vrt_sources = []
                     for i in range(min(3, ds.RasterCount)):
                         band = ds.GetRasterBand(i + 1)
                         if band:
@@ -395,9 +394,6 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
                 logger.warning(f"Error reading VRT info: {e}")
     except Exception as e:
         logger.warning(f"Error getting file info: {e}")
-
-    # Check output directory
-    out_path = Path(out_file)
 
     gdal.UseExceptions()
 
@@ -579,7 +575,6 @@ def write_to_cog_chunked(
     logger.info(
         f"Converting {in_file} to COG format using chunked processing: {out_file}"
     )
-    start_time = time.time()
 
     try:
         # Open input dataset to get dimensions
@@ -750,7 +745,7 @@ def choose_optimal_cog_conversion(
                     ds = None
                 else:
                     file_size_mb = 0
-            except:
+            except Exception:
                 file_size_mb = 0
 
         logger.info(f"Estimated dataset size: {file_size_mb:.1f} MB")

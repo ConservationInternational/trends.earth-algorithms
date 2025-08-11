@@ -1,7 +1,6 @@
 import logging
 import multiprocessing
 import tempfile
-import threading
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -379,12 +378,6 @@ def compute_status_summary(
             f"Processing {len(wkt_aois)} regions in parallel with {min(n_cpus, len(wkt_aois))} workers"
         )
 
-        # Check if we're in a thread to avoid deadlocks (similar to land_deg.py)
-        current_thread = threading.current_thread()
-        is_in_thread_pool = getattr(
-            current_thread, "_is_in_thread_pool", False
-        ) or current_thread.name.startswith("ThreadPoolExecutor")
-
         # Use multiprocessing with improved serialization handling
         # Pre-accumulate results in workers to reduce serialization overhead
         logger.info(
@@ -600,7 +593,7 @@ def compute_status_summary(
                         result[tuple_key] = v
                     else:
                         result[k] = v
-                except:
+                except Exception:
                     # If parsing fails, keep as string
                     result[k] = v
             else:
