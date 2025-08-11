@@ -83,10 +83,10 @@ def jrc_dvi_class(jrc):
     out = jrc.copy()
 
     out[jrc > 0] = 0
-    out[(jrc >= 0) & (jrc < 3930)] = 1
-    out[(jrc >= 3930) & (jrc < 4718)] = 2
-    out[(jrc >= 4718) & (jrc < 9270)] = 3
-    out[(jrc >= 9270) & (jrc < 1)] = 4
+    out[(jrc <= 0) & (jrc > -3930)] = 1
+    out[(jrc <= -3930) & (jrc > -4718)] = 2
+    out[(jrc <= -4718) & (jrc > -9270)] = 3
+    out[jrc <= -9270] = 4
 
     out[jrc == NODATA_VALUE] = NODATA_VALUE
 

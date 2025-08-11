@@ -70,7 +70,7 @@ class TestDroughtClass:
         
         expected = np.array([
             [NODATA_VALUE[0], 1, NODATA_VALUE[0]],
-            [4, NODATA_VALUE[0], 0]
+            [3, NODATA_VALUE[0], 0]
         ], dtype=np.int16)
         
         np.testing.assert_array_equal(result, expected)
