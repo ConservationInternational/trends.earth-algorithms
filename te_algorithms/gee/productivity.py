@@ -635,7 +635,6 @@ def productivity_faowocat(
             try:
                 return ndvi_dataset.select(f"y{year}").rename(f"y{year}")
             except Exception:
-                # Missing requested year -> masked placeholder
                 return ee.Image.constant(-32768).rename(f"y{year}").updateMask(ee.Image(0))
         else:
             year_bands = [bn for bn in band_names if bn.startswith(f"d{year}_")]
@@ -652,7 +651,6 @@ def productivity_faowocat(
     def _annual_mean(ic_img, years):
         images = []
         # Supports both yYYYY and dYYYY_* inputs; after the conversion above,
-        # we expect yYYYY, but keep this resilient.
         bnames = ic_img.bandNames().getInfo()
         for year in years:
             y_bands = [b for b in bnames if (f"d{year}_" in b)]
@@ -729,7 +727,7 @@ def productivity_faowocat(
         .where(init_mean.gt(high_biomass), 3)
     )
 
-    baseline_end = year_initial + max(15, (year_end - year_initial + 1)) - 1
+    baseline_end = year_end
     baseline_ic = annual_ic.filter(ee.Filter.lte("year", baseline_end)).select("NDVI")
     pct = baseline_ic.reduce(ee.Reducer.percentile([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]))
 
@@ -812,19 +810,14 @@ def productivity_faowocat(
         .rename("LPD")
     )
 
-    # ---- Productivity State diagram using `years_interval` window ----
-    # Follow the FAO-WOCAT diagram:
-    # baseline = [year_initial .. (year_final - years_interval)]
-    # target   = [(year_final - years_interval + 1) .. year_final]
+    # Productivity State diagram using `years_interval` window
     win = max(1, int(years_interval))
 
-    # Baseline runs from start to (final - interval), clamped to valid range
     bl_start = year_initial
     bl_end = max(year_initial, year_final - win)
 
-    # Target runs from (final - interval + 1) to final, clamped and non-overlapping
     tg_end = year_final
-    tg_start = max(bl_end + 1, year_final - win + 1)
+    tg_start = max(year_initial, year_final - win)
 
     ndvi_1yr = ndvi_dataset
 
