@@ -635,12 +635,20 @@ def productivity_faowocat(
             try:
                 return ndvi_dataset.select(f"y{year}").rename(f"y{year}")
             except Exception:
-                return ee.Image.constant(-32768).rename(f"y{year}").updateMask(ee.Image(0))
+                return (
+                    ee.Image.constant(-32768).rename(f"y{year}").updateMask(ee.Image(0))
+                )
         else:
             year_bands = [bn for bn in band_names if bn.startswith(f"d{year}_")]
             if not year_bands:
-                return ee.Image.constant(-32768).rename(f"y{year}").updateMask(ee.Image(0))
-            return ndvi_dataset.select(year_bands).reduce(ee.Reducer.mean()).rename(f"y{year}")
+                return (
+                    ee.Image.constant(-32768).rename(f"y{year}").updateMask(ee.Image(0))
+                )
+            return (
+                ndvi_dataset.select(year_bands)
+                .reduce(ee.Reducer.mean())
+                .rename(f"y{year}")
+            )
 
     annual_years = list(range(year_initial, year_final + 1))
     if not has_annual or any(f"y{y}" not in band_names for y in annual_years):
@@ -655,12 +663,18 @@ def productivity_faowocat(
         for year in years:
             y_bands = [b for b in bnames if (f"d{year}_" in b)]
             if y_bands:
-                img = ic_img.select(y_bands).reduce(ee.Reducer.mean()).rename(f"y{year}")
+                img = (
+                    ic_img.select(y_bands).reduce(ee.Reducer.mean()).rename(f"y{year}")
+                )
             else:
                 try:
                     img = ic_img.select(f"y{year}").rename(f"y{year}")
                 except Exception:
-                    img = ee.Image.constant(-32768).rename(f"y{year}").updateMask(ee.Image(0))
+                    img = (
+                        ee.Image.constant(-32768)
+                        .rename(f"y{year}")
+                        .updateMask(ee.Image(0))
+                    )
             images.append(img.set({"year": year}))
         return ee.ImageCollection(images)
 
@@ -718,7 +732,10 @@ def productivity_faowocat(
         )
 
     init_mean = (
-        annual_ic.filter(ee.Filter.lte("year", year_initial + 2)).select("NDVI").mean().divide(10000)
+        annual_ic.filter(ee.Filter.lte("year", year_initial + 2))
+        .select("NDVI")
+        .mean()
+        .divide(10000)
     )
     init_biomass = (
         ee.Image(0)
@@ -729,7 +746,9 @@ def productivity_faowocat(
 
     baseline_end = year_end
     baseline_ic = annual_ic.filter(ee.Filter.lte("year", baseline_end)).select("NDVI")
-    pct = baseline_ic.reduce(ee.Reducer.percentile([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]))
+    pct = baseline_ic.reduce(
+        ee.Reducer.percentile([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+    )
 
     def _pct_class(mean_img):
         return (
@@ -746,8 +765,12 @@ def productivity_faowocat(
             .where(mean_img.gt(pct.select("NDVI_p90")), 10)
         )
 
-    t1_mean = annual_ic.filter(ee.Filter.lte("year", year_initial + 3)).select("NDVI").mean()
-    t2_mean = annual_ic.filter(ee.Filter.gte("year", year_end - 3)).select("NDVI").mean()
+    t1_mean = (
+        annual_ic.filter(ee.Filter.lte("year", year_initial + 3)).select("NDVI").mean()
+    )
+    t2_mean = (
+        annual_ic.filter(ee.Filter.gte("year", year_end - 3)).select("NDVI").mean()
+    )
     t1_class = _pct_class(t1_mean)
     t2_class = _pct_class(t2_mean)
 
@@ -799,7 +822,6 @@ def productivity_faowocat(
         {"a": steadiness, "b": init_biomass, "c": eme_state},
     )
 
-    # Map the 36 semi‑final classes to the 5 UNCCD “traffic‑light” classes
     final_lpd = (
         ee.Image(0)
         .where(semi.lte(8), 1)
@@ -810,7 +832,6 @@ def productivity_faowocat(
         .rename("LPD")
     )
 
-    # Productivity State diagram using `years_interval` window
     win = max(1, int(years_interval))
 
     bl_start = year_initial
@@ -821,20 +842,24 @@ def productivity_faowocat(
 
     ndvi_1yr = ndvi_dataset
 
-    bl_ndvi_range = ndvi_1yr.select(ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)])).reduce(
-        ee.Reducer.percentile([0, 100])
-    )
+    bl_ndvi_range = ndvi_1yr.select(
+        ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)])
+    ).reduce(ee.Reducer.percentile([0, 100]))
 
     bl_ndvi_ext = (
-        ndvi_1yr.select(ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)])).
-        addBands(
+        ndvi_1yr.select(ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)]))
+        .addBands(
             bl_ndvi_range.select("p0").subtract(
-                (bl_ndvi_range.select("p100").subtract(bl_ndvi_range.select("p0"))).multiply(0.05)
+                (
+                    bl_ndvi_range.select("p100").subtract(bl_ndvi_range.select("p0"))
+                ).multiply(0.05)
             )
-        ).
-        addBands(
+        )
+        .addBands(
             bl_ndvi_range.select("p100").add(
-                (bl_ndvi_range.select("p100").subtract(bl_ndvi_range.select("p0"))).multiply(0.05)
+                (
+                    bl_ndvi_range.select("p100").subtract(bl_ndvi_range.select("p0"))
+                ).multiply(0.05)
             )
         )
     )
@@ -842,11 +867,16 @@ def productivity_faowocat(
     percentiles = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     bl_ndvi_perc = bl_ndvi_ext.reduce(ee.Reducer.percentile(percentiles))
 
-    bl_ndvi_mean = ndvi_1yr.select(
-        ee.List(
-            [f"y{i}" for i in range(bl_start, bl_end + 1)])).reduce(ee.Reducer.mean()).rename(["ndvi"])
-    tg_ndvi_mean = ndvi_1yr.select(
-        ee.List([f"y{i}" for i in range(tg_start, tg_end + 1)])).reduce(ee.Reducer.mean()).rename(["ndvi"])
+    bl_ndvi_mean = (
+        ndvi_1yr.select(ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)]))
+        .reduce(ee.Reducer.mean())
+        .rename(["ndvi"])
+    )
+    tg_ndvi_mean = (
+        ndvi_1yr.select(ee.List([f"y{i}" for i in range(tg_start, tg_end + 1)]))
+        .reduce(ee.Reducer.mean())
+        .rename(["ndvi"])
+    )
 
     bl_classes = (
         ee.Image(-32768)
@@ -883,12 +913,15 @@ def productivity_faowocat(
     classes_chg = classes_chg.rename("Productivity_state_degradation")
     bl_classes = bl_classes.rename(f"Productivity_state_classes_{bl_start}-{bl_end}")
     tg_classes = tg_classes.rename(f"Productivity_state_classes_{tg_start}-{tg_end}")
-    bl_ndvi_mean = bl_ndvi_mean.rename(f"Productivity_state_NDVI_mean_{bl_start}-{bl_end}")
-    tg_ndvi_mean = tg_ndvi_mean.rename(f"Productivity_state_NDVI_mean_{tg_start}-{tg_end}")
+    bl_ndvi_mean = bl_ndvi_mean.rename(
+        f"Productivity_state_NDVI_mean_{bl_start}-{bl_end}"
+    )
+    tg_ndvi_mean = tg_ndvi_mean.rename(
+        f"Productivity_state_NDVI_mean_{tg_start}-{tg_end}"
+    )
 
     out_img = (
-        final_lpd
-        .addBands(classes_chg)
+        final_lpd.addBands(classes_chg)
         .addBands(bl_classes)
         .addBands(tg_classes)
         .addBands(bl_ndvi_mean)
@@ -899,7 +932,7 @@ def productivity_faowocat(
 
     band_infos = [
         BandInfo(
-            "Land Productivity Dynamics (FAO-WOCAT)",
+            "Land Productivity Dynamics (from FAO-WOCAT)",
             add_to_map=True,
             metadata={"year_initial": year_initial, "year_final": year_end},
         ),
