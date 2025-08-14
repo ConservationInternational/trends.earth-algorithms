@@ -595,34 +595,50 @@ def productivity_state(
 def productivity_faowocat(
     low_biomass=0.4,
     high_biomass=0.7,
-    years_interval=15,
+    years_interval=3,
     modis_mode="MannKendal + MTID",
     year_initial=2001,
+    year_final=2015,
     prod_asset=None,
     logger=None,
 ):
+    """Compute FAO‑WOCAT Land Productivity Dynamics (LPD) and the Productivity
+    State diagram in one call.
+
+    Notes:
+      * `year_final` is REQUIRED for the FAO‑WOCAT dynamics period.
+      * `years_interval` (default 3) controls the baseline/target windows used
+        for the Productivity State calculation.
+    """
     logger.debug("Entering productivity_faowocat function.")
 
     if prod_asset is None:
         raise GEEIOError("Must specify a prod_asset")
 
+    if year_final is None:
+        raise GEEIOError("Must specify 'year_final' for FAO-WOCAT dynamics")
+
     ndvi_dataset = ee.Image(prod_asset)
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
-    band_names = ndvi_dataset.bandNames().getInfo()
-    if not any(re.match(r"^y\d{4}$", bn) for bn in band_names):
-        years_available = sorted(
-            {int(m.group(1)) for bn in band_names if (m := re.match(r"^d(\d{4})_", bn))}
-        )
-        if not years_available:
-            raise GEEIOError(
-                "Input NDVI asset uses an unsupported band naming scheme; "
-                "expected either annual bands like 'y2003' or date bands "
-                "like 'd2003_07_12'."
-            )
 
-        def _annual_imgs_mean(year):
-            """Compute the mean NDVI for *year* and rename to 'yYYYY'."""
+    # Ensure we have annual bands yYYYY for the full [year_initial, year_final]
+    band_names = ndvi_dataset.bandNames().getInfo()
+    has_annual = any(re.match(r"^y\d{4}$", bn) for bn in band_names)
+
+    def _annual_imgs_mean(year):
+        """Compute mean NDVI for *year* and rename to 'yYYYY'. If the source
+        data are already annual, just pick that band; if they are daily/monthly
+        (e.g. 'dYYYY_MM_DD'), compute the yearly mean. If nothing exists for
+        that year, return a fully masked band named 'yYYYY'."""
+        if has_annual:
+            try:
+                return ndvi_dataset.select(f"y{year}").rename(f"y{year}")
+            except Exception:
+                return (
+                    ee.Image.constant(-32768).rename(f"y{year}").updateMask(ee.Image(0))
+                )
+        else:
             year_bands = [bn for bn in band_names if bn.startswith(f"d{year}_")]
             if not year_bands:
                 return (
@@ -634,46 +650,40 @@ def productivity_faowocat(
                 .rename(f"y{year}")
             )
 
-        annual_imgs = [_annual_imgs_mean(y) for y in years_available]
-        ndvi_dataset = ee.Image.cat(annual_imgs)
+    annual_years = list(range(year_initial, year_final + 1))
+    if not has_annual or any(f"y{y}" not in band_names for y in annual_years):
+        ndvi_dataset = ee.Image.cat([_annual_imgs_mean(y) for y in annual_years])
 
-    year_end = year_initial + years_interval - 1
+    year_end = year_final
 
-    if modis_mode is None:
-        modis_mode = "MannKendal + MTID"
-    modis_mode = modis_mode.strip()
-    if modis_mode not in ("MannKendal", "MannKendal + MTID"):
-        logger.warning(
-            "Unknown modis_mode '%s' – falling back to 'MannKendal + MTID'", modis_mode
-        )
-        modis_mode = "MannKendal + MTID"
-
-    years = list(range(year_initial, year_end + 1))
-
-    def _annual_mean(ndvi_dataset, years):
+    def _annual_mean(ic_img, years):
         images = []
+        # Supports both yYYYY and dYYYY_* inputs; after the conversion above,
+        bnames = ic_img.bandNames().getInfo()
         for year in years:
-            year_bands = [
-                b for b in ndvi_dataset.bandNames().getInfo() if (f"d{year}_" in b)
-            ]
-            if year_bands:
+            y_bands = [b for b in bnames if (f"d{year}_" in b)]
+            if y_bands:
                 img = (
-                    ndvi_dataset.select(year_bands)
-                    .reduce(ee.Reducer.mean())
-                    .rename(f"y{year}")
+                    ic_img.select(y_bands).reduce(ee.Reducer.mean()).rename(f"y{year}")
                 )
             else:
                 try:
-                    img = ndvi_dataset.select(f"y{year}").rename(f"y{year}")
+                    img = ic_img.select(f"y{year}").rename(f"y{year}")
                 except Exception:
-                    continue
+                    img = (
+                        ee.Image.constant(-32768)
+                        .rename(f"y{year}")
+                        .updateMask(ee.Image(0))
+                    )
             images.append(img.set({"year": year}))
         return ee.ImageCollection(images)
 
+    years = list(range(year_initial, year_end + 1))
     annual_ic = _annual_mean(ndvi_dataset, years).map(
         lambda img: img.rename("NDVI").set({"year": img.get("year")})
     )
 
+    # Trend + MK significance
     lf_trend, mk_trend = ndvi_trend(year_initial, year_end, ndvi_dataset, logger)
     period = year_end - year_initial + 1
     kendall_s = stats.get_kendall_coef(period, 95)
@@ -692,6 +702,15 @@ def productivity_faowocat(
 
     mtid = _mtid(annual_ic)
     mtid_code = ee.Image(0).where(mtid.lte(0), 1).where(mtid.gt(0), 2)
+
+    if modis_mode is None:
+        modis_mode = "MannKendal + MTID"
+    modis_mode = modis_mode.strip()
+    if modis_mode not in ("MannKendal", "MannKendal + MTID"):
+        logger.warning(
+            "Unknown modis_mode '%s' – falling back to 'MannKendal + MTID'", modis_mode
+        )
+        modis_mode = "MannKendal + MTID"
 
     if modis_mode == "MannKendal + MTID":
         steadiness = (
@@ -725,7 +744,7 @@ def productivity_faowocat(
         .where(init_mean.gt(high_biomass), 3)
     )
 
-    baseline_end = year_initial + max(15, years_interval) - 1
+    baseline_end = year_end
     baseline_ic = annual_ic.filter(ee.Filter.lte("year", baseline_end)).select("NDVI")
     pct = baseline_ic.reduce(
         ee.Reducer.percentile([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
@@ -803,30 +822,146 @@ def productivity_faowocat(
         {"a": steadiness, "b": init_biomass, "c": eme_state},
     )
 
-    # Map the 36 semi‑final classes (see FAO‑WOCAT matrix) to the 5 UNCCD
-    # “traffic‑light” classes so they line up with the updated colour matrix:
-    #   1–8   → Declining
-    #   9–14  → Moderate decline
-    #   15–21 → Stable but stressed
-    #   22–30 → Stable
-    #   31–36 → Improving
     final_lpd = (
         ee.Image(0)
-        .where(semi.lte(8), 1)  # 1‑8
-        .where(semi.gt(8).And(semi.lte(14)), 2)  # 9‑14
-        .where(semi.gt(14).And(semi.lte(21)), 3)  # 15‑21
-        .where(semi.gt(21).And(semi.lte(30)), 4)  # 22‑30
-        .where(semi.gt(30).And(semi.lte(36)), 5)  # 31‑36
+        .where(semi.lte(8), 1)
+        .where(semi.gt(8).And(semi.lte(14)), 2)
+        .where(semi.gt(14).And(semi.lte(21)), 3)
+        .where(semi.gt(21).And(semi.lte(30)), 4)
+        .where(semi.gt(30).And(semi.lte(36)), 5)
         .rename("LPD")
     )
 
-    return TEImage(
-        final_lpd.unmask(-32768).int16(),
-        [
-            BandInfo(
-                "Land Productivity Dynamics (FAO-WOCAT)",
-                add_to_map=True,
-                metadata={"year_initial": year_initial, "year_final": year_end},
+    win = max(1, int(years_interval))
+
+    bl_start = year_initial
+    bl_end = max(year_initial, year_final - win)
+
+    tg_end = year_final
+    tg_start = max(year_initial, year_final - win)
+
+    ndvi_1yr = ndvi_dataset
+
+    bl_ndvi_range = ndvi_1yr.select(
+        ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)])
+    ).reduce(ee.Reducer.percentile([0, 100]))
+
+    bl_ndvi_ext = (
+        ndvi_1yr.select(ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)]))
+        .addBands(
+            bl_ndvi_range.select("p0").subtract(
+                (
+                    bl_ndvi_range.select("p100").subtract(bl_ndvi_range.select("p0"))
+                ).multiply(0.05)
             )
-        ],
+        )
+        .addBands(
+            bl_ndvi_range.select("p100").add(
+                (
+                    bl_ndvi_range.select("p100").subtract(bl_ndvi_range.select("p0"))
+                ).multiply(0.05)
+            )
+        )
     )
+
+    percentiles = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    bl_ndvi_perc = bl_ndvi_ext.reduce(ee.Reducer.percentile(percentiles))
+
+    bl_ndvi_mean = (
+        ndvi_1yr.select(ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)]))
+        .reduce(ee.Reducer.mean())
+        .rename(["ndvi"])
+    )
+    tg_ndvi_mean = (
+        ndvi_1yr.select(ee.List([f"y{i}" for i in range(tg_start, tg_end + 1)]))
+        .reduce(ee.Reducer.mean())
+        .rename(["ndvi"])
+    )
+
+    bl_classes = (
+        ee.Image(-32768)
+        .where(bl_ndvi_mean.lte(bl_ndvi_perc.select("p10")), 1)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p10")), 2)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p20")), 3)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p30")), 4)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p40")), 5)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p50")), 6)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p60")), 7)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p70")), 8)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p80")), 9)
+        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p90")), 10)
+    )
+
+    tg_classes = (
+        ee.Image(-32768)
+        .where(tg_ndvi_mean.lte(bl_ndvi_perc.select("p10")), 1)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p10")), 2)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p20")), 3)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p30")), 4)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p40")), 5)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p50")), 6)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p60")), 7)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p70")), 8)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p80")), 9)
+        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p90")), 10)
+    )
+
+    classes_chg = tg_classes.subtract(bl_classes).where(
+        bl_ndvi_mean.subtract(tg_ndvi_mean).abs().lte(100), 0
+    )
+
+    classes_chg = classes_chg.rename("Productivity_state_degradation")
+    bl_classes = bl_classes.rename(f"Productivity_state_classes_{bl_start}-{bl_end}")
+    tg_classes = tg_classes.rename(f"Productivity_state_classes_{tg_start}-{tg_end}")
+    bl_ndvi_mean = bl_ndvi_mean.rename(
+        f"Productivity_state_NDVI_mean_{bl_start}-{bl_end}"
+    )
+    tg_ndvi_mean = tg_ndvi_mean.rename(
+        f"Productivity_state_NDVI_mean_{tg_start}-{tg_end}"
+    )
+
+    out_img = (
+        final_lpd.addBands(classes_chg)
+        .addBands(bl_classes)
+        .addBands(tg_classes)
+        .addBands(bl_ndvi_mean)
+        .addBands(tg_ndvi_mean)
+        .unmask(-32768)
+        .int16()
+    )
+
+    band_infos = [
+        BandInfo(
+            "Land Productivity Dynamics (from FAO-WOCAT)",
+            add_to_map=True,
+            metadata={"year_initial": year_initial, "year_final": year_end},
+        ),
+        BandInfo(
+            "Productivity state (degradation)",
+            add_to_map=True,
+            metadata={
+                "year_bl_start": bl_start,
+                "year_bl_end": bl_end,
+                "year_tg_start": tg_start,
+                "year_tg_end": tg_end,
+            },
+        ),
+        BandInfo(
+            "Productivity state classes",
+            metadata={"year_initial": bl_start, "year_final": bl_end},
+        ),
+        BandInfo(
+            "Productivity state classes",
+            metadata={"year_initial": tg_start, "year_final": tg_end},
+        ),
+        BandInfo(
+            "Productivity state NDVI mean",
+            metadata={"year_initial": bl_start, "year_final": bl_end},
+        ),
+        BandInfo(
+            "Productivity state NDVI mean",
+            metadata={"year_initial": tg_start, "year_final": tg_end},
+        ),
+    ]
+
+    return TEImage(out_img, band_infos)
