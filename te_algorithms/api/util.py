@@ -412,8 +412,6 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
     except Exception as e:
         logger.warning(f"Error getting file info: {e}")
 
-    # Check output directory
-
     gdal.UseExceptions()
 
     # Create a progress callback to track COG conversion progress with timeout
