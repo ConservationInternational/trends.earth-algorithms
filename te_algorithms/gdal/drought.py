@@ -615,22 +615,25 @@ def summarise_drought_vulnerability(
 ) -> Job:
     logger.debug("at top of summarise_drought_vulnerability")
 
-    # Adaptive CPU scaling based on data characteristics
-    import psutil
+    try:
+        # Adaptive CPU scaling based on data characteristics
+        import psutil
 
-    # Check available memory and adjust CPU count accordingly
-    available_memory_gb = psutil.virtual_memory().available / (1024**3)
+        # Check available memory and adjust CPU count accordingly
+        available_memory_gb = psutil.virtual_memory().available / (1024**3)
 
-    # Estimate memory per CPU core needed (rough heuristic)
-    memory_per_core_gb = 4.0  # Conservative estimate for raster processing
-    max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_core_gb))
+        # Estimate memory per CPU core needed (rough heuristic)
+        memory_per_core_gb = 4.0  # Conservative estimate for raster processing
+        max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_core_gb))
 
-    # Use the minimum of requested CPUs and memory-constrained CPUs
-    effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
-    logger.info(
-        f"Using {effective_n_cpus} CPUs (requested: {n_cpus}, "
-        f"memory-limited: {max_cpus_by_memory})"
-    )
+        # Use the minimum of requested CPUs and memory-constrained CPUs
+        effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
+        logger.info(
+            f"Using {effective_n_cpus} CPUs (requested: {n_cpus}, "
+            f"memory-limited: {max_cpus_by_memory})"
+        )
+    except ImportError:
+        effective_n_cpus = n_cpus
 
     params = drought_job.params
 
