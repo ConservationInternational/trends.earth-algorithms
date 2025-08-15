@@ -26,7 +26,6 @@ dependencies = [
     "marshmallow>=3.21.3,<4.0.0",
     "marshmallow-dataclass>=8.7.1",
     "defusedxml>=0.7.1",
-    "psutil>=5.9.0",
     "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git",
 ]
 dynamic = ["version"]

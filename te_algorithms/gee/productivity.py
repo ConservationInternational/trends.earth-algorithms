@@ -920,8 +920,28 @@ def productivity_faowocat(
         f"Productivity_state_NDVI_mean_{tg_start}-{tg_end}"
     )
 
+    signif_band_lpd = (
+        ee.Image(-32768)
+        .where(final_lpd.eq(1), -2)
+        .where(final_lpd.eq(2), -2)
+        .where(final_lpd.eq(3), 1)
+        .where(final_lpd.eq(4), 1)
+        .where(final_lpd.eq(5), 3)
+        .rename("Productivity_significance")
+    )
+
+    trend_band = (
+        ee.Image(-32768)
+        .where(final_lpd.eq(1).Or(final_lpd.eq(2)), -1)
+        .where(final_lpd.eq(3), 0)
+        .where(final_lpd.eq(4).Or(final_lpd.eq(5)), 1)
+        .rename("Productivity_trend")
+    )
+
     out_img = (
-        final_lpd.addBands(classes_chg)
+        trend_band.addBands(signif_band_lpd)
+        .addBands(final_lpd)
+        .addBands(classes_chg)
         .addBands(bl_classes)
         .addBands(tg_classes)
         .addBands(bl_ndvi_mean)
@@ -929,8 +949,17 @@ def productivity_faowocat(
         .unmask(-32768)
         .int16()
     )
-
     band_infos = [
+        BandInfo(
+            "Productivity trajectory (trend)",
+            add_to_map=True,
+            metadata={"year_initial": year_initial, "year_final": year_end},
+        ),
+        BandInfo(
+            "Productivity trajectory (significance)",
+            add_to_map=True,
+            metadata={"year_initial": year_initial, "year_final": year_end},
+        ),
         BandInfo(
             "Land Productivity Dynamics (from FAO-WOCAT)",
             add_to_map=True,
