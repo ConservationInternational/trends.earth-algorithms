@@ -75,7 +75,7 @@ def test_teimagev2_getImage_empty_name():
 def test_teimagev2_getImage_empty_filter_field():
     te_image = _get_TEImageV2("RasterResults_sdg-15-3-1-sub-indicators_1.json")
     with pytest.raises(AssertionError):
-        te_image.getImages("non-existing image", "field_name")
+        te_image.getImages("non-existing image", field="field_name")
 
 
 def test_teimagev2_getImage_correct_name():
