@@ -558,10 +558,12 @@ class TEImageV2:
             # make name_filter a length 1 list if it is a string
             name_filter = [name_filter]
 
+        if field:
+            assert field_filter is not None
+
         out = []
         for _, image in self.images.items():
             if field:
-                assert field_filter is not None
                 band_indices = [
                     i
                     for i, bi in enumerate(image.bands)
