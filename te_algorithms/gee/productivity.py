@@ -294,7 +294,7 @@ def productivity_performance(
             all_polys = [ee.Geometry(gj, opt_geodesic=False) for gj in all_geojsons]
             unified_poly = ee.Geometry.MultiPolygon(
                 [poly_temp.coordinates() for poly_temp in all_polys]
-            ).dissolve()
+            ).dissolve(maxError=1000)
             logger.debug("Unified geometry created successfully")
         except Exception as e:
             logger.warning(
@@ -452,7 +452,8 @@ def productivity_performance(
 
     try:
         # Get approximate area and pixel count for logging
-        area_sq_km = percentile_poly.area().divide(1000000).getInfo()
+        # Use error margin to handle geometry precision issues
+        area_sq_km = percentile_poly.area(maxError=1000).divide(1000000).getInfo()
         logger.debug(f"Processing area for percentiles: {area_sq_km:.2f} sq km")
 
         # Estimate pixel count
@@ -645,9 +646,7 @@ def productivity_performance(
         )
 
         if num_clusters > 100:
-            logger.debug(
-                f"Large number of clusters ({num_clusters}) detected - complex landscape"
-            )
+            logger.debug(f"Large number of clusters ({num_clusters}) detected")
         elif num_clusters == 0:
             logger.warning(
                 "No valid clusters found - all data may be masked or invalid"
