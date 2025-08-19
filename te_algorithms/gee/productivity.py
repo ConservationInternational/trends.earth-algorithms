@@ -506,13 +506,122 @@ def productivity_performance(
     # compute 90th percentile by unit
     logger.debug("Executing reduceRegion operation for 90th percentiles...")
     try:
-        perc90 = ndvi_id.reduceRegion(
-            reducer=ee.Reducer.percentile([90]).group(groupField=1, groupName="code"),
+        # Calculate percentiles and pixel counts in a single operation for efficiency
+        combined_reducer = (
+            ee.Reducer.percentile([90])
+            .combine(reducer2=ee.Reducer.count(), sharedInputs=True)
+            .group(groupField=1, groupName="code")
+        )
+
+        perc90_and_counts = ndvi_id.reduceRegion(
+            reducer=combined_reducer,
             geometry=percentile_poly,
             scale=final_scale,
             maxPixels=1e15,
         )
-        logger.debug("reduceRegion operation completed successfully")
+        logger.debug("Combined percentile and count operation completed successfully")
+
+        # Check for sparse units if we used aggressive subsampling (factor > 4)
+        # Only do this analysis for moderate subsampling to avoid GEE computational overhead
+        if use_subsampling and subsample_factor > 4 and subsample_factor <= 10:
+            logger.debug("Checking for sparse units due to aggressive subsampling...")
+            try:
+                # Extract results from combined operation
+                groups = ee.List(perc90_and_counts.get("groups"))
+
+                # Only proceed with analysis if subsampling is moderate (not extreme)
+                group_info = groups.getInfo()
+
+                sparse_units = []
+                min_pixels = max(
+                    100, 1000 // subsample_factor
+                )  # Adjust threshold based on subsampling
+
+                for group in group_info:
+                    if group.get("count", 0) < min_pixels:
+                        sparse_units.append(group.get("code"))
+
+                if (
+                    sparse_units and len(sparse_units) < 50
+                ):  # Only resample if manageable number
+                    logger.debug(
+                        f"Found {len(sparse_units)} sparse units - resampling at higher resolution..."
+                    )
+
+                    # Create mask for sparse units
+                    sparse_mask = units.eq(-1)  # Start with no pixels
+                    for unit_id in sparse_units:
+                        sparse_mask = sparse_mask.Or(units.eq(unit_id))
+
+                    # Resample sparse units at 2x better resolution
+                    oversample_scale = max(scale, final_scale // 2)
+                    sparse_ndvi_id = ndvi_id.updateMask(sparse_mask)
+
+                    logger.debug(
+                        f"Resampling {len(sparse_units)} sparse units at {oversample_scale}m (vs {final_scale}m)"
+                    )
+
+                    # Get high-resolution percentiles for sparse units
+                    sparse_results = sparse_ndvi_id.reduceRegion(
+                        reducer=ee.Reducer.percentile([90]).group(
+                            groupField=1, groupName="code"
+                        ),
+                        geometry=percentile_poly,
+                        scale=oversample_scale,
+                        maxPixels=1e15,
+                    )
+
+                    # Merge high-res sparse results with original results
+                    sparse_groups = ee.List(sparse_results.get("groups"))
+                    original_groups = ee.List(perc90_and_counts.get("groups"))
+
+                    # Convert to dictionaries for easier merging
+                    sparse_dict = ee.Dictionary.fromLists(
+                        sparse_groups.map(lambda g: ee.Dictionary(g).get("code")),
+                        sparse_groups.map(lambda g: ee.Dictionary(g).get("p90")),
+                    )
+
+                    # Update original results with sparse unit improvements
+                    def update_group(group):
+                        group_dict = ee.Dictionary(group)
+                        unit_code = group_dict.get("code")
+                        original_p90 = group_dict.get("p90")
+
+                        # Use sparse result if available, otherwise keep original
+                        improved_p90 = ee.Algorithms.If(
+                            sparse_dict.contains(unit_code),
+                            sparse_dict.get(unit_code),
+                            original_p90,
+                        )
+
+                        return group_dict.set("p90", improved_p90)
+
+                    improved_groups = original_groups.map(update_group)
+                    perc90 = {"groups": improved_groups}
+
+                    logger.debug(
+                        f"Successfully resampled and merged {len(sparse_units)} sparse units"
+                    )
+
+                elif sparse_units:
+                    logger.debug(
+                        f"Found {len(sparse_units)} sparse units with <{min_pixels} pixels each"
+                    )
+                    logger.debug(
+                        "Too many sparse units for efficient resampling - using original results"
+                    )
+                else:
+                    logger.debug(
+                        "No sparse units found - all units have sufficient pixel counts"
+                    )
+
+            except Exception as e:
+                logger.debug(f"Could not analyze/resample sparse units: {e}")
+                logger.debug("Using original subsampled results")
+
+        # Use the combined results for percentiles
+        perc90 = {"groups": perc90_and_counts.get("groups")}
+
     except Exception as e:
         logger.error(f"reduceRegion operation failed: {e}")
         raise
