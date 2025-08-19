@@ -253,7 +253,6 @@ def productivity_trajectory(
 def productivity_performance(
     year_initial, year_final, prod_asset, geojson, logger, all_geojsons=None
 ):
-    logger.debug("=== Starting productivity_performance function ===")
     logger.debug(f"Performance period: {year_initial}-{year_final}")
     logger.debug(f"Productivity asset: {prod_asset}")
 
