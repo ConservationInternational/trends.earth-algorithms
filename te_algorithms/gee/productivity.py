@@ -452,7 +452,8 @@ def productivity_performance(
 
     try:
         # Get approximate area and pixel count for logging
-        area_sq_km = percentile_poly.area().divide(1000000).getInfo()
+        # Use error margin to handle geometry precision issues
+        area_sq_km = percentile_poly.area(maxError=1000).divide(1000000).getInfo()
         logger.debug(f"Processing area for percentiles: {area_sq_km:.2f} sq km")
 
         # Estimate pixel count
