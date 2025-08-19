@@ -12,6 +12,11 @@ from te_schemas.datafile import DataFile
 
 from .util_numba import _accumulate_dicts
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 logger = logging.getLogger(__name__)
 
 gdal.UseExceptions()
@@ -41,10 +46,14 @@ def log_system_resources(
 
     error_logger.error(f"{context_message}:")
 
+    if psutil is None:
+        error_logger.error(
+            "psutil not available - cannot gather system resource information"
+        )
+        return
+
     try:
         from pathlib import Path
-
-        import psutil
 
         # Get memory information
         memory = psutil.virtual_memory()
@@ -117,10 +126,6 @@ def log_system_resources(
                     f"  - Source window (x_off, y_off, x_size, y_size): {src_win}"
                 )
 
-    except ImportError:
-        error_logger.error(
-            "psutil not available - cannot gather system resource information"
-        )
     except Exception as resource_err:
         error_logger.error(
             f"Could not gather system resource information: {resource_err}"
