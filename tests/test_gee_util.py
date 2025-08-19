@@ -10,9 +10,11 @@ import pytest
 # Handle missing dependencies gracefully
 try:
     from te_schemas.results import RasterResults
+
     te_schemas_available = True
 except ImportError:
     te_schemas_available = False
+
     # Create a mock for testing purposes
     class MockRasterResults:
         class Schema:
@@ -21,18 +23,20 @@ except ImportError:
                 mock_obj = MagicMock()
                 mock_obj.rasters = {}
                 return mock_obj
+
     RasterResults = MockRasterResults
 
 # Mock missing earthengine-api dependency
 import sys
-if 'ee' not in sys.modules:
-    sys.modules['ee'] = MagicMock()
+
+if "ee" not in sys.modules:
+    sys.modules["ee"] = MagicMock()
 
 # Mock other missing te_schemas modules
-if 'te_schemas' not in sys.modules:
-    sys.modules['te_schemas'] = MagicMock()
-    sys.modules['te_schemas.results'] = MagicMock()
-    sys.modules['te_schemas.schemas'] = MagicMock()
+if "te_schemas" not in sys.modules:
+    sys.modules["te_schemas"] = MagicMock()
+    sys.modules["te_schemas.results"] = MagicMock()
+    sys.modules["te_schemas.schemas"] = MagicMock()
 
 from te_algorithms.gee.util import GEEImage, TEImageV2
 
@@ -69,7 +73,7 @@ def _get_TEImageV2(file):
     if not te_schemas_available:
         # Return a TEImageV2 with empty images when te_schemas is not available
         return TEImageV2(images={})
-    
+
     rr = RasterResults.Schema().load(_get_json(file))
     return TEImageV2(
         images={
@@ -105,7 +109,7 @@ def test_teimagev2_getImage_empty_name():
 
 def test_teimagev2_getImage_empty_filter_field():
     te_image = _get_TEImageV2("RasterResults_sdg-15-3-1-sub-indicators_1.json")
-    
+
     # The test should work regardless of whether te_schemas is available
     # because the assertion should be triggered before iterating over images
     with pytest.raises(AssertionError):
@@ -114,21 +118,25 @@ def test_teimagev2_getImage_empty_filter_field():
 
 def test_teimagev2_getImage_correct_name():
     te_image = _get_TEImageV2("RasterResults_sdg-15-3-1-sub-indicators_1.json")
-    
+
     # Debug: Check if we have any images at all
     if not te_image.images:
-        pytest.skip("Test data failed to load - likely due to te_schemas dependency issue")
-    
+        pytest.skip(
+            "Test data failed to load - likely due to te_schemas dependency issue"
+        )
+
     # Debug: Check what bands we actually have
     all_band_names = []
     for datatype, image in te_image.images.items():
         for band in image.bands:
             all_band_names.append(band.name)
-    
+
     # If we don't have the expected band name, it might be a data loading issue
     if "Population (number of people)" not in all_band_names:
-        pytest.skip(f"Expected band 'Population (number of people)' not found. Available bands: {all_band_names[:10]}")
-    
+        pytest.skip(
+            f"Expected band 'Population (number of people)' not found. Available bands: {all_band_names[:10]}"
+        )
+
     images = te_image.getImages("Population (number of people)")
     assert len(images) == 1
     assert len(images[0].bands) == 2
