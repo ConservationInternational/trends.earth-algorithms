@@ -5,8 +5,9 @@ This module tests the land degradation reporting, progress calculation, and summ
 functions used for generating reports and tracking land degradation status over time.
 """
 
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 # Import te_schemas classes directly - tests will fail if not available
 from te_schemas import land_cover
@@ -56,9 +57,7 @@ def _get_summary_array(d):
 
 def _create_lc_class(code, name_short):
     """Create a land cover class object using te_schemas."""
-    return land_cover.LCClass(
-        code=code, name_short=name_short, name_long=name_short
-    )
+    return land_cover.LCClass(code=code, name_short=name_short, name_long=name_short)
 
 
 def _create_lc_transition_matrix(key, lc_classes, transitions=None):

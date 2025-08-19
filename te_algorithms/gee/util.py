@@ -558,10 +558,14 @@ class TEImageV2:
             # make name_filter a length 1 list if it is a string
             name_filter = [name_filter]
 
+        # Validate parameters before processing - this ensures the assertion
+        # is triggered even if self.images is empty (e.g., in CI environments)
+        if field:
+            assert field_filter is not None
+
         out = []
         for _, image in self.images.items():
             if field:
-                assert field_filter is not None
                 band_indices = [
                     i
                     for i, bi in enumerate(image.bands)
