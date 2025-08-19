@@ -67,27 +67,3 @@ def jrc_sum_and_count(jrc, mask):
         temp[temp != NODATA_VALUE].sum() / 1000,  # Account for scaling
         np.count_nonzero(temp != NODATA_VALUE),
     )
-
-
-# Below not currently used, but saving for future use
-@numba.jit(nopython=True)
-@cc.export("jrc_dvi_class", "i2[:,:](i2[:,:])")
-def jrc_dvi_class(jrc):
-    # 0 - -1: mild drought (code as 1)
-    # -1 - -1.5: moderate drought (code as 2)
-    # -1.5 - -2: severe drought (code as 3)
-    # -2 - inf: extreme drought (code as 4)
-
-    shp = jrc.shape
-    jrc = jrc.ravel()
-    out = jrc.copy()
-
-    out[jrc > 0] = 0
-    out[(jrc >= 0) & (jrc < 3930)] = 1
-    out[(jrc >= 3930) & (jrc < 4718)] = 2
-    out[(jrc >= 4718) & (jrc < 9270)] = 3
-    out[(jrc >= 9270) & (jrc < 1)] = 4
-
-    out[jrc == NODATA_VALUE] = NODATA_VALUE
-
-    return np.reshape(out, shp)
