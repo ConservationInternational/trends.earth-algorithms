@@ -294,7 +294,7 @@ def productivity_performance(
             all_polys = [ee.Geometry(gj, opt_geodesic=False) for gj in all_geojsons]
             unified_poly = ee.Geometry.MultiPolygon(
                 [poly_temp.coordinates() for poly_temp in all_polys]
-            ).dissolve()
+            ).dissolve(maxError=1000)
             logger.debug("Unified geometry created successfully")
         except Exception as e:
             logger.warning(
@@ -646,9 +646,7 @@ def productivity_performance(
         )
 
         if num_clusters > 100:
-            logger.debug(
-                f"Large number of clusters ({num_clusters}) detected - complex landscape"
-            )
+            logger.debug(f"Large number of clusters ({num_clusters}) detected")
         elif num_clusters == 0:
             logger.warning(
                 "No valid clusters found - all data may be masked or invalid"
