@@ -106,10 +106,10 @@ def recode_state(x):
     out = x_flat.copy()
 
     # Vectorized operations for better performance
-    # NODATA: x < -10 
+    # NODATA: x < -10
     nodata_mask = x_flat < -10
     out[nodata_mask] = NODATA_VALUE[0]
-    
+
     # Stable: -2 < x < 2
     stable_mask = (x_flat > -2) & (x_flat < 2)
     out[stable_mask] = 0
@@ -318,7 +318,9 @@ def calc_lc_trans(lc_bl, lc_tg, multiplier, recode_from=None, recode_to=None):
             lc_tg_flat[tg_mask] = replacement
 
     # Calculate transitions efficiently - convert to int32 to handle large values
-    a_trans_bl_tg = lc_bl_flat.astype(np.int32) * multiplier + lc_tg_flat.astype(np.int32)
+    a_trans_bl_tg = lc_bl_flat.astype(np.int32) * multiplier + lc_tg_flat.astype(
+        np.int32
+    )
 
     # Apply invalid data mask in single operation
     invalid_mask = (lc_bl_flat < 1) | (lc_tg_flat < 1)
