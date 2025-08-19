@@ -6,21 +6,14 @@ functions used for generating reports and tracking land degradation status over 
 """
 
 import pytest
+from unittest.mock import Mock
+
+# Import te_schemas classes directly - tests will fail if not available
+from te_schemas import land_cover
+from te_schemas.datafile import Band, DataFile
 
 # Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
 np = pytest.importorskip("numpy")
-
-# Import te_schemas classes directly (no mocking)
-try:
-    from te_schemas import land_cover
-    from te_schemas.datafile import Band, DataFile
-
-    TE_SCHEMAS_AVAILABLE = True
-except ImportError:
-    # Fallback to mock objects if te_schemas not available
-    from unittest.mock import Mock
-
-    TE_SCHEMAS_AVAILABLE = False
 
 # Import functions from land_deg_numba that are computational and don't require schemas
 try:
@@ -62,36 +55,17 @@ def _get_summary_array(d):
 
 
 def _create_lc_class(code, name_short):
-    """Create a land cover class object using te_schemas if available."""
-    if TE_SCHEMAS_AVAILABLE:
-        return land_cover.LCClass(
-            code=code, name_short=name_short, name_long=name_short
-        )
-    else:
-        # Fallback mock when te_schemas not available
-        from unittest.mock import Mock
-
-        mock_class = Mock()
-        mock_class.code = code
-        mock_class.name_short = name_short
-        return mock_class
+    """Create a land cover class object using te_schemas."""
+    return land_cover.LCClass(
+        code=code, name_short=name_short, name_long=name_short
+    )
 
 
 def _create_lc_transition_matrix(key, lc_classes, transitions=None):
-    """Create a land cover transition matrix using te_schemas if available."""
-    if TE_SCHEMAS_AVAILABLE:
-        return land_cover.LCTransitionDefinitionDeg(
-            key=key, lc_classes=lc_classes, transitions=transitions or []
-        )
-    else:
-        # Fallback mock when te_schemas not available
-        from unittest.mock import Mock
-
-        mock_matrix = Mock()
-        mock_matrix.key = key
-        mock_matrix.lc_classes = lc_classes
-        mock_matrix.transitions = transitions or []
-        return mock_matrix
+    """Create a land cover transition matrix using te_schemas."""
+    return land_cover.LCTransitionDefinitionDeg(
+        key=key, lc_classes=lc_classes, transitions=transitions or []
+    )
 
 
 def _create_transition(
@@ -104,37 +78,20 @@ def _create_transition(
     soc_improved=False,
     lc_transition=None,
 ):
-    """Create a transition object using te_schemas if available."""
-    if TE_SCHEMAS_AVAILABLE:
-        # Use proper te_schemas transition class when available
-        transition = land_cover.LCTransition(
-            transition=transition_tuple, lc_transition=lc_transition or transition_tuple
-        )
-        # Set productivity attributes
-        transition.prod = land_cover.ProductivityStatus(
-            degraded=prod_degraded, stable=prod_stable, improved=prod_improved
-        )
-        # Set SOC attributes
-        transition.soc = land_cover.SOCStatus(
-            degraded=soc_degraded, stable=soc_stable, improved=soc_improved
-        )
-        return transition
-    else:
-        # Fallback mock when te_schemas not available
-        from unittest.mock import Mock
-
-        mock_transition = Mock()
-        mock_transition.transition = transition_tuple
-        mock_transition.lc_transition = lc_transition or transition_tuple
-        mock_transition.prod = Mock()
-        mock_transition.prod.degraded = prod_degraded
-        mock_transition.prod.stable = prod_stable
-        mock_transition.prod.improved = prod_improved
-        mock_transition.soc = Mock()
-        mock_transition.soc.degraded = soc_degraded
-        mock_transition.soc.stable = soc_stable
-        mock_transition.soc.improved = soc_improved
-        return mock_transition
+    """Create a transition object using te_schemas."""
+    # Use proper te_schemas transition class
+    transition = land_cover.LCTransition(
+        transition=transition_tuple, lc_transition=lc_transition or transition_tuple
+    )
+    # Set productivity attributes
+    transition.prod = land_cover.ProductivityStatus(
+        degraded=prod_degraded, stable=prod_stable, improved=prod_improved
+    )
+    # Set SOC attributes
+    transition.soc = land_cover.SOCStatus(
+        degraded=soc_degraded, stable=soc_stable, improved=soc_improved
+    )
+    return transition
 
 
 def _get_prod_table(lc_trans_prod_bizonal, prod_code, lc_trans_matrix):
@@ -1554,36 +1511,13 @@ class TestLandDegradationWorkflows:
 
 
 def _create_mock_band_object(bands):
-    """Create a mock object with bands attribute."""
-    if TE_SCHEMAS_AVAILABLE:
-        # Use real DataFile when te_schemas available
-        try:
-            return DataFile(path="", bands=bands)
-        except Exception:
-            # Fallback to mock if DataFile construction fails
-            pass
-
-    from unittest.mock import Mock
-
-    mock_obj = Mock()
-    mock_obj.bands = bands
-    return mock_obj
+    """Create a DataFile object with bands attribute."""
+    return DataFile(path="", bands=bands)
 
 
 def _create_mock_band(metadata=None):
-    """Create a mock band object."""
-    if TE_SCHEMAS_AVAILABLE:
-        try:
-            return Band(name="test", metadata=metadata or {})
-        except Exception:
-            # Fallback to mock if Band construction fails
-            pass
-
-    from unittest.mock import Mock
-
-    mock_band = Mock()
-    mock_band.metadata = metadata
-    return mock_band
+    """Create a band object."""
+    return Band(name="test", metadata=metadata or {})
 
 
 class TestErrorRecodingFunctions:

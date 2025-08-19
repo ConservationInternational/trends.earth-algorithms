@@ -10,31 +10,20 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+# Import te_schemas classes directly - tests will fail if not available
+from te_schemas.results import JsonResults
+
 # Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
 np = pytest.importorskip("numpy")
 
-# Import te_schemas classes directly (no mocking)
 try:
-    from te_schemas.results import JsonResults
-
-    TE_SCHEMAS_AVAILABLE = True
-except ImportError:
-    # Fallback to mock objects if te_schemas not available
-    from unittest.mock import Mock
-
-    TE_SCHEMAS_AVAILABLE = False
-
-try:
-    # Mock GDAL and te_schemas before importing the module under test
+    # Mock GDAL before importing the module under test
     with patch.dict(
         "sys.modules",
         {
             "osgeo": Mock(),
             "osgeo.gdal": Mock(),
             "osgeo.ogr": Mock(),
-            "te_schemas": Mock(),
-            "te_schemas.jobs": Mock(),
-            "te_schemas.results": Mock(),
         },
     ):
         # Import the module under test
@@ -463,21 +452,17 @@ class TestLandDegStats(unittest.TestCase):
             result = land_deg_stats.calculate_statistics(test_params)
 
         # Verify result structure
-        if TE_SCHEMAS_AVAILABLE:
-            self.assertIsInstance(result, JsonResults)
-            self.assertEqual(result.name, "sdg-15-3-1-statistics")
-            self.assertIn("stats", result.data)
+        self.assertIsInstance(result, JsonResults)
+        self.assertEqual(result.name, "sdg-15-3-1-statistics")
+        self.assertIn("stats", result.data)
 
-            # Check that stats are reorganized by UUID
-            stats_data = result.data["stats"]
-            self.assertIn("test-uuid-1", stats_data)
+        # Check that stats are reorganized by UUID
+        stats_data = result.data["stats"]
+        self.assertIn("test-uuid-1", stats_data)
 
-            uuid_stats = stats_data["test-uuid-1"]
-            self.assertIn(config.SDG_BAND_NAME, uuid_stats)
-            self.assertIn(config.SOC_DEG_BAND_NAME, uuid_stats)
-        else:
-            # When te_schemas not available, function should still work
-            self.assertIsNotNone(result)
+        uuid_stats = stats_data["test-uuid-1"]
+        self.assertIn(config.SDG_BAND_NAME, uuid_stats)
+        self.assertIn(config.SOC_DEG_BAND_NAME, uuid_stats)
 
     def test_calculate_statistics_uuid_mismatch(self):
         """Test calculate_statistics with mismatched UUIDs across bands."""
@@ -530,10 +515,7 @@ class TestLandDegStats(unittest.TestCase):
             result = land_deg_stats.calculate_statistics(test_params)
 
             # Should not raise assertion error for single band
-            if TE_SCHEMAS_AVAILABLE:
-                self.assertIsInstance(result, JsonResults)
-            else:
-                self.assertIsNotNone(result)
+            self.assertIsInstance(result, JsonResults)
 
     def test_stats_performance_large_dataset(self):
         """Test _get_stats_for_band performance with larger dataset."""
