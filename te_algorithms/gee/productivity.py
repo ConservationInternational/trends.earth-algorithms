@@ -250,15 +250,19 @@ def productivity_trajectory(
     )
 
 
-def productivity_performance(year_initial, year_final, prod_asset, geojson, logger, all_geojsons=None):
+def productivity_performance(
+    year_initial, year_final, prod_asset, geojson, logger, all_geojsons=None
+):
     logger.debug("=== Starting productivity_performance function ===")
     logger.debug(f"Performance period: {year_initial}-{year_final}")
     logger.debug(f"Productivity asset: {prod_asset}")
-    
+
     # Determine if we need to calculate percentiles across all geojsons
     use_unified_percentiles = all_geojsons is not None and len(all_geojsons) > 1
     if use_unified_percentiles:
-        logger.debug(f"Using unified percentile calculation across {len(all_geojsons)} geojson tiles")
+        logger.debug(
+            f"Using unified percentile calculation across {len(all_geojsons)} geojson tiles"
+        )
     else:
         logger.debug("Using individual tile percentile calculation")
 
@@ -282,16 +286,20 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
     # version, for the clipping
     logger.debug("Creating geometry from geojson...")
     poly = ee.Geometry(geojson, opt_geodesic=False)
-    
+
     # Create unified geometry if using all geojsons
     if use_unified_percentiles and all_geojsons:
         logger.debug("Creating unified geometry from all geojsons...")
         try:
             all_polys = [ee.Geometry(gj, opt_geodesic=False) for gj in all_geojsons]
-            unified_poly = ee.Geometry.MultiPolygon([poly_temp.coordinates() for poly_temp in all_polys]).dissolve()
+            unified_poly = ee.Geometry.MultiPolygon(
+                [poly_temp.coordinates() for poly_temp in all_polys]
+            ).dissolve()
             logger.debug("Unified geometry created successfully")
         except Exception as e:
-            logger.warning(f"Failed to create unified geometry, falling back to individual: {e}")
+            logger.warning(
+                f"Failed to create unified geometry, falling back to individual: {e}"
+            )
             unified_poly = poly
             use_unified_percentiles = False
     else:
@@ -305,13 +313,15 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
         .rename(["ndvi"])
         .clip(poly)
     )
-    
+
     # For unified percentiles, also compute NDVI over the full area
     ndvi_avg_unified = None
     if use_unified_percentiles:
         logger.debug("Computing mean NDVI for unified area...")
         ndvi_avg_unified = (
-            ndvi_1yr.select(ee.List([f"y{i}" for i in range(year_initial, year_final + 1)]))
+            ndvi_1yr.select(
+                ee.List([f"y{i}" for i in range(year_initial, year_final + 1)])
+            )
             .reduce(ee.Reducer.mean())
             .rename(["ndvi"])
             .clip(unified_poly)
@@ -405,7 +415,6 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
         ],
     )
 
-
     # define modis projection attributes
     modis_proj = ee.Image(
         "users/geflanddegradation/toolbox_datasets/ndvi_modis_2001_2023"
@@ -432,22 +441,26 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
     ndvi_id = percentile_ndvi.addBands(units).updateMask(percentile_mask)
 
     logger.debug("Starting 90th percentile calculation by land cover/soil units")
-    logger.debug(f"MODIS projection scale: {ee.Number(modis_proj.nominalScale()).getInfo()} meters")
-    
+    logger.debug(
+        f"MODIS projection scale: {ee.Number(modis_proj.nominalScale()).getInfo()} meters"
+    )
+
     # Smart subsampling for very large areas
     scale = ee.Number(modis_proj.nominalScale()).getInfo()
     subsample_factor = 1
     use_subsampling = False
-    
+
     try:
         # Get approximate area and pixel count for logging
         area_sq_km = percentile_poly.area().divide(1000000).getInfo()
         logger.debug(f"Processing area for percentiles: {area_sq_km:.2f} sq km")
-        
+
         # Estimate pixel count
         estimated_pixels = area_sq_km * 1000000 / (scale * scale)
-        logger.debug(f"Estimated pixels to process: {estimated_pixels:.0f} (max allowed: 1e15)")
-        
+        logger.debug(
+            f"Estimated pixels to process: {estimated_pixels:.0f} (max allowed: 1e15)"
+        )
+
         # Use smart subsampling for very large areas
         # Based on empirical testing, target ~20B pixels maximum for reliable GEE processing
         if estimated_pixels > 100_000_000:  # 100 million pixels
@@ -457,18 +470,28 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
                 max_scale_factor = 200  # Cap at 200x for extreme cases
                 subsample_factor = max(2, min(calculated_factor, max_scale_factor))
                 use_subsampling = True
-                final_pixels = estimated_pixels / (subsample_factor ** 2)
-                logger.debug(f"Large area detected - using subsampling factor {subsample_factor}")
-                logger.debug(f"This will reduce computation from {estimated_pixels:.0f} to ~{final_pixels:.0f} pixels")
+                final_pixels = estimated_pixels / (subsample_factor**2)
+                logger.debug(
+                    f"Large area detected - using subsampling factor {subsample_factor}"
+                )
+                logger.debug(
+                    f"This will reduce computation from {estimated_pixels:.0f} to ~{final_pixels:.0f} pixels"
+                )
                 logger.debug(f"Final resolution: {scale * subsample_factor:.0f}m")
-                
+
                 if calculated_factor > max_scale_factor:
-                    logger.warning(f"Calculated scale factor ({calculated_factor}) exceeds maximum ({max_scale_factor})")
+                    logger.warning(
+                        f"Calculated scale factor ({calculated_factor}) exceeds maximum ({max_scale_factor})"
+                    )
             else:
-                logger.debug(f"Large area ({estimated_pixels:.0f} pixels) but within 20B pixel limit - no subsampling needed")
-        
+                logger.debug(
+                    f"Large area ({estimated_pixels:.0f} pixels) but within 20B pixel limit - no subsampling needed"
+                )
+
         if estimated_pixels > 1e15:  # 1 quadrillion pixels
-            logger.warning(f"Extremely large tile detected - {estimated_pixels:.0f} pixels may still cause GEE timeout even with maximum subsampling")
+            logger.warning(
+                f"Extremely large tile detected - {estimated_pixels:.0f} pixels may still cause GEE timeout even with maximum subsampling"
+            )
     except Exception as e:
         logger.debug(f"Could not estimate processing area: {e}")
 
@@ -499,22 +522,28 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
     ids = None
     perc = None
     ids_list = []
-    
+
     try:
         groups = ee.List(perc90.get("groups"))
         ids = groups.map(lambda d: ee.Dictionary(d).get("code"))
         perc = groups.map(lambda d: ee.Dictionary(d).get("p90"))
-        
+
         logger.debug("Triggering computation to get cluster count...")
         ids_list = ids.getInfo()
         num_clusters = len(ids_list)
-        logger.debug(f"Successfully computed {num_clusters} land cover/soil unit clusters")
-        
+        logger.debug(
+            f"Successfully computed {num_clusters} land cover/soil unit clusters"
+        )
+
         if num_clusters > 100:
-            logger.debug(f"Large number of clusters ({num_clusters}) detected - complex landscape")
+            logger.debug(
+                f"Large number of clusters ({num_clusters}) detected - complex landscape"
+            )
         elif num_clusters == 0:
-            logger.warning("No valid clusters found - all data may be masked or invalid")
-        
+            logger.warning(
+                "No valid clusters found - all data may be masked or invalid"
+            )
+
     except Exception as e:
         logger.error(f"Failed to extract cluster information: {e}")
         logger.debug("Setting ids_list to empty list due to computation failure")
@@ -522,12 +551,12 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
 
     if len(ids_list) > 0 and ids is not None and perc is not None:
         logger.debug("Processing clusters to create performance raster...")
-        
+
         # Apply the percentiles to the INDIVIDUAL tile (not the unified area)
         logger.debug("Applying percentiles to individual tile geometry...")
         individual_ndvi_proj = ndvi_avg.reproject(crs=modis_proj)
         individual_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
-        
+
         # remap the units raster using their 90th percentile value (calculated from unified area)
         raster_perc = individual_units.remap(ids, perc)
 
@@ -539,19 +568,21 @@ def productivity_performance(year_initial, year_final, prod_asset, geojson, logg
         obs_ratio_2 = obs_ratio.reduceResolution(
             reducer=ee.Reducer.mean(), maxPixels=2000
         ).reproject(crs=ndvi_1yr.projection())
-        
+
         # Clip to individual tile
         obs_ratio_2 = obs_ratio_2.clip(poly)
-        
+
         prod_perf_ratio = obs_ratio_2.multiply(10000).rename(
             "Productivity_performance_ratio"
         )
         logger.debug("Productivity performance calculation completed successfully")
-        
+
         if use_unified_percentiles:
             logger.debug("Applied unified percentiles to individual tile successfully")
     else:
-        logger.warning("No valid clusters found - unable to calculate productivity performance")
+        logger.warning(
+            "No valid clusters found - unable to calculate productivity performance"
+        )
         logger.debug("This could be caused by:")
         logger.debug("  - GEE computational timeout or memory limits")
         logger.debug("  - No valid NDVI data in the tile")
