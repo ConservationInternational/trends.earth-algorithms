@@ -251,19 +251,27 @@ def productivity_trajectory(
 
 
 def productivity_performance(
-    year_initial, year_final, prod_asset, geojson, logger, all_geojsons=None
+    year_initial, year_final, prod_asset, all_geojsons, logger
 ):
+    """
+    Calculate productivity performance using unified percentiles across all geojson areas.
+
+    Args:
+        year_initial: Starting year for the analysis period
+        year_final: Ending year for the analysis period
+        prod_asset: Asset ID for the productivity dataset
+        all_geojsons: List of geojson dictionaries for unified percentile calculation
+        logger: Logger instance
+
+    Returns:
+        TEImage object with global productivity performance results
+    """
     logger.debug(f"Performance period: {year_initial}-{year_final}")
     logger.debug(f"Productivity asset: {prod_asset}")
+    logger.debug(f"Using unified percentiles across {len(all_geojsons)} geojson areas")
 
-    # Determine if we need to calculate percentiles across all geojsons
-    use_unified_percentiles = all_geojsons is not None and len(all_geojsons) > 1
-    if use_unified_percentiles:
-        logger.debug(
-            f"Using unified percentile calculation across {len(all_geojsons)} geojson tiles"
-        )
-    else:
-        logger.debug("Using individual tile percentile calculation")
+    if not all_geojsons or len(all_geojsons) == 0:
+        raise ValueError("all_geojsons must contain at least one geojson")
 
     ndvi_1yr = ee.Image(prod_asset)
     ndvi_1yr = ndvi_1yr.where(ndvi_1yr.eq(9999), -32768)
@@ -281,50 +289,32 @@ def productivity_performance(
         "users/geflanddegradation/toolbox_datasets/soil_tax_usda_sgrid"
     )
 
-    # Make sure the bounding box of the poly is used, and not the geodesic
-    # version, for the clipping
-    logger.debug("Creating geometry from geojson...")
-    poly = ee.Geometry(geojson, opt_geodesic=False)
+    # Create unified geometry for percentile calculation across all areas
+    logger.debug("Creating unified geometry from all geojsons...")
+    individual_polys = [ee.Geometry(gj, opt_geodesic=False) for gj in all_geojsons]
+    try:
+        unified_poly = ee.Geometry.MultiPolygon(
+            [poly.coordinates() for poly in individual_polys]
+        ).dissolve(maxError=1000)
+        logger.debug("Unified geometry created successfully")
+    except Exception as e:
+        logger.warning(f"Failed to create unified geometry using dissolve: {e}")
+        # Fallback to union of geometries
+        unified_poly = individual_polys[0]
+        for poly in individual_polys[1:]:
+            unified_poly = unified_poly.union(poly, maxError=1000)
+        logger.debug("Using union fallback for unified geometry")
 
-    # Create unified geometry if using all geojsons
-    if use_unified_percentiles and all_geojsons:
-        logger.debug("Creating unified geometry from all geojsons...")
-        try:
-            all_polys = [ee.Geometry(gj, opt_geodesic=False) for gj in all_geojsons]
-            unified_poly = ee.Geometry.MultiPolygon(
-                [poly_temp.coordinates() for poly_temp in all_polys]
-            ).dissolve(maxError=1000)
-            logger.debug("Unified geometry created successfully")
-        except Exception as e:
-            logger.warning(
-                f"Failed to create unified geometry, falling back to individual: {e}"
-            )
-            unified_poly = poly
-            use_unified_percentiles = False
-    else:
-        unified_poly = poly
-
-    # compute mean ndvi for the period
-    logger.debug(f"Computing mean NDVI for period {year_initial}-{year_final}")
-    ndvi_avg = (
+    # compute mean ndvi for the period globally (not clipped)
+    logger.debug(f"Computing global mean NDVI for period {year_initial}-{year_final}")
+    ndvi_avg_global = (
         ndvi_1yr.select(ee.List([f"y{i}" for i in range(year_initial, year_final + 1)]))
         .reduce(ee.Reducer.mean())
         .rename(["ndvi"])
-        .clip(poly)
     )
 
-    # For unified percentiles, also compute NDVI over the full area
-    ndvi_avg_unified = None
-    if use_unified_percentiles:
-        logger.debug("Computing mean NDVI for unified area...")
-        ndvi_avg_unified = (
-            ndvi_1yr.select(
-                ee.List([f"y{i}" for i in range(year_initial, year_final + 1)])
-            )
-            .reduce(ee.Reducer.mean())
-            .rename(["ndvi"])
-            .clip(unified_poly)
-        )
+    # compute mean ndvi for the unified area for percentile calculation
+    ndvi_avg_unified = ndvi_avg_global.clip(unified_poly)
 
     # Handle case of year_initial that isn't included in the CCI data
 
@@ -334,110 +324,46 @@ def productivity_performance(
         lc_year_initial = 1992
     else:
         lc_year_initial = year_initial
-    # reclassify lc to ipcc classes
-    lc_t0 = lc.select(f"y{lc_year_initial}").remap(
-        [
-            10,
-            11,
-            12,
-            20,
-            30,
-            40,
-            50,
-            60,
-            61,
-            62,
-            70,
-            71,
-            72,
-            80,
-            81,
-            82,
-            90,
-            100,
-            160,
-            170,
-            110,
-            130,
-            180,
-            190,
-            120,
-            121,
-            122,
-            140,
-            150,
-            151,
-            152,
-            153,
-            200,
-            201,
-            202,
-            210,
-        ],
-        [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            32,
-            33,
-            34,
-            35,
-            36,
-        ],
-    )
+
+    # remap ESA CCI land cover classes to simplified IPCC classes
+    # ESA CCI land cover class remapping to IPCC classes
+    # fmt: off
+    esa_cci_classes = [
+        10, 11, 12, 20, 30, 40, 50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90, 100,
+        160, 170, 110, 130, 180, 190, 120, 121, 122, 140, 150, 151, 152, 153,
+        200, 201, 202, 210
+    ]
+
+    recode_classes = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+        33, 34, 35, 36
+    ]
+    # fmt: on
+
+    lc_t0 = lc.select(f"y{lc_year_initial}").remap(esa_cci_classes, recode_classes)
 
     # define modis projection attributes
     modis_proj = ee.Image(
         "users/geflanddegradation/toolbox_datasets/ndvi_modis_2001_2023"
     ).projection()
 
-    # reproject land cover, soil_tax_usda and avhrr to modis resolution
+    # reproject land cover, soil_tax_usda and unified ndvi to modis resolution
     lc_proj = lc_t0.reproject(crs=modis_proj)
     soil_tax_usda_proj = soil_tax_usda.reproject(crs=modis_proj)
-    ndvi_avg_proj = ndvi_avg.reproject(crs=modis_proj)
+    ndvi_avg_unified_proj = ndvi_avg_unified.reproject(crs=modis_proj)
 
-    # define unit of analysis as the intersect of soil_tax_usda and land cover
-    units = soil_tax_usda_proj.multiply(100).add(lc_proj)
+    # define unit of analysis as the intersect of soil_tax_usda and land cover (globally)
+    global_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
 
-    # Determine which area to use for percentile calculation
-    percentile_poly = unified_poly if use_unified_percentiles else poly
-    if use_unified_percentiles and ndvi_avg_unified is not None:
-        percentile_ndvi = ndvi_avg_unified.reproject(crs=modis_proj)
-    else:
-        percentile_ndvi = ndvi_avg_proj
+    # Use unified area for percentile calculation
+    percentile_poly = unified_poly
+    percentile_ndvi = ndvi_avg_unified_proj
     percentile_mask = percentile_ndvi.neq(0)
 
     # create a 2 band raster to compute 90th percentile per unit (analysis restricted by mask and study area)
     logger.debug("Preparing data for percentile calculation...")
-    ndvi_id = percentile_ndvi.addBands(units).updateMask(percentile_mask)
+    ndvi_id = percentile_ndvi.addBands(global_units).updateMask(percentile_mask)
 
     logger.debug("Starting 90th percentile calculation by land cover/soil units")
     logger.debug(
@@ -450,47 +376,44 @@ def productivity_performance(
     use_subsampling = False
 
     try:
-        # Get approximate area and pixel count for logging
-        # Use error margin to handle geometry precision issues
+        # Get approximate area for subsampling decisions
         area_sq_km = percentile_poly.area(maxError=1000).divide(1000000).getInfo()
         logger.debug(f"Processing area for percentiles: {area_sq_km:.2f} sq km")
 
-        # Estimate pixel count
+        # Estimate pixel count from area for subsampling decisions
         estimated_pixels = area_sq_km * 1000000 / (scale * scale)
-        logger.debug(
-            f"Estimated pixels to process: {estimated_pixels:.0f} (max allowed: 1e15)"
-        )
+        logger.debug(f"Estimated pixels to process: {estimated_pixels:.0f}")
 
         # Use smart subsampling for very large areas
-        # Based on empirical testing, target ~20B pixels maximum for reliable GEE processing
-        if estimated_pixels > 100_000_000:  # 100 million pixels
-            target_pixels = 20_000_000_000  # Target 20 billion pixels maximum
-            if estimated_pixels > target_pixels:
-                calculated_factor = int((estimated_pixels / target_pixels) ** 0.5)
-                max_scale_factor = 200  # Cap at 200x for extreme cases
-                subsample_factor = max(2, min(calculated_factor, max_scale_factor))
-                use_subsampling = True
-                final_pixels = estimated_pixels / (subsample_factor**2)
-                logger.debug(
-                    f"Large area detected - using subsampling factor {subsample_factor}"
-                )
-                logger.debug(
-                    f"This will reduce computation from {estimated_pixels:.0f} to ~{final_pixels:.0f} pixels"
-                )
-                logger.debug(f"Final resolution: {scale * subsample_factor:.0f}m")
+        target_pixels = 20_000_000
 
-                if calculated_factor > max_scale_factor:
-                    logger.warning(
-                        f"Calculated scale factor ({calculated_factor}) exceeds maximum ({max_scale_factor})"
-                    )
-            else:
-                logger.debug(
-                    f"Large area ({estimated_pixels:.0f} pixels) but within 20B pixel limit - no subsampling needed"
+        # Trigger subsampling if we exceed 10M pixels
+        if estimated_pixels > 10_000_000:
+            calculated_factor = int((estimated_pixels / target_pixels) ** 0.5)
+            max_scale_factor = 200  # Cap at 200x for extreme cases
+            subsample_factor = max(2, min(calculated_factor, max_scale_factor))
+            use_subsampling = True
+            final_pixels = estimated_pixels / (subsample_factor**2)
+            logger.info(
+                f"Large area detected ({estimated_pixels:.0f} pixels) - using subsampling factor {subsample_factor}"
+            )
+            logger.info(
+                f"This will reduce computation from {estimated_pixels:.0f} to ~{final_pixels:.0f} pixels"
+            )
+            logger.info(f"Final resolution: {scale * subsample_factor:.0f}m")
+
+            if calculated_factor > max_scale_factor:
+                logger.warning(
+                    f"Calculated scale factor ({calculated_factor}) exceeds maximum ({max_scale_factor})"
                 )
+        else:
+            logger.debug(
+                f"Area ({estimated_pixels:.0f} pixels) below 10M pixel threshold - no subsampling needed"
+            )
 
         if estimated_pixels > 1e15:  # 1 quadrillion pixels
             logger.warning(
-                f"Extremely large tile detected - {estimated_pixels:.0f} pixels may still cause GEE timeout even with maximum subsampling"
+                f"Extremely large area detected - {estimated_pixels:.0f} pixels may still cause GEE timeout even with maximum subsampling"
             )
     except Exception as e:
         logger.debug(f"Could not estimate processing area: {e}")
@@ -498,7 +421,6 @@ def productivity_performance(
     # Apply subsampling if needed
     if use_subsampling:
         logger.debug(f"Applying systematic subsampling with factor {subsample_factor}")
-        # Use systematic sampling to maintain spatial distribution
         final_scale = scale * subsample_factor
     else:
         final_scale = scale
@@ -506,121 +428,21 @@ def productivity_performance(
     # compute 90th percentile by unit
     logger.debug("Executing reduceRegion operation for 90th percentiles...")
     try:
-        # Calculate percentiles and pixel counts in a single operation for efficiency
-        combined_reducer = (
-            ee.Reducer.percentile([90])
-            .combine(reducer2=ee.Reducer.count(), sharedInputs=True)
-            .group(groupField=1, groupName="code")
+        # Calculate percentiles grouped by land cover/soil unit
+        percentile_reducer = ee.Reducer.percentile([90]).group(
+            groupField=1, groupName="code"
         )
 
-        perc90_and_counts = ndvi_id.reduceRegion(
-            reducer=combined_reducer,
+        perc90_results = ndvi_id.reduceRegion(
+            reducer=percentile_reducer,
             geometry=percentile_poly,
             scale=final_scale,
             maxPixels=1e15,
         )
-        logger.debug("Combined percentile and count operation completed successfully")
+        logger.debug("Percentile calculation completed successfully")
 
-        # Check for sparse units if we used aggressive subsampling (factor > 4)
-        # Only do this analysis for moderate subsampling to avoid GEE computational overhead
-        if use_subsampling and subsample_factor > 4 and subsample_factor <= 10:
-            logger.debug("Checking for sparse units due to aggressive subsampling...")
-            try:
-                # Extract results from combined operation
-                groups = ee.List(perc90_and_counts.get("groups"))
-
-                # Only proceed with analysis if subsampling is moderate (not extreme)
-                group_info = groups.getInfo()
-
-                sparse_units = []
-                min_pixels = max(
-                    100, 1000 // subsample_factor
-                )  # Adjust threshold based on subsampling
-
-                for group in group_info:
-                    if group.get("count", 0) < min_pixels:
-                        sparse_units.append(group.get("code"))
-
-                if (
-                    sparse_units and len(sparse_units) < 50
-                ):  # Only resample if manageable number
-                    logger.debug(
-                        f"Found {len(sparse_units)} sparse units - resampling at higher resolution..."
-                    )
-
-                    # Create mask for sparse units
-                    sparse_mask = units.eq(-1)  # Start with no pixels
-                    for unit_id in sparse_units:
-                        sparse_mask = sparse_mask.Or(units.eq(unit_id))
-
-                    # Resample sparse units at 2x better resolution
-                    oversample_scale = max(scale, final_scale // 2)
-                    sparse_ndvi_id = ndvi_id.updateMask(sparse_mask)
-
-                    logger.debug(
-                        f"Resampling {len(sparse_units)} sparse units at {oversample_scale}m (vs {final_scale}m)"
-                    )
-
-                    # Get high-resolution percentiles for sparse units
-                    sparse_results = sparse_ndvi_id.reduceRegion(
-                        reducer=ee.Reducer.percentile([90]).group(
-                            groupField=1, groupName="code"
-                        ),
-                        geometry=percentile_poly,
-                        scale=oversample_scale,
-                        maxPixels=1e15,
-                    )
-
-                    # Merge high-res sparse results with original results
-                    sparse_groups = ee.List(sparse_results.get("groups"))
-                    original_groups = ee.List(perc90_and_counts.get("groups"))
-
-                    # Convert to dictionaries for easier merging
-                    sparse_dict = ee.Dictionary.fromLists(
-                        sparse_groups.map(lambda g: ee.Dictionary(g).get("code")),
-                        sparse_groups.map(lambda g: ee.Dictionary(g).get("p90")),
-                    )
-
-                    # Update original results with sparse unit improvements
-                    def update_group(group):
-                        group_dict = ee.Dictionary(group)
-                        unit_code = group_dict.get("code")
-                        original_p90 = group_dict.get("p90")
-
-                        # Use sparse result if available, otherwise keep original
-                        improved_p90 = ee.Algorithms.If(
-                            sparse_dict.contains(unit_code),
-                            sparse_dict.get(unit_code),
-                            original_p90,
-                        )
-
-                        return group_dict.set("p90", improved_p90)
-
-                    improved_groups = original_groups.map(update_group)
-                    perc90 = {"groups": improved_groups}
-
-                    logger.debug(
-                        f"Successfully resampled and merged {len(sparse_units)} sparse units"
-                    )
-
-                elif sparse_units:
-                    logger.debug(
-                        f"Found {len(sparse_units)} sparse units with <{min_pixels} pixels each"
-                    )
-                    logger.debug(
-                        "Too many sparse units for efficient resampling - using original results"
-                    )
-                else:
-                    logger.debug(
-                        "No sparse units found - all units have sufficient pixel counts"
-                    )
-
-            except Exception as e:
-                logger.debug(f"Could not analyze/resample sparse units: {e}")
-                logger.debug("Using original subsampled results")
-
-        # Use the combined results for percentiles
-        perc90 = {"groups": perc90_and_counts.get("groups")}
+        # Use the results directly for percentiles
+        perc90 = {"groups": perc90_results.get("groups")}
 
     except Exception as e:
         logger.error(f"reduceRegion operation failed: {e}")
@@ -657,18 +479,18 @@ def productivity_performance(
         ids_list = []
 
     if len(ids_list) > 0 and ids is not None and perc is not None:
-        logger.debug("Processing clusters to create performance raster...")
+        logger.debug("Processing clusters to create global performance raster...")
 
-        # Apply the percentiles to the INDIVIDUAL tile (not the unified area)
-        logger.debug("Applying percentiles to individual tile geometry...")
-        individual_ndvi_proj = ndvi_avg.reproject(crs=modis_proj)
-        individual_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
+        # Apply the percentiles globally (not clipped to individual tiles)
+        logger.debug("Applying percentiles to global NDVI data...")
+        global_ndvi_proj = ndvi_avg_global.reproject(crs=modis_proj)
+        global_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
 
         # remap the units raster using their 90th percentile value (calculated from unified area)
-        raster_perc = individual_units.remap(ids, perc)
+        raster_perc = global_units.remap(ids, perc)
 
         # compute the ratio of observed ndvi to 90th for that class
-        obs_ratio = individual_ndvi_proj.divide(raster_perc)
+        obs_ratio = global_ndvi_proj.divide(raster_perc)
 
         # aggregate obs_ratio to original NDVI data resolution (for modis this step does not change anything)
         logger.debug("Aggregating results to original NDVI resolution...")
@@ -676,26 +498,20 @@ def productivity_performance(
             reducer=ee.Reducer.mean(), maxPixels=2000
         ).reproject(crs=ndvi_1yr.projection())
 
-        # Clip to individual tile
-        obs_ratio_2 = obs_ratio_2.clip(poly)
-
         prod_perf_ratio = obs_ratio_2.multiply(10000).rename(
             "Productivity_performance_ratio"
         )
         logger.debug("Productivity performance calculation completed successfully")
-
-        if use_unified_percentiles:
-            logger.debug("Applied unified percentiles to individual tile successfully")
     else:
         logger.warning(
             "No valid clusters found - unable to calculate productivity performance"
         )
         logger.debug("This could be caused by:")
         logger.debug("  - GEE computational timeout or memory limits")
-        logger.debug("  - No valid NDVI data in the tile")
+        logger.debug("  - No valid NDVI data in the unified area")
         logger.debug("  - All pixels masked due to land cover or soil constraints")
         logger.debug("  - Network issues during GEE computation")
-        logger.debug("Setting entire tile to no-data (-32768)")
+        logger.debug("Setting entire raster to no-data (-32768)")
         obs_ratio_2 = ee.Image(-32768)
         prod_perf_ratio = ee.Image(-32768).rename("Productivity_performance_ratio")
 
@@ -709,10 +525,13 @@ def productivity_performance(
     )
 
     lp_perf_deg = lp_perf_deg.rename("Productivity_performance_degradation")
-    units = units.rename("Productivity_performance_units")
+    global_units = global_units.rename("Productivity_performance_units")
 
     return TEImage(
-        lp_perf_deg.addBands(prod_perf_ratio).addBands(units).unmask(-32768).int16(),
+        lp_perf_deg.addBands(prod_perf_ratio)
+        .addBands(global_units)
+        .unmask(-32768)
+        .int16(),
         [
             BandInfo(
                 "Productivity performance (degradation)",
