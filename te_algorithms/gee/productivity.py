@@ -298,8 +298,9 @@ def productivity_performance(
             unified_poly = individual_polys[0]
             logger.debug("Single geometry - no union needed")
         else:
+            # Create MultiPolygon without opt_geodesic parameter (not supported)
             unified_poly = ee.Geometry.MultiPolygon(
-                [poly.coordinates() for poly in individual_polys], opt_geodesic=False
+                [poly.coordinates() for poly in individual_polys]
             )
             logger.debug("Unified MultiPolygon geometry created successfully")
     except Exception as e:
@@ -374,7 +375,7 @@ def productivity_performance(
 
     logger.debug("Starting 90th percentile calculation by land cover/soil units")
     modis_scale = modis_proj.nominalScale().getInfo()
-    logger.debug(f"MODIS projection scale: {modis_scale} meters")
+    logger.debug(f"MODIS projection scale: {modis_scale:,} meters")
 
     # Smart subsampling for very large areas
     scale = modis_scale
@@ -389,14 +390,14 @@ def productivity_performance(
 
         try:
             area_value = area_sq_km.getInfo()
-            logger.debug(f"Processing area for percentiles: {area_value:.2f} sq km")
+            logger.debug(f"Processing area for percentiles: {area_value:,.2f} sq km")
             estimated_pixels = area_value * 1000000 / (scale * scale)
         except Exception:
             logger.debug("Could not get exact area - using conservative large estimate")
             estimated_pixels = 100_000_000
             area_value = estimated_pixels * (scale * scale) / 1000000
 
-        logger.debug(f"Estimated pixels to process: {estimated_pixels:.0f}")
+        logger.debug(f"Estimated pixels to process: {estimated_pixels:,.0f}")
 
         # Use smart subsampling for very large areas
         target_pixels = 50_000_000
@@ -409,12 +410,12 @@ def productivity_performance(
             use_subsampling = True
             final_pixels = estimated_pixels / (subsample_factor**2)
             logger.info(
-                f"Very large area detected ({estimated_pixels:.0f} pixels) - using subsampling factor {subsample_factor}"
+                f"Very large area detected ({estimated_pixels:,.0f} pixels) - using subsampling factor {subsample_factor}"
             )
             logger.info(
-                f"This will reduce computation from {estimated_pixels:.0f} to ~{final_pixels:.0f} pixels"
+                f"This will reduce computation from {estimated_pixels:,.0f} to ~{final_pixels:,.0f} pixels"
             )
-            logger.info(f"Final resolution: {scale * subsample_factor:.0f}m")
+            logger.info(f"Final resolution: {scale * subsample_factor:,.0f}m")
 
             if calculated_factor > max_scale_factor:
                 logger.warning(
@@ -423,12 +424,12 @@ def productivity_performance(
         else:
             final_pixels = estimated_pixels
             logger.debug(
-                f"Area ({estimated_pixels:.0f} pixels) within normal processing range - no subsampling needed"
+                f"Area ({estimated_pixels:,.0f} pixels) within normal processing range - no subsampling needed"
             )
 
         if estimated_pixels > 1e12:  # 1 trillion pixels (reduced threshold)
             logger.warning(
-                f"Extremely large area detected - {estimated_pixels:.0f} pixels may still cause GEE timeout even with maximum subsampling"
+                f"Extremely large area detected - {estimated_pixels:,.0f} pixels may still cause GEE timeout even with maximum subsampling"
             )
     except Exception as e:
         logger.debug(f"Could not estimate processing area: {e}")
@@ -494,11 +495,11 @@ def productivity_performance(
         ids_list = ids.getInfo()
         num_clusters = len(ids_list)
         logger.debug(
-            f"Successfully computed {num_clusters} land cover/soil unit clusters"
+            f"Successfully computed {num_clusters:,} land cover/soil unit clusters"
         )
 
         if num_clusters > 100:
-            logger.debug(f"Large number of clusters ({num_clusters}) detected")
+            logger.debug(f"Large number of clusters ({num_clusters:,}) detected")
         elif num_clusters == 0:
             logger.warning(
                 "No valid clusters found - all data may be masked or invalid"
