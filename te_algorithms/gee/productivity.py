@@ -292,18 +292,23 @@ def productivity_performance(
     # Create unified geometry for percentile calculation across all areas
     logger.debug("Creating unified geometry from all geojsons...")
     individual_polys = [ee.Geometry(gj, opt_geodesic=False) for gj in all_geojsons]
+
     try:
-        unified_poly = ee.Geometry.MultiPolygon(
-            [poly.coordinates() for poly in individual_polys]
-        ).dissolve(maxError=1000)
-        logger.debug("Unified geometry created successfully")
+        if len(individual_polys) == 1:
+            unified_poly = individual_polys[0]
+            logger.debug("Single geometry - no union needed")
+        else:
+            unified_poly = ee.Geometry.MultiPolygon(
+                [poly.coordinates() for poly in individual_polys], opt_geodesic=False
+            )
+            logger.debug("Unified MultiPolygon geometry created successfully")
     except Exception as e:
-        logger.warning(f"Failed to create unified geometry using dissolve: {e}")
-        # Fallback to union of geometries
+        logger.warning(f"Failed to create MultiPolygon geometry: {e}")
+        # Fallback to progressive union
         unified_poly = individual_polys[0]
         for poly in individual_polys[1:]:
             unified_poly = unified_poly.union(poly, maxError=1000)
-        logger.debug("Using union fallback for unified geometry")
+        logger.debug("Using progressive union fallback for unified geometry")
 
     # compute mean ndvi for the period globally (not clipped)
     logger.debug(f"Computing global mean NDVI for period {year_initial}-{year_final}")
@@ -359,43 +364,52 @@ def productivity_performance(
     # Use unified area for percentile calculation
     percentile_poly = unified_poly
     percentile_ndvi = ndvi_avg_unified_proj
-    percentile_mask = percentile_ndvi.neq(0)
+    percentile_mask = percentile_ndvi.neq(0).And(percentile_ndvi.gt(-32768))
 
     # create a 2 band raster to compute 90th percentile per unit (analysis restricted by mask and study area)
     logger.debug("Preparing data for percentile calculation...")
-    ndvi_id = percentile_ndvi.addBands(global_units).updateMask(percentile_mask)
+    # Clip global_units to the percentile area to reduce computation
+    global_units_clipped = global_units.clip(percentile_poly)
+    ndvi_id = percentile_ndvi.addBands(global_units_clipped).updateMask(percentile_mask)
 
     logger.debug("Starting 90th percentile calculation by land cover/soil units")
-    logger.debug(
-        f"MODIS projection scale: {ee.Number(modis_proj.nominalScale()).getInfo()} meters"
-    )
+    modis_scale = modis_proj.nominalScale().getInfo()
+    logger.debug(f"MODIS projection scale: {modis_scale} meters")
 
     # Smart subsampling for very large areas
-    scale = ee.Number(modis_proj.nominalScale()).getInfo()
+    scale = modis_scale
     subsample_factor = 1
     use_subsampling = False
+    final_pixels = 0  # Initialize final_pixels
 
     try:
-        # Get approximate area for subsampling decisions
-        area_sq_km = percentile_poly.area(maxError=1000).divide(1000000).getInfo()
-        logger.debug(f"Processing area for percentiles: {area_sq_km:.2f} sq km")
+        # Get approximate area for subsampling decisions - avoid expensive getInfo() when possible
+        # Use a more conservative approach for area estimation to avoid multiple GEE calls
+        area_sq_km = percentile_poly.area(maxError=10000).divide(1000000)
 
-        # Estimate pixel count from area for subsampling decisions
-        estimated_pixels = area_sq_km * 1000000 / (scale * scale)
+        try:
+            area_value = area_sq_km.getInfo()
+            logger.debug(f"Processing area for percentiles: {area_value:.2f} sq km")
+            estimated_pixels = area_value * 1000000 / (scale * scale)
+        except Exception:
+            logger.debug("Could not get exact area - using conservative large estimate")
+            estimated_pixels = 100_000_000
+            area_value = estimated_pixels * (scale * scale) / 1000000
+
         logger.debug(f"Estimated pixels to process: {estimated_pixels:.0f}")
 
         # Use smart subsampling for very large areas
-        target_pixels = 20_000_000
+        target_pixels = 50_000_000
 
-        # Trigger subsampling if we exceed 10M pixels
-        if estimated_pixels > 10_000_000:
+        # Trigger subsampling only for large areas (>100M pixels = ~15.6M km²)
+        if estimated_pixels > 100_000_000:
             calculated_factor = int((estimated_pixels / target_pixels) ** 0.5)
-            max_scale_factor = 200  # Cap at 200x for extreme cases
+            max_scale_factor = 20
             subsample_factor = max(2, min(calculated_factor, max_scale_factor))
             use_subsampling = True
             final_pixels = estimated_pixels / (subsample_factor**2)
             logger.info(
-                f"Large area detected ({estimated_pixels:.0f} pixels) - using subsampling factor {subsample_factor}"
+                f"Very large area detected ({estimated_pixels:.0f} pixels) - using subsampling factor {subsample_factor}"
             )
             logger.info(
                 f"This will reduce computation from {estimated_pixels:.0f} to ~{final_pixels:.0f} pixels"
@@ -407,16 +421,18 @@ def productivity_performance(
                     f"Calculated scale factor ({calculated_factor}) exceeds maximum ({max_scale_factor})"
                 )
         else:
+            final_pixels = estimated_pixels
             logger.debug(
-                f"Area ({estimated_pixels:.0f} pixels) below 10M pixel threshold - no subsampling needed"
+                f"Area ({estimated_pixels:.0f} pixels) within normal processing range - no subsampling needed"
             )
 
-        if estimated_pixels > 1e15:  # 1 quadrillion pixels
+        if estimated_pixels > 1e12:  # 1 trillion pixels (reduced threshold)
             logger.warning(
                 f"Extremely large area detected - {estimated_pixels:.0f} pixels may still cause GEE timeout even with maximum subsampling"
             )
     except Exception as e:
         logger.debug(f"Could not estimate processing area: {e}")
+        final_pixels = 10_000_000  # Default assumption for fallback
 
     # Apply subsampling if needed
     if use_subsampling:
@@ -427,26 +443,41 @@ def productivity_performance(
 
     # compute 90th percentile by unit
     logger.debug("Executing reduceRegion operation for 90th percentiles...")
+    # Calculate percentiles grouped by land cover/soil unit
+    percentile_reducer = ee.Reducer.percentile([90]).group(
+        groupField=1, groupName="code"
+    )
     try:
-        # Calculate percentiles grouped by land cover/soil unit
-        percentile_reducer = ee.Reducer.percentile([90]).group(
-            groupField=1, groupName="code"
-        )
-
+        # Execute reduceRegion with consistent settings
         perc90_results = ndvi_id.reduceRegion(
             reducer=percentile_reducer,
             geometry=percentile_poly,
             scale=final_scale,
-            maxPixels=1e15,
+            maxPixels=1e10,  # 10 billion pixels - consistent limit
+            bestEffort=True,  # Allow GEE to optimize computation
         )
-        logger.debug("Percentile calculation completed successfully")
 
-        # Use the results directly for percentiles
-        perc90 = {"groups": perc90_results.get("groups")}
+        logger.debug("Percentile calculation completed successfully")
 
     except Exception as e:
         logger.error(f"reduceRegion operation failed: {e}")
-        raise
+        # Try one more time with even more aggressive settings
+        try:
+            logger.debug("Retrying with maximum memory optimization...")
+
+            perc90_results = ndvi_id.reduceRegion(
+                reducer=percentile_reducer,
+                geometry=percentile_poly,
+                scale=final_scale * 2,  # Double the scale to reduce pixels further
+                maxPixels=1e9,  # Much smaller maxPixels
+                bestEffort=True,
+            )
+            logger.debug("Retry successful with reduced resolution")
+        except Exception as retry_error:
+            logger.error(f"Retry also failed: {retry_error}")
+            raise
+
+    perc90 = {"groups": perc90_results.get("groups")}
 
     # Extract the cluster IDs and the 90th percentile
     logger.debug("Extracting cluster IDs and percentiles from results...")
