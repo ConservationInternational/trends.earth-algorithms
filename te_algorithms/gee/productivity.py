@@ -291,17 +291,18 @@ def productivity_performance(
 
     # Create unified geometry for percentile calculation across all areas
     logger.debug("Creating unified geometry from all geojsons...")
-    individual_polys = [ee.Geometry(gj, opt_geodesic=False) for gj in all_geojsons]
+    # Build geometries with geodesic disabled (use positional arg; keyword is unsupported)
+    individual_polys = [ee.Geometry(gj, None, False) for gj in all_geojsons]
 
     try:
         if len(individual_polys) == 1:
             unified_poly = individual_polys[0]
             logger.debug("Single geometry - no union needed")
         else:
-            # Create MultiPolygon without opt_geodesic parameter (not supported)
+            # Create MultiPolygon and force planar geometry to avoid geodesic artifacts
             unified_poly = ee.Geometry.MultiPolygon(
                 [poly.coordinates() for poly in individual_polys]
-            )
+            ).geodesic(False)
             logger.debug("Unified MultiPolygon geometry created successfully")
     except Exception as e:
         logger.warning(f"Failed to create MultiPolygon geometry: {e}")
@@ -480,72 +481,53 @@ def productivity_performance(
 
     perc90 = {"groups": perc90_results.get("groups")}
 
-    # Extract the cluster IDs and the 90th percentile
-    logger.debug("Extracting cluster IDs and percentiles from results...")
-    ids = None
-    perc = None
-    ids_list = []
+    # Extract the cluster IDs and the 90th percentile (server-side only)
+    logger.debug("Extracting cluster IDs and percentiles from results (server-side)...")
+    groups = ee.List(perc90.get("groups"))
+    ids = groups.map(lambda d: ee.Dictionary(d).get("code"))
+    perc = groups.map(lambda d: ee.Dictionary(d).get("p90"))
 
+    # Attempt to log the number of clusters without pulling the full list client-side
     try:
-        groups = ee.List(perc90.get("groups"))
-        ids = groups.map(lambda d: ee.Dictionary(d).get("code"))
-        perc = groups.map(lambda d: ee.Dictionary(d).get("p90"))
-
-        logger.debug("Triggering computation to get cluster count...")
-        ids_list = ids.getInfo()
-        num_clusters = len(ids_list)
+        num_clusters = ee.Number(groups.size()).getInfo()
         logger.debug(
             f"Successfully computed {num_clusters:,} land cover/soil unit clusters"
         )
-
         if num_clusters > 100:
             logger.debug(f"Large number of clusters ({num_clusters:,}) detected")
-        elif num_clusters == 0:
-            logger.warning(
-                "No valid clusters found - all data may be masked or invalid"
-            )
-
+        if num_clusters == 0:
+            logger.warning("No valid clusters found - proceeding with masked output")
     except Exception as e:
-        logger.error(f"Failed to extract cluster information: {e}")
-        logger.debug("Setting ids_list to empty list due to computation failure")
-        ids_list = []
+        logger.debug(f"Could not fetch cluster count: {e}")
 
-    if len(ids_list) > 0 and ids is not None and perc is not None:
-        logger.debug("Processing clusters to create global performance raster...")
+    logger.debug("Processing clusters to create global performance raster...")
 
-        # Apply the percentiles globally (not clipped to individual tiles)
-        logger.debug("Applying percentiles to global NDVI data...")
-        global_ndvi_proj = ndvi_avg_global.reproject(crs=modis_proj)
-        global_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
+    # Apply the percentiles globally (not clipped to individual tiles)
+    logger.debug("Applying percentiles to global NDVI data...")
+    global_ndvi_proj = ndvi_avg_global.reproject(crs=modis_proj)
+    global_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
 
-        # remap the units raster using their 90th percentile value (calculated from unified area)
-        raster_perc = global_units.remap(ids, perc)
+    # Remap the units raster using their 90th percentile value (calculated from unified area)
+    # Provide a default value and then mask it out to avoid using unmapped units
+    raster_perc = global_units.remap(ids, perc, -32768)
+    # Mask out missing (-32768) and zero percentiles to avoid divide-by-zero
+    raster_perc = raster_perc.updateMask(raster_perc.neq(-32768)).updateMask(
+        raster_perc.neq(0)
+    )
 
-        # compute the ratio of observed ndvi to 90th for that class
-        obs_ratio = global_ndvi_proj.divide(raster_perc)
+    # Compute the ratio of observed NDVI to 90th for that class
+    obs_ratio = global_ndvi_proj.divide(raster_perc)
 
-        # aggregate obs_ratio to original NDVI data resolution (for modis this step does not change anything)
-        logger.debug("Aggregating results to original NDVI resolution...")
-        obs_ratio_2 = obs_ratio.reduceResolution(
-            reducer=ee.Reducer.mean(), maxPixels=2000
-        ).reproject(crs=ndvi_1yr.projection())
+    # Aggregate obs_ratio to original NDVI data resolution (for MODIS this step may be a no-op)
+    logger.debug("Aggregating results to original NDVI resolution...")
+    obs_ratio_2 = obs_ratio.reduceResolution(
+        reducer=ee.Reducer.mean(), maxPixels=2000
+    ).reproject(crs=ndvi_1yr.projection())
 
-        prod_perf_ratio = obs_ratio_2.multiply(10000).rename(
-            "Productivity_performance_ratio"
-        )
-        logger.debug("Productivity performance calculation completed successfully")
-    else:
-        logger.warning(
-            "No valid clusters found - unable to calculate productivity performance"
-        )
-        logger.debug("This could be caused by:")
-        logger.debug("  - GEE computational timeout or memory limits")
-        logger.debug("  - No valid NDVI data in the unified area")
-        logger.debug("  - All pixels masked due to land cover or soil constraints")
-        logger.debug("  - Network issues during GEE computation")
-        logger.debug("Setting entire raster to no-data (-32768)")
-        obs_ratio_2 = ee.Image(-32768)
-        prod_perf_ratio = ee.Image(-32768).rename("Productivity_performance_ratio")
+    prod_perf_ratio = obs_ratio_2.multiply(10000).rename(
+        "Productivity_performance_ratio"
+    )
+    logger.debug("Productivity performance calculation completed successfully")
 
     # create final degradation output layer (-32768 is background), 0 is not
     # degraded, -1 is degraded
