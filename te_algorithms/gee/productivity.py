@@ -299,11 +299,11 @@ def productivity_performance(
             unified_poly = individual_polys[0]
             logger.debug("Single geometry - no union needed")
         else:
-            # Create MultiPolygon and force planar geometry to avoid geodesic artifacts
-            unified_poly = ee.Geometry.MultiPolygon(
-                [poly.coordinates() for poly in individual_polys]
-            ).geodesic(False)
-            logger.debug("Unified MultiPolygon geometry created successfully")
+            # Robust union: dissolve a GeometryCollection of the parts
+            unified_poly = ee.Geometry.GeometryCollection(individual_polys).dissolve(
+                maxError=1000
+            )
+            logger.debug("Unified geometry (dissolve) created successfully")
     except Exception as e:
         logger.warning(f"Failed to create MultiPolygon geometry: {e}")
         # Fallback to progressive union
