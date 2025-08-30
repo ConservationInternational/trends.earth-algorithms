@@ -352,7 +352,7 @@ def productivity_performance(
 
     # define modis projection attributes
     modis_proj = ee.Image(
-        "users/geflanddegradation/toolbox_datasets/ndvi_modis_2001_2023"
+        "users/geflanddegradation/toolbox_datasets/ndvi_modis_2001_2024"
     ).projection()
 
     # reproject land cover, soil_tax_usda and unified ndvi to modis resolution
