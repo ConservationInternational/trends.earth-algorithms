@@ -291,7 +291,6 @@ def productivity_performance(
 
     # Create unified geometry for percentile calculation across all areas
     logger.debug("Creating unified geometry from all geojsons...")
-    # Build geometries with geodesic disabled (use positional arg; keyword is unsupported)
     individual_polys = [ee.Geometry(gj, None, False) for gj in all_geojsons]
 
     try:
@@ -299,8 +298,8 @@ def productivity_performance(
             unified_poly = individual_polys[0]
             logger.debug("Single geometry - no union needed")
         else:
-            # Robust union: dissolve a GeometryCollection of the parts
-            unified_poly = ee.Geometry.GeometryCollection(individual_polys).dissolve(
+            # Use MultiPolygon constructor instead of GeometryCollection
+            unified_poly = ee.Geometry.MultiPolygon(individual_polys).dissolve(
                 maxError=1000
             )
             logger.debug("Unified geometry (dissolve) created successfully")

@@ -320,7 +320,11 @@ class TestProductivityPerformance:
         mock_image_instance.rename.return_value = mock_image_instance
         mock_image_instance.clip.return_value = mock_image_instance
         mock_image_instance.remap.return_value = mock_image_instance
-        mock_image_instance.projection.return_value = MagicMock()
+        mock_projection = MagicMock()
+        mock_projection.nominalScale.return_value.getInfo.return_value = (
+            250  # Mock MODIS scale
+        )
+        mock_image_instance.projection.return_value = mock_projection
         mock_image_instance.reproject.return_value = mock_image_instance
         mock_image_instance.multiply.return_value = mock_image_instance
         mock_image_instance.add.return_value = mock_image_instance
@@ -330,11 +334,17 @@ class TestProductivityPerformance:
         mock_image_instance.reduceResolution.return_value = mock_image_instance
         mock_image_instance.gte.return_value = mock_image_instance
         mock_image_instance.lte.return_value = mock_image_instance
+        mock_image_instance.And.return_value = mock_image_instance
+        mock_image_instance.gt.return_value = mock_image_instance
         mock_image_instance.unmask.return_value = mock_image_instance
         mock_image_instance.int16.return_value = mock_image_instance
 
         # Mock geometry
         mock_poly = MagicMock()
+        mock_poly.area.return_value.divide.return_value.getInfo.return_value = (
+            1000  # Mock area in sq km
+        )
+        mock_poly.union.return_value = mock_poly
         mock_geometry.return_value = mock_poly
 
         # Mock the reduceRegion result
@@ -358,7 +368,7 @@ class TestProductivityPerformance:
                 year_initial=2001,
                 year_final=2020,
                 prod_asset="test_asset",
-                geojson=geojson,
+                all_geojsons=[geojson],
                 logger=mock_logger,
             )
 
