@@ -487,19 +487,6 @@ def productivity_performance(
     ids = groups.map(lambda d: ee.Dictionary(d).get("code"))
     perc = groups.map(lambda d: ee.Dictionary(d).get("p90"))
 
-    # Attempt to log the number of clusters without pulling the full list client-side
-    try:
-        num_clusters = ee.Number(groups.size()).getInfo()
-        logger.debug(
-            f"Successfully computed {num_clusters:,} land cover/soil unit clusters"
-        )
-        if num_clusters > 100:
-            logger.debug(f"Large number of clusters ({num_clusters:,}) detected")
-        if num_clusters == 0:
-            logger.warning("No valid clusters found - proceeding with masked output")
-    except Exception as e:
-        logger.debug(f"Could not fetch cluster count: {e}")
-
     logger.debug("Processing clusters to create global performance raster...")
 
     # Apply the percentiles globally (not clipped to individual tiles)
