@@ -394,16 +394,16 @@ def productivity_performance(
             estimated_pixels = area_value * 1000000 / (scale * scale)
         except Exception:
             logger.debug("Could not get exact area - using conservative large estimate")
-            estimated_pixels = 50_000_000
+            estimated_pixels = 15_000_000
             area_value = estimated_pixels * (scale * scale) / 1000000
 
         logger.debug(f"Estimated pixels to process: {estimated_pixels:,.0f}")
 
         # Use smart subsampling for very large areas
-        target_pixels = 25_000_000
+        target_pixels = 10_000_000
 
         # Trigger subsampling only for large areas
-        if estimated_pixels >= 50_000_000:
+        if estimated_pixels >= 15_000_000:
             calculated_factor = int((estimated_pixels / target_pixels) ** 0.5)
             max_scale_factor = 20
             subsample_factor = max(2, min(calculated_factor, max_scale_factor))
