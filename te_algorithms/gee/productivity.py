@@ -382,10 +382,10 @@ def productivity_performance(
     subsample_factor = 1
     use_subsampling = False
     final_pixels = 0  # Initialize final_pixels
+    tilescale = 1  # Initialize tilescale
 
     try:
-        # Get approximate area for subsampling decisions - avoid expensive getInfo() when possible
-        # Use a more conservative approach for area estimation to avoid multiple GEE calls
+        # Get approximate area for subsampling decisions
         area_sq_km = percentile_poly.area(maxError=10000).divide(1000000)
 
         try:
@@ -394,46 +394,92 @@ def productivity_performance(
             estimated_pixels = area_value * 1000000 / (scale * scale)
         except Exception:
             logger.debug("Could not get exact area - using conservative large estimate")
-            estimated_pixels = 15_000_000
+            estimated_pixels = 50_000_000
             area_value = estimated_pixels * (scale * scale) / 1000000
 
         logger.debug(f"Estimated pixels to process: {estimated_pixels:,.0f}")
 
-        # Use smart subsampling for very large areas
-        target_pixels = 10_000_000
+        # Use smart subsampling and tilescale adjustment for very large areas
+        target_pixels = 25_000_000
 
-        # Trigger subsampling only for large areas
-        if estimated_pixels >= 15_000_000:
+        # Define thresholds for different optimization strategies
+        if estimated_pixels >= 50_000_000:  # Very large areas
             calculated_factor = int((estimated_pixels / target_pixels) ** 0.5)
             max_scale_factor = 20
-            subsample_factor = max(2, min(calculated_factor, max_scale_factor))
+            subsample_factor = max(3, min(calculated_factor, max_scale_factor))
+            tilescale = max(2, min(subsample_factor // 2, 8))  # Adaptive tilescale
             use_subsampling = True
             final_pixels = estimated_pixels / (subsample_factor**2)
             logger.info(
-                f"Very large area detected ({estimated_pixels:,.0f} pixels) - using subsampling factor {subsample_factor}"
+                f"Very large area detected ({estimated_pixels:,.0f} pixels) - "
+                f"using aggressive optimization"
             )
             logger.info(
-                f"This will reduce computation from {estimated_pixels:,.0f} to ~{final_pixels:,.0f} pixels"
+                f"Subsampling factor: {subsample_factor}, Tilescale: {tilescale}"
+            )
+            logger.info(
+                f"This will reduce computation from {estimated_pixels:,.0f} to "
+                f"~{final_pixels:,.0f} pixels"
             )
             logger.info(f"Final resolution: {scale * subsample_factor:,.0f}m")
 
-            if calculated_factor > max_scale_factor:
-                logger.warning(
-                    f"Calculated scale factor ({calculated_factor}) exceeds maximum ({max_scale_factor})"
-                )
-        else:
+        elif estimated_pixels >= 50_000_000:  # Large areas
+            calculated_factor = int((estimated_pixels / target_pixels) ** 0.5)
+            max_scale_factor = 15
+            subsample_factor = max(2, min(calculated_factor, max_scale_factor))
+            # More conservative tilescale
+            tilescale = max(1, min(subsample_factor // 3, 4))
+            use_subsampling = True
+            final_pixels = estimated_pixels / (subsample_factor**2)
+            logger.info(
+                f"Large area detected ({estimated_pixels:,.0f} pixels) - "
+                f"using moderate optimization"
+            )
+            logger.info(
+                f"Subsampling factor: {subsample_factor}, Tilescale: {tilescale}"
+            )
+            logger.info(
+                f"This will reduce computation from {estimated_pixels:,.0f} to "
+                f"~{final_pixels:,.0f} pixels"
+            )
+            logger.info(f"Final resolution: {scale * subsample_factor:,.0f}m")
+
+        elif estimated_pixels >= 5_000_000:  # Medium-large areas
+            subsample_factor = 1  # No subsampling needed
+            tilescale = 2  # Small tilescale increase for better performance
             final_pixels = estimated_pixels
             logger.debug(
-                f"Area ({estimated_pixels:,.0f} pixels) within normal processing range - no subsampling needed"
+                f"Medium-large area ({estimated_pixels:,.0f} pixels) - "
+                f"using tilescale optimization only"
+            )
+            logger.debug(f"Tilescale: {tilescale}")
+
+        else:  # Normal areas
+            final_pixels = estimated_pixels
+            tilescale = 1  # Default tilescale
+            logger.debug(
+                f"Normal area ({estimated_pixels:,.0f} pixels) - no optimization needed"
             )
 
-        if estimated_pixels > 1e12:  # 1 trillion pixels (reduced threshold)
+        if estimated_pixels >= 50_000_000:
+            calculated_factor = int((estimated_pixels / target_pixels) ** 0.5)
+            max_scale_factor = 20 if estimated_pixels >= 50_000_000 else 15
+            if calculated_factor > max_scale_factor:
+                logger.warning(
+                    f"Calculated scale factor ({calculated_factor}) exceeds "
+                    f"maximum - using maximum optimization"
+                )
+
+        if estimated_pixels > 1e12:  # 1 trillion pixels
             logger.warning(
-                f"Extremely large area detected - {estimated_pixels:,.0f} pixels may still cause GEE timeout even with maximum subsampling"
+                f"Extremely large area detected - {estimated_pixels:,.0f} pixels "
+                f"may still cause GEE timeout even with maximum optimization"
             )
+
     except Exception as e:
         logger.debug(f"Could not estimate processing area: {e}")
-        final_pixels = 10_000_000  # Default assumption for fallback
+        final_pixels = 25_000_000  # Default assumption for fallback
+        tilescale = 1  # Safe default
 
     # Apply subsampling if needed
     if use_subsampling:
@@ -443,19 +489,23 @@ def productivity_performance(
         final_scale = scale
 
     # compute 90th percentile by unit
-    logger.debug("Executing reduceRegion operation for 90th percentiles...")
+    logger.debug(
+        f"Executing reduceRegion operation with scale={final_scale}, "
+        f"tilescale={tilescale}"
+    )
     # Calculate percentiles grouped by land cover/soil unit
     percentile_reducer = ee.Reducer.percentile([90]).group(
         groupField=1, groupName="code"
     )
     try:
-        # Execute reduceRegion with consistent settings
+        # Execute reduceRegion with adaptive settings
         perc90_results = ndvi_id.reduceRegion(
             reducer=percentile_reducer,
             geometry=percentile_poly,
             scale=final_scale,
             maxPixels=1e10,  # 10 billion pixels - consistent limit
             bestEffort=True,  # Allow GEE to optimize computation
+            tileScale=tilescale,  # Adaptive tilescale
         )
 
         logger.debug("Percentile calculation completed successfully")
@@ -465,6 +515,7 @@ def productivity_performance(
         # Try one more time with even more aggressive settings
         try:
             logger.debug("Retrying with maximum memory optimization...")
+            retry_tilescale = min(tilescale * 2, 16)  # Increase tilescale for retry
 
             perc90_results = ndvi_id.reduceRegion(
                 reducer=percentile_reducer,
@@ -472,8 +523,12 @@ def productivity_performance(
                 scale=final_scale * 2,  # Double the scale to reduce pixels further
                 maxPixels=1e9,  # Much smaller maxPixels
                 bestEffort=True,
+                tileScale=retry_tilescale,  # Increased tilescale for retry
             )
-            logger.debug("Retry successful with reduced resolution")
+            logger.debug(
+                f"Retry successful with reduced resolution and "
+                f"tilescale={retry_tilescale}"
+            )
         except Exception as retry_error:
             logger.error(f"Retry also failed: {retry_error}")
             raise
@@ -493,7 +548,8 @@ def productivity_performance(
     global_ndvi_proj = ndvi_avg_global.reproject(crs=modis_proj)
     global_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
 
-    # Remap the units raster using their 90th percentile value (calculated from unified area)
+    # Remap the units raster using their 90th percentile value
+    # (calculated from unified area)
     # Provide a default value and then mask it out to avoid using unmapped units
     raster_perc = global_units.remap(ids, perc, -32768)
     # Mask out missing (-32768) and zero percentiles to avoid divide-by-zero
@@ -504,7 +560,8 @@ def productivity_performance(
     # Compute the ratio of observed NDVI to 90th for that class
     obs_ratio = global_ndvi_proj.divide(raster_perc)
 
-    # Aggregate obs_ratio to original NDVI data resolution (for MODIS this step may be a no-op)
+    # Aggregate obs_ratio to original NDVI data resolution
+    # (for MODIS this step may be a no-op)
     logger.debug("Aggregating results to original NDVI resolution...")
     obs_ratio_2 = obs_ratio.reduceResolution(
         reducer=ee.Reducer.mean(), maxPixels=2000
