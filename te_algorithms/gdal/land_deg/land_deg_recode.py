@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import tempfile
 from pathlib import Path
@@ -140,16 +141,14 @@ def get_serialized_results(st, layer_name):
             reporting.Area("No data", st.sdg_summary.get(int(config.NODATA_VALUE), 0)),
         ],
     )
-    land_condition_report = reporting.LandConditionReport(
-        sdg=reporting.SDG15Report(summary=sdg_summary)
-    )
+    sdg_report = reporting.SDG15Report(summary=sdg_summary)
 
-    return reporting.LandConditionReport.Schema().dump(land_condition_report)
+    return dataclasses.asdict(sdg_report)
 
 
 def recode_errors(params) -> Job:
     logger.debug("Entering recode_errors")
-    aoi = AOI.Schema().load(params["aoi"])
+    aoi = AOI(params["aoi"])
     job_output_path = Path(params["output_path"])
     sdg_df = _prepare_df(
         params["layer_input_band_path"],
@@ -163,9 +162,22 @@ def recode_errors(params) -> Job:
         params["layer_error_recode_band_index"],
     )
     logger.debug("Loading error polygons")
-    error_polygons = ErrorRecodePolygons.Schema().load(params["error_polygons"])
+    error_polygons_data = params["error_polygons"]
+    error_polygons = ErrorRecodePolygons(
+        features=error_polygons_data.get("features", []),
+        name=error_polygons_data.get("name"),
+        crs=error_polygons_data.get("crs"),
+        type=error_polygons_data.get("type", "FeatureCollection"),
+    )
 
-    input_band = Band.Schema().load(params["layer_input_band"])
+    input_band_data = params["layer_input_band"]
+    input_band = Band(
+        name=input_band_data["name"],
+        no_data_value=input_band_data.get("no_data_value"),
+        metadata=input_band_data.get("metadata", {}),
+        add_to_map=input_band_data.get("add_to_map", False),
+        activated=input_band_data.get("activated", False),
+    )
 
     logger.debug("Running _compute_error_recode")
     summary_table, error_recode_paths = _compute_error_recode(
