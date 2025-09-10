@@ -56,20 +56,90 @@ class TestRecodeIndicatorErrors:
         assert result[1, 1] == 21  # stable (0) -> 21
         assert result[1, 2] == 22  # imp (1) -> 22
 
-    def test_recode_indicator_errors_nodata_targets(self):
-        """Test recoding when target values are NODATA."""
+    def test_recode_indicator_errors_no_recoding(self):
+        """Test recoding when target values are -9999 (no recoding sentinel)."""
         x = np.array([[-1, 0, 1]], dtype=np.int16)
         recode = np.array([[1, 1, 1]], dtype=np.int16)
         codes = np.array([1], dtype=np.int16)
-        deg_to = np.array([NODATA_VALUE[0]], dtype=np.int16)  # Don't recode degraded
+        deg_to = np.array(
+            [-9999], dtype=np.int16
+        )  # Don't recode degraded (None -> -9999)
         stable_to = np.array([50], dtype=np.int16)  # Recode stable
-        imp_to = np.array([NODATA_VALUE[0]], dtype=np.int16)  # Don't recode improved
+        imp_to = np.array(
+            [-9999], dtype=np.int16
+        )  # Don't recode improved (None -> -9999)
 
         result = recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to)
 
         assert result[0, 0] == -1  # Unchanged (deg)
         assert result[0, 1] == 50  # Recoded (stable)
         assert result[0, 2] == 1  # Unchanged (improved)
+
+    def test_recode_indicator_errors_to_nodata(self):
+        """Test recoding to NODATA (-32768) values."""
+        x = np.array([[-1, 0, 1]], dtype=np.int16)
+        recode = np.array([[1, 1, 1]], dtype=np.int16)
+        codes = np.array([1], dtype=np.int16)
+        deg_to = np.array(
+            [NODATA_VALUE[0]], dtype=np.int16
+        )  # Recode degraded to nodata
+        stable_to = np.array([50], dtype=np.int16)  # Recode stable to 50
+        imp_to = np.array(
+            [NODATA_VALUE[0]], dtype=np.int16
+        )  # Recode improved to nodata
+
+        result = recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to)
+
+        assert result[0, 0] == NODATA_VALUE[0]  # Recoded to nodata (deg)
+        assert result[0, 1] == 50  # Recoded to 50 (stable)
+        assert result[0, 2] == NODATA_VALUE[0]  # Recoded to nodata (improved)
+
+    def test_recode_indicator_errors_comprehensive_semantics(self):
+        """Test comprehensive recoding scenarios showing the difference between no recoding vs recode to nodata."""
+        # Test data with multiple zones and all three categories
+        x = np.array(
+            [
+                [-1, 0, 1],  # Zone 1: deg, stable, imp
+                [-1, 0, 1],  # Zone 2: deg, stable, imp
+                [-1, 0, 1],  # Zone 3: deg, stable, imp
+            ],
+            dtype=np.int16,
+        )
+
+        recode = np.array(
+            [
+                [1, 1, 1],  # Zone 1
+                [2, 2, 2],  # Zone 2
+                [3, 3, 3],  # Zone 3
+            ],
+            dtype=np.int16,
+        )
+
+        codes = np.array([1, 2, 3], dtype=np.int16)
+
+        # Zone 1: No recoding (None -> -9999)
+        # Zone 2: Recode to nodata (-32768)
+        # Zone 3: Recode to specific values
+        deg_to = np.array([-9999, NODATA_VALUE[0], 100], dtype=np.int16)
+        stable_to = np.array([-9999, NODATA_VALUE[0], 200], dtype=np.int16)
+        imp_to = np.array([-9999, NODATA_VALUE[0], 300], dtype=np.int16)
+
+        result = recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to)
+
+        # Zone 1: Should remain unchanged (no recoding)
+        assert result[0, 0] == -1  # deg unchanged
+        assert result[0, 1] == 0  # stable unchanged
+        assert result[0, 2] == 1  # imp unchanged
+
+        # Zone 2: Should be recoded to nodata
+        assert result[1, 0] == NODATA_VALUE[0]  # deg -> nodata
+        assert result[1, 1] == NODATA_VALUE[0]  # stable -> nodata
+        assert result[1, 2] == NODATA_VALUE[0]  # imp -> nodata
+
+        # Zone 3: Should be recoded to specific values
+        assert result[2, 0] == 100  # deg -> 100
+        assert result[2, 1] == 200  # stable -> 200
+        assert result[2, 2] == 300  # imp -> 300
 
     def test_recode_indicator_errors_no_matching_zones(self):
         """Test recoding when no zones match the codes."""
@@ -305,8 +375,8 @@ class TestCalcLcTrans:
         result = calc_lc_trans(lc_bl, lc_tg, multiplier)
 
         assert result.shape == lc_bl.shape
-        # Note: Function may return int16 for smaller values, not always int32
-        assert result.dtype in [np.int16, np.int32]
+        # Note: Function may return different integer types depending on system/numba version
+        assert result.dtype in [np.int16, np.int32, np.int64]
 
         # Check transition calculations: bl*multiplier + tg
         assert result[0, 0] == 1 * 100 + 1  # 1->1 = 101

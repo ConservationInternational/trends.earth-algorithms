@@ -38,23 +38,29 @@ MASK_VALUE = np.array([-32767], dtype=np.int16)
 )
 def recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to):
     """Optimized version with numba JIT compilation enabled"""
-    out = x.copy()
+    original_shape = x.shape
+    x_flat = x.ravel()
+    recode_flat = recode.ravel()
+    out_flat = x_flat.copy()
 
-    # Vectorized approach: process all codes at once for each category
+    # Process each code using flattened arrays for numba compatibility
     for i in range(len(codes)):
         code = codes[i]
-        mask = recode == code
+        mask = recode_flat == code
 
-        if deg_to[i] != NODATA_VALUE[0]:  # Use explicit comparison instead of None
-            out[(x == -1) & mask] = deg_to[i]
+        if deg_to[i] != -9999:  # -9999 means "no recoding", anything else gets applied
+            deg_mask = (x_flat == -1) & mask
+            out_flat[deg_mask] = deg_to[i]
 
-        if stable_to[i] != NODATA_VALUE[0]:
-            out[(x == 0) & mask] = stable_to[i]
+        if stable_to[i] != -9999:
+            stable_mask = (x_flat == 0) & mask
+            out_flat[stable_mask] = stable_to[i]
 
-        if imp_to[i] != NODATA_VALUE[0]:
-            out[(x == 1) & mask] = imp_to[i]
+        if imp_to[i] != -9999:
+            imp_mask = (x_flat == 1) & mask
+            out_flat[imp_mask] = imp_to[i]
 
-    return out
+    return out_flat.reshape(original_shape)
 
 
 @numba.jit(nopython=True)
