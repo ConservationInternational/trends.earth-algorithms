@@ -34,7 +34,6 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     this_out = {"area_ha": np.sum(np.logical_not(masked.mask) * cell_areas)}
     if band_name in [
         config.SDG_BAND_NAME,
-        config.SDG_STATUS_BAND_NAME,
         config.LC_DEG_BAND_NAME,
         config.LC_DEG_COMPARISON_BAND_NAME,
     ]:
@@ -50,6 +49,22 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
         this_out["nodata_pct"] = (
             np.sum((masked == nodata) * cell_areas) / this_out["area_ha"] * 100
         )
+    if band_name in [
+        config.SDG_STATUS_BAND_NAME,
+    ]:
+        # Handle 1-7 codes in status layer: 1,2,3=degraded, 4=stable, 5,6,7=improved
+        this_out["degraded_pct"] = (
+            np.sum(np.isin(masked, [1, 2, 3]) * cell_areas) / this_out["area_ha"] * 100
+        )
+        this_out["stable_pct"] = (
+            np.sum((masked == 4) * cell_areas) / this_out["area_ha"] * 100
+        )
+        this_out["improved_pct"] = (
+            np.sum(np.isin(masked, [5, 6, 7]) * cell_areas) / this_out["area_ha"] * 100
+        )
+        this_out["nodata_pct"] = (
+            np.sum((masked == nodata) * cell_areas) / this_out["area_ha"] * 100
+        )
     elif band_name in [
         config.JRC_LPD_BAND_NAME,
         config.FAO_WOCAT_LPD_BAND_NAME,
@@ -57,20 +72,16 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
         config.PROD_DEG_COMPARISON_BAND_NAME,
     ]:
         this_out["degraded_pct"] = (
-            np.sum(np.logical_or(masked == 1, masked == 2) * cell_areas)
-            / this_out["area_ha"]
-            * 100
+            np.sum(np.isin(masked, [1, 2]) * cell_areas) / this_out["area_ha"] * 100
         )
         this_out["stable_pct"] = (
-            np.sum(np.logical_or(masked == 3, masked == 4) * cell_areas)
-            / this_out["area_ha"]
-            * 100
+            np.sum(np.isin(masked, [3, 4]) * cell_areas) / this_out["area_ha"] * 100
         )
         this_out["improved_pct"] = (
             np.sum((masked == 5) * cell_areas) / this_out["area_ha"] * 100
         )
         this_out["nodata_pct"] = (
-            np.sum(np.logical_or(masked == nodata, masked == 0) * cell_areas)
+            np.sum(np.isin(masked, [nodata, 0]) * cell_areas)
             / this_out["area_ha"]
             * 100
         )
