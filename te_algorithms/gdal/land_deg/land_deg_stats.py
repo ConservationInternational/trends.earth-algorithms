@@ -158,8 +158,16 @@ def _get_stats_crosstab(
     recoded_1 = _recode_to_common_classes(band_1_name, masked_1, band_1_nodata)
     recoded_2 = _recode_to_common_classes(band_2_name, masked_2, band_2_nodata)
 
-    # Calculate total area including nodata
-    total_area_ha = np.sum(cell_areas)
+    # Create geometry mask - handle both masked arrays and regular arrays
+    if hasattr(masked_1, "mask"):
+        # This is a masked array from real usage
+        geometry_mask = np.logical_not(masked_1.mask)
+    else:
+        # This is a regular array from tests - treat all cells as within geometry
+        geometry_mask = np.ones_like(masked_1, dtype=bool)
+
+    # Calculate total area only within the geometry
+    total_area_ha = np.sum(geometry_mask * cell_areas)
 
     if total_area_ha == 0:
         # No data at all
@@ -183,8 +191,11 @@ def _get_stats_crosstab(
         for val_2 in all_values:
             class_2 = class_names[val_2]
             if class_2 not in crosstab[class_1]:
-                # Calculate area for this combination
-                mask_combo = np.logical_and(recoded_1 == val_1, recoded_2 == val_2)
+                # Calculate area for this combination within the geometry
+                mask_combo = np.logical_and(
+                    np.logical_and(recoded_1 == val_1, recoded_2 == val_2),
+                    geometry_mask,
+                )
                 area_ha = np.sum(mask_combo * cell_areas)
                 area_pct = (area_ha / total_area_ha * 100) if total_area_ha > 0 else 0.0
 
@@ -205,7 +216,7 @@ def _get_stats_crosstab(
             continue
 
         # Band 1 totals
-        mask_1 = recoded_1 == val
+        mask_1 = np.logical_and(recoded_1 == val, geometry_mask)
         area_1 = np.sum(mask_1 * cell_areas)
         band_1_totals[class_name] = {
             "area_ha": float(area_1),
@@ -215,7 +226,7 @@ def _get_stats_crosstab(
         }
 
         # Band 2 totals
-        mask_2 = recoded_2 == val
+        mask_2 = np.logical_and(recoded_2 == val, geometry_mask)
         area_2 = np.sum(mask_2 * cell_areas)
         band_2_totals[class_name] = {
             "area_ha": float(area_2),
