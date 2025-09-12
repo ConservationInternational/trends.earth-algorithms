@@ -131,7 +131,13 @@ def _recode_to_common_classes(band_name, masked, nodata):
 
 
 def _get_stats_crosstab(
-    band_1_name, band_2_name, masked_1, masked_2, cell_areas, nodata
+    band_1_name,
+    band_2_name,
+    masked_1,
+    masked_2,
+    cell_areas,
+    band_1_nodata,
+    band_2_nodata,
 ):
     """
     Generate crosstab statistics for two bands showing degraded/stable/improved transitions.
@@ -142,17 +148,18 @@ def _get_stats_crosstab(
         masked_1: Masked array for first band
         masked_2: Masked array for second band
         cell_areas: Array of cell areas in hectares
-        nodata: No data value
+        band_1_nodata: No data value for first band
+        band_2_nodata: No data value for second band
 
     Returns:
         Dictionary with crosstab statistics
     """
-    # Recode both bands to common classes
-    recoded_1 = _recode_to_common_classes(band_1_name, masked_1, nodata)
-    recoded_2 = _recode_to_common_classes(band_2_name, masked_2, nodata)
+    # Recode both bands to common classes using their respective nodata values
+    recoded_1 = _recode_to_common_classes(band_1_name, masked_1, band_1_nodata)
+    recoded_2 = _recode_to_common_classes(band_2_name, masked_2, band_2_nodata)
 
     # Calculate total area (excluding nodata in either band)
-    valid_mask = np.logical_and(recoded_1 != nodata, recoded_2 != nodata)
+    valid_mask = np.logical_and(recoded_1 != band_1_nodata, recoded_2 != band_2_nodata)
     total_area_ha = np.sum(valid_mask * cell_areas)
 
     if total_area_ha == 0:
@@ -405,12 +412,11 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
                 )
                 band_2_nodata = rds.GetRasterBand(band_2_index).GetNoDataValue()
 
-            # Use the same nodata value for consistency in crosstab
-            crosstab_nodata = (
-                band_1_nodata if band_1_nodata is not None else band_2_nodata
-            )
-            if crosstab_nodata is None:
-                crosstab_nodata = -32768  # Default nodata value
+            # Use default nodata values if not specified
+            if band_1_nodata is None:
+                band_1_nodata = -32768  # Default nodata value
+            if band_2_nodata is None:
+                band_2_nodata = -32768  # Default nodata value
 
             crosstab_stats = _get_stats_crosstab(
                 band_1_name,
@@ -418,7 +424,8 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
                 band_arrays[band_1_name],
                 band_arrays[band_2_name],
                 cell_areas,
-                crosstab_nodata,
+                band_1_nodata,
+                band_2_nodata,
             )
             results["crosstabs"].append(crosstab_stats)
 

@@ -843,6 +843,7 @@ class TestCrosstabFunction(unittest.TestCase):
             self.band_2,
             self.cell_areas,
             self.nodata,
+            self.nodata,
         )
 
         # Check structure
@@ -880,6 +881,7 @@ class TestCrosstabFunction(unittest.TestCase):
             band_2_with_nodata,
             self.cell_areas,
             self.nodata,
+            self.nodata,
         )
 
         # Total area should exclude nodata cells
@@ -897,6 +899,7 @@ class TestCrosstabFunction(unittest.TestCase):
             nodata_array,
             self.cell_areas,
             self.nodata,
+            self.nodata,
         )
 
         # Should return zero area and empty crosstab
@@ -911,6 +914,7 @@ class TestCrosstabFunction(unittest.TestCase):
             self.band_1,
             self.band_2,
             self.cell_areas,
+            self.nodata,
             self.nodata,
         )
 
@@ -961,6 +965,7 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             self.band_1,
             self.band_2,
             self.cell_areas,
+            self.nodata,
             self.nodata,
         )
 
@@ -1080,6 +1085,7 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             band_simple,
             cell_areas_simple,
             self.nodata,
+            self.nodata,
         )
 
         # The marginals should match the individual stats (both bands are identical)
@@ -1142,6 +1148,7 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             self.band_2,
             self.cell_areas,
             self.nodata,
+            self.nodata,
         )
 
         # Check marginals_1 sum to 100%
@@ -1183,6 +1190,7 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             same_band,
             cell_areas_small,
             self.nodata,
+            self.nodata,
         )
 
         # All off-diagonal values should be 0
@@ -1220,6 +1228,37 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             crosstab_result["crosstab"]["improved"]["improved"]["area_pct"],
             crosstab_result["marginals_1"]["improved"]["area_pct"],
             places=2,
+        )
+
+    def test_crosstab_with_different_nodata_values(self):
+        """Test crosstab with different nodata values for each band."""
+        # Create bands with different nodata values at different positions
+        # SDG band: -1=degraded, 0=stable, 1=improved
+        # JRC_LPD band: 1,2=degraded, 3,4=stable, 5=improved, 0=nodata
+        band_1 = np.array(
+            [[-1, 0, 1], [1, 0, -32768]], dtype=np.int16
+        )  # nodata=-32768 at [1,2]
+        band_2 = np.array(
+            [[1, 3, -9999], [2, 4, 5]], dtype=np.int16
+        )  # nodata=-9999 at [0,2]
+        cell_areas_small = np.ones((2, 3)) * 0.25
+
+        crosstab_result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.JRC_LPD_BAND_NAME,
+            band_1,
+            band_2,
+            cell_areas_small,
+            -32768,  # band_1_nodata
+            -9999,  # band_2_nodata
+        )
+
+        # Should exclude cells where either band has nodata
+        # band_1 has nodata at [1,2], band_2 has nodata at [0,2]
+        # So we exclude 2 cells, leaving 4 valid cells
+        expected_total = 4 * 0.25  # 1.0 hectare
+        self.assertAlmostEqual(
+            crosstab_result["total_area_ha"], expected_total, places=2
         )
 
 
