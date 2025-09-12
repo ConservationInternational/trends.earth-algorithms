@@ -431,7 +431,7 @@ class TestLandDegStats(unittest.TestCase):
         """Test calculate_statistics with basic functionality."""
         # Mock input parameters
         test_params = {
-            "error_polygons": {
+            "polygons": {
                 "type": "FeatureCollection",
                 "features": [
                     {
@@ -487,7 +487,7 @@ class TestLandDegStats(unittest.TestCase):
     def test_calculate_statistics_uuid_mismatch(self):
         """Test calculate_statistics with mismatched UUIDs across bands."""
         test_params = {
-            "error_polygons": {},
+            "polygons": {},
             "path": "/fake/path.tif",
             "band_datas": [
                 {"name": config.SDG_BAND_NAME, "index": 1},
@@ -511,7 +511,7 @@ class TestLandDegStats(unittest.TestCase):
     def test_calculate_statistics_single_band(self):
         """Test calculate_statistics with single band."""
         test_params = {
-            "error_polygons": {},
+            "polygons": {},
             "path": "/fake/path.tif",
             "band_datas": [{"name": config.SDG_BAND_NAME, "index": 1}],
         }
@@ -849,19 +849,17 @@ class TestCrosstabFunction(unittest.TestCase):
         # Check structure
         self.assertIn("total_area_ha", result)
         self.assertIn("crosstab", result)
-        self.assertIn("marginals_1", result)
-        self.assertIn("marginals_2", result)
-        self.assertIn("band_1_name", result)
-        self.assertIn("band_2_name", result)
+        self.assertIn("band_1_totals", result)
+        self.assertIn("band_2_totals", result)
 
         # Check total area
         expected_total = 2 * 3 * 0.25  # 1.5 hectares
         self.assertAlmostEqual(result["total_area_ha"], expected_total, places=2)
 
-        # Check crosstab structure
-        for class_name in ["degraded", "stable", "improved"]:
+        # Check crosstab structure - now includes nodata
+        for class_name in ["degraded", "stable", "improved", "nodata"]:
             self.assertIn(class_name, result["crosstab"])
-            for class_name_2 in ["degraded", "stable", "improved"]:
+            for class_name_2 in ["degraded", "stable", "improved", "nodata"]:
                 self.assertIn(class_name_2, result["crosstab"][class_name])
                 self.assertIn("area_ha", result["crosstab"][class_name][class_name_2])
                 self.assertIn("area_pct", result["crosstab"][class_name][class_name_2])
@@ -884,8 +882,8 @@ class TestCrosstabFunction(unittest.TestCase):
             self.nodata,
         )
 
-        # Total area should exclude nodata cells
-        expected_total = 4 * 0.25  # 4 valid cells * 0.25 hectares = 1.0 hectare
+        # Total area should now include all data (including nodata)
+        expected_total = 6 * 0.25  # 6 total cells * 0.25 hectares = 1.5 hectares
         self.assertAlmostEqual(result["total_area_ha"], expected_total, places=2)
 
     def test_get_stats_crosstab_all_nodata(self):
@@ -902,9 +900,9 @@ class TestCrosstabFunction(unittest.TestCase):
             self.nodata,
         )
 
-        # Should return zero area and empty crosstab
-        self.assertEqual(result["total_area_ha"], 0.0)
-        self.assertEqual(result["crosstab"], {})
+        # Should return total area including nodata and nodata entries in crosstab
+        self.assertGreater(result["total_area_ha"], 0.0)
+        self.assertIn("nodata", result["crosstab"])
 
     def test_crosstab_marginals_sum_correctly(self):
         """Test that marginal totals sum to 100%."""
@@ -918,25 +916,25 @@ class TestCrosstabFunction(unittest.TestCase):
             self.nodata,
         )
 
-        # Check marginals for band 1
+        # Check totals for band 1 - now includes nodata
         total_pct_1 = sum(
-            result["marginals_1"][class_name]["area_pct"]
-            for class_name in ["degraded", "stable", "improved"]
+            result["band_1_totals"][class_name]["area_pct"]
+            for class_name in ["degraded", "stable", "improved", "nodata"]
         )
         self.assertAlmostEqual(total_pct_1, 100.0, places=1)
 
-        # Check marginals for band 2
+        # Check totals for band 2 - now includes nodata
         total_pct_2 = sum(
-            result["marginals_2"][class_name]["area_pct"]
-            for class_name in ["degraded", "stable", "improved"]
+            result["band_2_totals"][class_name]["area_pct"]
+            for class_name in ["degraded", "stable", "improved", "nodata"]
         )
         self.assertAlmostEqual(total_pct_2, 100.0, places=1)
 
-        # Check that crosstab percentages sum to 100%
+        # Check that crosstab percentages sum to 100% - now includes nodata
         total_crosstab_pct = sum(
             result["crosstab"][class_1][class_2]["area_pct"]
-            for class_1 in ["degraded", "stable", "improved"]
-            for class_2 in ["degraded", "stable", "improved"]
+            for class_1 in ["degraded", "stable", "improved", "nodata"]
+            for class_2 in ["degraded", "stable", "improved", "nodata"]
         )
         self.assertAlmostEqual(total_crosstab_pct, 100.0, places=1)
 

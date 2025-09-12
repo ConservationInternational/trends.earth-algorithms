@@ -158,60 +158,66 @@ def _get_stats_crosstab(
     recoded_1 = _recode_to_common_classes(band_1_name, masked_1, band_1_nodata)
     recoded_2 = _recode_to_common_classes(band_2_name, masked_2, band_2_nodata)
 
-    # Calculate total area (excluding nodata in either band)
-    valid_mask = np.logical_and(recoded_1 != band_1_nodata, recoded_2 != band_2_nodata)
-    total_area_ha = np.sum(valid_mask * cell_areas)
+    # Calculate total area including nodata
+    total_area_ha = np.sum(cell_areas)
 
     if total_area_ha == 0:
-        # No valid data
-        return {
-            "total_area_ha": 0.0,
-            "crosstab": {},
-            "band_1_name": band_1_name,
-            "band_2_name": band_2_name,
-        }
+        # No data at all
+        return {"total_area_ha": 0.0, "crosstab": {}}
 
-    # Define class names
-    class_names = {-1: "degraded", 0: "stable", 1: "improved"}
+    # Define class names including nodata
+    class_names = {-1: "degraded", 0: "stable", 1: "improved", band_1_nodata: "nodata"}
+
+    # Get all unique values that might appear in either band
+    all_values = [-1, 0, 1, band_1_nodata]
+    if band_2_nodata != band_1_nodata:
+        all_values.append(band_2_nodata)
+        class_names[band_2_nodata] = "nodata"
 
     # Initialize crosstab dictionary
     crosstab = {}
-    for val_1 in [-1, 0, 1]:
+    for val_1 in all_values:
         class_1 = class_names[val_1]
-        crosstab[class_1] = {}
-        for val_2 in [-1, 0, 1]:
+        if class_1 not in crosstab:
+            crosstab[class_1] = {}
+        for val_2 in all_values:
             class_2 = class_names[val_2]
-            # Calculate area for this combination
-            mask_combo = np.logical_and(recoded_1 == val_1, recoded_2 == val_2)
-            area_ha = np.sum(mask_combo * cell_areas)
-            area_pct = (area_ha / total_area_ha * 100) if total_area_ha > 0 else 0.0
+            if class_2 not in crosstab[class_1]:
+                # Calculate area for this combination
+                mask_combo = np.logical_and(recoded_1 == val_1, recoded_2 == val_2)
+                area_ha = np.sum(mask_combo * cell_areas)
+                area_pct = (area_ha / total_area_ha * 100) if total_area_ha > 0 else 0.0
 
-            crosstab[class_1][class_2] = {
-                "area_ha": float(area_ha),
-                "area_pct": float(area_pct),
-            }
+                crosstab[class_1][class_2] = {
+                    "area_ha": float(area_ha),
+                    "area_pct": float(area_pct),
+                }
 
-    # Calculate marginal totals for each band
-    marginals_1 = {}
-    marginals_2 = {}
+    # Calculate totals for each band including nodata
+    band_1_totals = {}
+    band_2_totals = {}
 
-    for val in [-1, 0, 1]:
+    for val in all_values:
         class_name = class_names[val]
 
-        # Band 1 marginals
-        mask_1 = np.logical_and(recoded_1 == val, valid_mask)
+        # Skip duplicate nodata entries if both bands have same nodata value
+        if class_name in band_1_totals:
+            continue
+
+        # Band 1 totals
+        mask_1 = recoded_1 == val
         area_1 = np.sum(mask_1 * cell_areas)
-        marginals_1[class_name] = {
+        band_1_totals[class_name] = {
             "area_ha": float(area_1),
             "area_pct": float(
                 (area_1 / total_area_ha * 100) if total_area_ha > 0 else 0.0
             ),
         }
 
-        # Band 2 marginals
-        mask_2 = np.logical_and(recoded_2 == val, valid_mask)
+        # Band 2 totals
+        mask_2 = recoded_2 == val
         area_2 = np.sum(mask_2 * cell_areas)
-        marginals_2[class_name] = {
+        band_2_totals[class_name] = {
             "area_ha": float(area_2),
             "area_pct": float(
                 (area_2 / total_area_ha * 100) if total_area_ha > 0 else 0.0
@@ -221,10 +227,8 @@ def _get_stats_crosstab(
     return {
         "total_area_ha": float(total_area_ha),
         "crosstab": crosstab,
-        "marginals_1": marginals_1,
-        "marginals_2": marginals_2,
-        "band_1_name": band_1_name,
-        "band_2_name": band_2_name,
+        "band_1_totals": band_1_totals,
+        "band_2_totals": band_2_totals,
     }
 
 
@@ -425,12 +429,12 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
             )
 
             # Add band metadata to the crosstab output
-            crosstab_stats["band_1_info"] = {
+            crosstab_stats["band_1"] = {
                 "name": band_1_name,
                 "index": band_1_index,
                 "metadata": band_data_1.get("metadata", {}),
             }
-            crosstab_stats["band_2_info"] = {
+            crosstab_stats["band_2"] = {
                 "name": band_2_name,
                 "index": band_2_index,
                 "metadata": band_data_2.get("metadata", {}),
