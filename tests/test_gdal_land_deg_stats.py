@@ -226,11 +226,14 @@ class TestLandDegStats(unittest.TestCase):
             "Unknown Band", masked, self.cell_areas_small, self.nodata
         )
 
-        # Should only have area calculation, no percentage breakdowns
+        # Unknown bands should have area calculation and all percentages should be 0.0
         self.assertIn("area_ha", stats)
-        self.assertNotIn("degraded_pct", stats)
-        self.assertNotIn("stable_pct", stats)
-        self.assertNotIn("improved_pct", stats)
+        self.assertIn("degraded_pct", stats)
+        self.assertIn("stable_pct", stats)
+        self.assertIn("improved_pct", stats)
+        self.assertEqual(stats["degraded_pct"], 0.0)
+        self.assertEqual(stats["stable_pct"], 0.0)
+        self.assertEqual(stats["improved_pct"], 0.0)
 
     def test_get_raster_bounds(self):
         """Test _get_raster_bounds function."""
@@ -319,15 +322,18 @@ class TestLandDegStats(unittest.TestCase):
             mock_gdal.RasterizeLayer = Mock()
 
             result = land_deg_stats.get_stats_for_geom(
-                "/fake/path.tif", config.SDG_BAND_NAME, 1, mock_geom
+                "/fake/path.tif",
+                [{"name": config.SDG_BAND_NAME, "index": 1}],
+                mock_geom,
             )
 
             # Verify result structure
             self.assertIsInstance(result, dict)
-            self.assertIn("area_ha", result)
-            self.assertIn("degraded_pct", result)
-            self.assertIn("stable_pct", result)
-            self.assertIn("improved_pct", result)
+            self.assertIn(config.SDG_BAND_NAME, result)
+            self.assertIn("area_ha", result[config.SDG_BAND_NAME])
+            self.assertIn("degraded_pct", result[config.SDG_BAND_NAME])
+            self.assertIn("stable_pct", result[config.SDG_BAND_NAME])
+            self.assertIn("improved_pct", result[config.SDG_BAND_NAME])
 
     def test_get_stats_for_geom_raster_open_failure(self):
         """Test get_stats_for_geom when raster fails to open."""
@@ -337,22 +343,39 @@ class TestLandDegStats(unittest.TestCase):
 
             with self.assertRaises(Exception) as context:
                 land_deg_stats.get_stats_for_geom(
-                    "/fake/path.tif", config.SDG_BAND_NAME, 1, mock_geom
+                    "/fake/path.tif",
+                    [{"name": config.SDG_BAND_NAME, "index": 1}],
+                    mock_geom,
                 )
 
             self.assertIn("Failed to open raster", str(context.exception))
 
     def test_get_stats_for_geom_band_not_found(self):
         """Test get_stats_for_geom when band is not found."""
-        with patch.object(land_deg_stats, "gdal") as mock_gdal:
+        with patch.object(land_deg_stats, "gdal") as mock_gdal, patch.object(
+            land_deg_stats, "ogr"
+        ) as mock_ogr:
             mock_rds = Mock()
+            mock_rds.GetGeoTransform.return_value = (0, 1, 0, 10, 0, -1)
+            mock_rds.RasterXSize = 4
+            mock_rds.RasterYSize = 3
             mock_rds.GetRasterBand.return_value = None
             mock_gdal.Open.return_value = mock_rds
+
+            # Mock geometry
             mock_geom = Mock()
+            mock_geom.GetArea.return_value = 1.0
+            mock_geom.Intersection.return_value = mock_geom
+            mock_geom.GetEnvelope.return_value = (0, 4, 0, 3)
+
+            # Mock OGR geometry creation
+            mock_ogr.CreateGeometryFromWkt.return_value = mock_geom
 
             with self.assertRaises(Exception) as context:
                 land_deg_stats.get_stats_for_geom(
-                    "/fake/path.tif", config.SDG_BAND_NAME, 999, mock_geom
+                    "/fake/path.tif",
+                    [{"name": config.SDG_BAND_NAME, "index": 999}],
+                    mock_geom,
                 )
 
             self.assertIn("Band", str(context.exception))
@@ -385,21 +408,24 @@ class TestLandDegStats(unittest.TestCase):
             # Mock get_stats_for_geom
             with patch.object(land_deg_stats, "get_stats_for_geom") as mock_get_stats:
                 mock_get_stats.return_value = {
-                    "area_ha": 100.0,
-                    "degraded_pct": 10.0,
-                    "stable_pct": 80.0,
-                    "improved_pct": 10.0,
+                    config.SDG_BAND_NAME: {
+                        "area_ha": 100.0,
+                        "degraded_pct": 10.0,
+                        "stable_pct": 80.0,
+                        "improved_pct": 10.0,
+                    }
                 }
 
                 result = land_deg_stats._calc_features_stats(
-                    test_geojson, "/fake/path.tif", config.SDG_BAND_NAME, 1
+                    test_geojson,
+                    "/fake/path.tif",
+                    [{"name": config.SDG_BAND_NAME, "index": 1}],
                 )
 
             # Verify result structure
             self.assertIsInstance(result, dict)
-            self.assertEqual(result["band_name"], config.SDG_BAND_NAME)
-            self.assertIn("stats", result)
-            self.assertIn("test-uuid-1", result["stats"])
+            self.assertIn(config.SDG_BAND_NAME, result)
+            self.assertIn("test-uuid-1", result[config.SDG_BAND_NAME])
 
     def test_calculate_statistics_basic(self):
         """Test calculate_statistics with basic functionality."""
@@ -424,30 +450,24 @@ class TestLandDegStats(unittest.TestCase):
 
         # Mock _calc_features_stats
         with patch.object(land_deg_stats, "_calc_features_stats") as mock_calc_stats:
-            mock_calc_stats.side_effect = [
-                {
-                    "band_name": config.SDG_BAND_NAME,
-                    "stats": {
-                        "test-uuid-1": {
-                            "area_ha": 100.0,
-                            "degraded_pct": 10.0,
-                            "stable_pct": 80.0,
-                            "improved_pct": 10.0,
-                        }
-                    },
+            mock_calc_stats.return_value = {
+                config.SDG_BAND_NAME: {
+                    "test-uuid-1": {
+                        "area_ha": 100.0,
+                        "degraded_pct": 10.0,
+                        "stable_pct": 80.0,
+                        "improved_pct": 10.0,
+                    }
                 },
-                {
-                    "band_name": config.SOC_DEG_BAND_NAME,
-                    "stats": {
-                        "test-uuid-1": {
-                            "area_ha": 100.0,
-                            "degraded_pct": 15.0,
-                            "stable_pct": 75.0,
-                            "improved_pct": 10.0,
-                        }
-                    },
+                config.SOC_DEG_BAND_NAME: {
+                    "test-uuid-1": {
+                        "area_ha": 100.0,
+                        "degraded_pct": 15.0,
+                        "stable_pct": 75.0,
+                        "improved_pct": 10.0,
+                    }
                 },
-            ]
+            }
 
             result = land_deg_stats.calculate_statistics(test_params)
 
@@ -477,16 +497,13 @@ class TestLandDegStats(unittest.TestCase):
 
         # Mock _calc_features_stats with different UUIDs
         with patch.object(land_deg_stats, "_calc_features_stats") as mock_calc_stats:
-            mock_calc_stats.side_effect = [
-                {
-                    "band_name": config.SDG_BAND_NAME,
-                    "stats": {"uuid-1": {}, "uuid-2": {}},
-                },
-                {
-                    "band_name": config.SOC_DEG_BAND_NAME,
-                    "stats": {"uuid-1": {}, "uuid-3": {}},  # Different UUID
-                },
-            ]
+            mock_calc_stats.return_value = {
+                config.SDG_BAND_NAME: {"uuid-1": {}, "uuid-2": {}},
+                config.SOC_DEG_BAND_NAME: {
+                    "uuid-1": {},
+                    "uuid-3": {},
+                },  # Different UUID
+            }
 
             with self.assertRaises(AssertionError):
                 land_deg_stats.calculate_statistics(test_params)
@@ -501,8 +518,7 @@ class TestLandDegStats(unittest.TestCase):
 
         with patch.object(land_deg_stats, "_calc_features_stats") as mock_calc_stats:
             mock_calc_stats.return_value = {
-                "band_name": config.SDG_BAND_NAME,
-                "stats": {
+                config.SDG_BAND_NAME: {
                     "test-uuid": {
                         "area_ha": 100.0,
                         "degraded_pct": 10.0,
@@ -614,6 +630,597 @@ class TestLandDegStats(unittest.TestCase):
         self.assertIn("stable_pct", stats)
         self.assertIn("improved_pct", stats)
         self.assertIn("nodata_pct", stats)
+
+
+class TestHelperFunctions(unittest.TestCase):
+    """Test cases for the helper functions used in land degradation statistics."""
+
+    def setUp(self):
+        """Set up test fixtures for helper function tests."""
+        # SDG-style data: -1=degraded, 0=stable, 1=improved
+        self.sdg_array = np.array([[-1, 0, 1, -32768], [0, 1, -1, 0]], dtype=np.int16)
+
+        # Status layer data: 1,2,3=degraded, 4=stable, 5,6,7=improved
+        self.status_array = np.array([[1, 2, 3, 4], [5, 6, 7, -32768]], dtype=np.int16)
+
+        # 5-class productivity data: 1,2=degraded, 3,4=stable, 5=improved, 0=nodata
+        self.prod_array = np.array([[1, 2, 3, 4], [5, 0, 1, 2]], dtype=np.int16)
+
+        # SOC data: <=-10=degraded, 0=stable, >=10=improved
+        self.soc_array = np.array(
+            [[-50, -10, 0, 10], [20, -32768, -5, 15]], dtype=np.int16
+        )
+
+        self.nodata = -32768
+
+    def test_get_degraded_mask_sdg_bands(self):
+        """Test _get_degraded_mask for SDG-style bands."""
+        result = land_deg_stats._get_degraded_mask(config.SDG_BAND_NAME, self.sdg_array)
+        expected = np.array([[True, False, False, False], [False, False, True, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_degraded_mask_status_bands(self):
+        """Test _get_degraded_mask for status layer bands."""
+        result = land_deg_stats._get_degraded_mask(
+            config.SDG_STATUS_BAND_NAME, self.status_array
+        )
+        expected = np.array([[True, True, True, False], [False, False, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_degraded_mask_productivity_bands(self):
+        """Test _get_degraded_mask for 5-class productivity bands."""
+        result = land_deg_stats._get_degraded_mask(
+            config.JRC_LPD_BAND_NAME, self.prod_array
+        )
+        expected = np.array([[True, True, False, False], [False, False, True, True]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_degraded_mask_soc_band(self):
+        """Test _get_degraded_mask for SOC degradation band."""
+        result = land_deg_stats._get_degraded_mask(
+            config.SOC_DEG_BAND_NAME, self.soc_array
+        )
+        expected = np.array([[True, True, False, False], [False, False, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_stable_mask_sdg_bands(self):
+        """Test _get_stable_mask for SDG-style bands."""
+        result = land_deg_stats._get_stable_mask(config.SDG_BAND_NAME, self.sdg_array)
+        expected = np.array([[False, True, False, False], [True, False, False, True]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_stable_mask_status_bands(self):
+        """Test _get_stable_mask for status layer bands."""
+        result = land_deg_stats._get_stable_mask(
+            config.SDG_STATUS_BAND_NAME, self.status_array
+        )
+        expected = np.array([[False, False, False, True], [False, False, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_stable_mask_productivity_bands(self):
+        """Test _get_stable_mask for 5-class productivity bands."""
+        result = land_deg_stats._get_stable_mask(
+            config.JRC_LPD_BAND_NAME, self.prod_array
+        )
+        expected = np.array([[False, False, True, True], [False, False, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_stable_mask_soc_band(self):
+        """Test _get_stable_mask for SOC degradation band."""
+        result = land_deg_stats._get_stable_mask(
+            config.SOC_DEG_BAND_NAME, self.soc_array
+        )
+        expected = np.array([[False, False, True, False], [False, False, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_improved_mask_sdg_bands(self):
+        """Test _get_improved_mask for SDG-style bands."""
+        result = land_deg_stats._get_improved_mask(config.SDG_BAND_NAME, self.sdg_array)
+        expected = np.array([[False, False, True, False], [False, True, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_improved_mask_status_bands(self):
+        """Test _get_improved_mask for status layer bands."""
+        result = land_deg_stats._get_improved_mask(
+            config.SDG_STATUS_BAND_NAME, self.status_array
+        )
+        expected = np.array([[False, False, False, False], [True, True, True, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_improved_mask_productivity_bands(self):
+        """Test _get_improved_mask for 5-class productivity bands."""
+        result = land_deg_stats._get_improved_mask(
+            config.JRC_LPD_BAND_NAME, self.prod_array
+        )
+        expected = np.array([[False, False, False, False], [True, False, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_improved_mask_soc_band(self):
+        """Test _get_improved_mask for SOC degradation band."""
+        result = land_deg_stats._get_improved_mask(
+            config.SOC_DEG_BAND_NAME, self.soc_array
+        )
+        expected = np.array([[False, False, False, True], [True, False, False, True]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_nodata_mask_regular_bands(self):
+        """Test _get_nodata_mask for regular bands (only nodata value)."""
+        result = land_deg_stats._get_nodata_mask(
+            config.SDG_BAND_NAME, self.sdg_array, self.nodata
+        )
+        expected = np.array([[False, False, False, True], [False, False, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_get_nodata_mask_productivity_bands(self):
+        """Test _get_nodata_mask for productivity bands (nodata and 0)."""
+        result = land_deg_stats._get_nodata_mask(
+            config.JRC_LPD_BAND_NAME, self.prod_array, self.nodata
+        )
+        expected = np.array([[False, False, False, False], [False, True, False, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_recode_to_common_classes_sdg_band(self):
+        """Test _recode_to_common_classes for SDG bands."""
+        result = land_deg_stats._recode_to_common_classes(
+            config.SDG_BAND_NAME, self.sdg_array, self.nodata
+        )
+        expected = np.array([[-1, 0, 1, -32768], [0, 1, -1, 0]], dtype=np.int16)
+        np.testing.assert_array_equal(result, expected)
+
+    def test_recode_to_common_classes_status_band(self):
+        """Test _recode_to_common_classes for status bands."""
+        result = land_deg_stats._recode_to_common_classes(
+            config.SDG_STATUS_BAND_NAME, self.status_array, self.nodata
+        )
+        expected = np.array([[-1, -1, -1, 0], [1, 1, 1, -32768]], dtype=np.int16)
+        np.testing.assert_array_equal(result, expected)
+
+    def test_recode_to_common_classes_productivity_band(self):
+        """Test _recode_to_common_classes for productivity bands."""
+        result = land_deg_stats._recode_to_common_classes(
+            config.JRC_LPD_BAND_NAME, self.prod_array, self.nodata
+        )
+        expected = np.array([[-1, -1, 0, 0], [1, -32768, -1, -1]], dtype=np.int16)
+        np.testing.assert_array_equal(result, expected)
+
+    def test_recode_to_common_classes_soc_band(self):
+        """Test _recode_to_common_classes for SOC bands."""
+        result = land_deg_stats._recode_to_common_classes(
+            config.SOC_DEG_BAND_NAME, self.soc_array, self.nodata
+        )
+        expected = np.array([[-1, -1, 0, 1], [1, -32768, -32768, 1]], dtype=np.int16)
+        np.testing.assert_array_equal(result, expected)
+
+    def test_recode_preserves_nodata(self):
+        """Test that _recode_to_common_classes preserves nodata values."""
+        # Create array with nodata in various positions
+        test_array = np.array(
+            [[1, self.nodata, 0], [self.nodata, 2, 3]], dtype=np.int16
+        )
+        result = land_deg_stats._recode_to_common_classes(
+            config.JRC_LPD_BAND_NAME, test_array, self.nodata
+        )
+
+        # Check that nodata values are preserved
+        self.assertEqual(result[0, 1], self.nodata)
+        self.assertEqual(result[1, 0], self.nodata)
+
+    def test_helper_functions_unknown_band(self):
+        """Test helper functions with unknown band names return appropriate defaults."""
+        unknown_band = "Unknown Band"
+        test_array = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int16)
+
+        # Should return all False for unknown bands
+        degraded_mask = land_deg_stats._get_degraded_mask(unknown_band, test_array)
+        stable_mask = land_deg_stats._get_stable_mask(unknown_band, test_array)
+        improved_mask = land_deg_stats._get_improved_mask(unknown_band, test_array)
+
+        expected_false = np.zeros_like(test_array, dtype=bool)
+        np.testing.assert_array_equal(degraded_mask, expected_false)
+        np.testing.assert_array_equal(stable_mask, expected_false)
+        np.testing.assert_array_equal(improved_mask, expected_false)
+
+
+class TestCrosstabFunction(unittest.TestCase):
+    """Test cases for the crosstab statistics function."""
+
+    def setUp(self):
+        """Set up test fixtures for crosstab function tests."""
+        # Create simple test data
+        self.band_1 = np.array([[-1, 0, 1], [0, 1, -1]], dtype=np.int16)  # SDG-style
+        self.band_2 = np.array(
+            [[1, 2, 5], [3, 4, 1]], dtype=np.int16
+        )  # Productivity-style
+        self.cell_areas = np.ones((2, 3)) * 0.25  # 0.25 hectares per cell
+        self.nodata = -32768
+
+    def test_get_stats_crosstab_basic(self):
+        """Test basic crosstab functionality."""
+        result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.JRC_LPD_BAND_NAME,
+            self.band_1,
+            self.band_2,
+            self.cell_areas,
+            self.nodata,
+        )
+
+        # Check structure
+        self.assertIn("total_area_ha", result)
+        self.assertIn("crosstab", result)
+        self.assertIn("marginals_1", result)
+        self.assertIn("marginals_2", result)
+        self.assertIn("band_1_name", result)
+        self.assertIn("band_2_name", result)
+
+        # Check total area
+        expected_total = 2 * 3 * 0.25  # 1.5 hectares
+        self.assertAlmostEqual(result["total_area_ha"], expected_total, places=2)
+
+        # Check crosstab structure
+        for class_name in ["degraded", "stable", "improved"]:
+            self.assertIn(class_name, result["crosstab"])
+            for class_name_2 in ["degraded", "stable", "improved"]:
+                self.assertIn(class_name_2, result["crosstab"][class_name])
+                self.assertIn("area_ha", result["crosstab"][class_name][class_name_2])
+                self.assertIn("area_pct", result["crosstab"][class_name][class_name_2])
+
+    def test_get_stats_crosstab_with_nodata(self):
+        """Test crosstab with nodata values."""
+        # Add nodata to test arrays
+        band_1_with_nodata = self.band_1.copy()
+        band_2_with_nodata = self.band_2.copy()
+        band_1_with_nodata[0, 0] = self.nodata
+        band_2_with_nodata[1, 2] = 0  # 0 is nodata for productivity bands
+
+        result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.JRC_LPD_BAND_NAME,
+            band_1_with_nodata,
+            band_2_with_nodata,
+            self.cell_areas,
+            self.nodata,
+        )
+
+        # Total area should exclude nodata cells
+        expected_total = 4 * 0.25  # 4 valid cells * 0.25 hectares = 1.0 hectare
+        self.assertAlmostEqual(result["total_area_ha"], expected_total, places=2)
+
+    def test_get_stats_crosstab_all_nodata(self):
+        """Test crosstab when all data is nodata."""
+        nodata_array = np.full((2, 3), self.nodata, dtype=np.int16)
+
+        result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.JRC_LPD_BAND_NAME,
+            nodata_array,
+            nodata_array,
+            self.cell_areas,
+            self.nodata,
+        )
+
+        # Should return zero area and empty crosstab
+        self.assertEqual(result["total_area_ha"], 0.0)
+        self.assertEqual(result["crosstab"], {})
+
+    def test_crosstab_marginals_sum_correctly(self):
+        """Test that marginal totals sum to 100%."""
+        result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.JRC_LPD_BAND_NAME,
+            self.band_1,
+            self.band_2,
+            self.cell_areas,
+            self.nodata,
+        )
+
+        # Check marginals for band 1
+        total_pct_1 = sum(
+            result["marginals_1"][class_name]["area_pct"]
+            for class_name in ["degraded", "stable", "improved"]
+        )
+        self.assertAlmostEqual(total_pct_1, 100.0, places=1)
+
+        # Check marginals for band 2
+        total_pct_2 = sum(
+            result["marginals_2"][class_name]["area_pct"]
+            for class_name in ["degraded", "stable", "improved"]
+        )
+        self.assertAlmostEqual(total_pct_2, 100.0, places=1)
+
+        # Check that crosstab percentages sum to 100%
+        total_crosstab_pct = sum(
+            result["crosstab"][class_1][class_2]["area_pct"]
+            for class_1 in ["degraded", "stable", "improved"]
+            for class_2 in ["degraded", "stable", "improved"]
+        )
+        self.assertAlmostEqual(total_crosstab_pct, 100.0, places=1)
+
+
+class TestConsistencyBetweenFunctions(unittest.TestCase):
+    """Test cases to verify consistency between different statistics functions."""
+
+    def setUp(self):
+        """Set up test fixtures for consistency tests."""
+        # Create test data with known distribution
+        self.band_1 = np.array(
+            [[-1, 0, 1, -32768], [0, 1, -1, 0]], dtype=np.int16
+        )  # SDG-style
+        self.band_2 = np.array(
+            [[1, 2, 5, -32768], [3, 4, 1, 2]], dtype=np.int16
+        )  # Productivity-style
+        self.cell_areas = np.ones((2, 4)) * 0.25  # 0.25 hectares per cell
+        self.nodata = -32768
+
+    def test_crosstab_marginals_match_individual_stats(self):
+        """Test that crosstab marginal totals match individual band statistics."""
+        # Get crosstab stats
+        crosstab_result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.JRC_LPD_BAND_NAME,
+            self.band_1,
+            self.band_2,
+            self.cell_areas,
+            self.nodata,
+        )
+
+        # Calculate expected percentages based on valid overlap area
+        valid_mask_1 = np.logical_and(
+            self.band_1 != self.nodata, self.band_2 != self.nodata
+        )
+        valid_mask_2 = np.logical_and(
+            self.band_2 != self.nodata, self.band_1 != self.nodata
+        )
+
+        # For band 1 marginals vs individual stats
+        degraded_area_1 = np.sum(
+            np.logical_and(self.band_1 == -1, valid_mask_1) * self.cell_areas
+        )
+        stable_area_1 = np.sum(
+            np.logical_and(self.band_1 == 0, valid_mask_1) * self.cell_areas
+        )
+        improved_area_1 = np.sum(
+            np.logical_and(self.band_1 == 1, valid_mask_1) * self.cell_areas
+        )
+
+        # Check that marginals_1 percentages are correct
+        total_valid_area = crosstab_result["total_area_ha"]
+        expected_degraded_pct_1 = (
+            (degraded_area_1 / total_valid_area * 100) if total_valid_area > 0 else 0
+        )
+        expected_stable_pct_1 = (
+            (stable_area_1 / total_valid_area * 100) if total_valid_area > 0 else 0
+        )
+        expected_improved_pct_1 = (
+            (improved_area_1 / total_valid_area * 100) if total_valid_area > 0 else 0
+        )
+
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["degraded"]["area_pct"],
+            expected_degraded_pct_1,
+            places=2,
+            msg="Band 1 degraded marginal percentage should match expected value",
+        )
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["stable"]["area_pct"],
+            expected_stable_pct_1,
+            places=2,
+            msg="Band 1 stable marginal percentage should match expected value",
+        )
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["improved"]["area_pct"],
+            expected_improved_pct_1,
+            places=2,
+            msg="Band 1 improved marginal percentage should match expected value",
+        )
+
+        # For band 2 marginals - check using recode function for consistency
+        recoded_2 = land_deg_stats._recode_to_common_classes(
+            config.JRC_LPD_BAND_NAME, self.band_2, self.nodata
+        )
+
+        degraded_area_2 = np.sum(
+            np.logical_and(recoded_2 == -1, valid_mask_2) * self.cell_areas
+        )
+        stable_area_2 = np.sum(
+            np.logical_and(recoded_2 == 0, valid_mask_2) * self.cell_areas
+        )
+        improved_area_2 = np.sum(
+            np.logical_and(recoded_2 == 1, valid_mask_2) * self.cell_areas
+        )
+
+        expected_degraded_pct_2 = (
+            (degraded_area_2 / total_valid_area * 100) if total_valid_area > 0 else 0
+        )
+        expected_stable_pct_2 = (
+            (stable_area_2 / total_valid_area * 100) if total_valid_area > 0 else 0
+        )
+        expected_improved_pct_2 = (
+            (improved_area_2 / total_valid_area * 100) if total_valid_area > 0 else 0
+        )
+
+        self.assertAlmostEqual(
+            crosstab_result["marginals_2"]["degraded"]["area_pct"],
+            expected_degraded_pct_2,
+            places=2,
+            msg="Band 2 degraded marginal percentage should match expected value",
+        )
+        self.assertAlmostEqual(
+            crosstab_result["marginals_2"]["stable"]["area_pct"],
+            expected_stable_pct_2,
+            places=2,
+            msg="Band 2 stable marginal percentage should match expected value",
+        )
+        self.assertAlmostEqual(
+            crosstab_result["marginals_2"]["improved"]["area_pct"],
+            expected_improved_pct_2,
+            places=2,
+            msg="Band 2 improved marginal percentage should match expected value",
+        )
+
+    def test_individual_stats_vs_crosstab_with_masked_arrays(self):
+        """Test direct comparison between individual stats and crosstab marginals using masked arrays."""
+        # Create test data without nodata to ensure clean comparison
+        band_simple = np.array([[-1, 0, 1], [1, 0, -1]], dtype=np.int16)
+        cell_areas_simple = np.ones((2, 3)) * 0.25
+
+        # Create masked arrays (no masking applied)
+        masked_array = np.ma.MaskedArray(band_simple, mask=False)
+
+        # Get individual stats
+        individual_stats = land_deg_stats._get_stats_for_band(
+            config.SDG_BAND_NAME, masked_array, cell_areas_simple, self.nodata
+        )
+
+        # Get crosstab stats using the same band against itself
+        crosstab_result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.SDG_BAND_NAME,
+            band_simple,
+            band_simple,
+            cell_areas_simple,
+            self.nodata,
+        )
+
+        # The marginals should match the individual stats (both bands are identical)
+        # Since there's no nodata and no masking, areas should be identical
+
+        # Check area calculations are consistent
+        self.assertAlmostEqual(
+            individual_stats["area_ha"],
+            crosstab_result["total_area_ha"],
+            places=2,
+            msg="Total areas should match when no masking is applied",
+        )
+
+        # Check that marginal percentages match individual stats percentages
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["degraded"]["area_pct"],
+            individual_stats["degraded_pct"],
+            places=2,
+            msg="Degraded percentages should match between individual stats and crosstab marginals",
+        )
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["stable"]["area_pct"],
+            individual_stats["stable_pct"],
+            places=2,
+            msg="Stable percentages should match between individual stats and crosstab marginals",
+        )
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["improved"]["area_pct"],
+            individual_stats["improved_pct"],
+            places=2,
+            msg="Improved percentages should match between individual stats and crosstab marginals",
+        )
+
+        # Since it's the same band against itself, marginals_2 should equal marginals_1
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["degraded"]["area_pct"],
+            crosstab_result["marginals_2"]["degraded"]["area_pct"],
+            places=2,
+            msg="Marginals for same band should be identical",
+        )
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["stable"]["area_pct"],
+            crosstab_result["marginals_2"]["stable"]["area_pct"],
+            places=2,
+            msg="Marginals for same band should be identical",
+        )
+        self.assertAlmostEqual(
+            crosstab_result["marginals_1"]["improved"]["area_pct"],
+            crosstab_result["marginals_2"]["improved"]["area_pct"],
+            places=2,
+            msg="Marginals for same band should be identical",
+        )
+
+    def test_crosstab_marginals_sum_to_100_percent(self):
+        """Test that each band's marginal totals sum to 100%."""
+        crosstab_result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.JRC_LPD_BAND_NAME,
+            self.band_1,
+            self.band_2,
+            self.cell_areas,
+            self.nodata,
+        )
+
+        # Check marginals_1 sum to 100%
+        total_pct_1 = (
+            crosstab_result["marginals_1"]["degraded"]["area_pct"]
+            + crosstab_result["marginals_1"]["stable"]["area_pct"]
+            + crosstab_result["marginals_1"]["improved"]["area_pct"]
+        )
+        self.assertAlmostEqual(
+            total_pct_1,
+            100.0,
+            places=1,
+            msg="Band 1 marginal percentages should sum to 100%",
+        )
+
+        # Check marginals_2 sum to 100%
+        total_pct_2 = (
+            crosstab_result["marginals_2"]["degraded"]["area_pct"]
+            + crosstab_result["marginals_2"]["stable"]["area_pct"]
+            + crosstab_result["marginals_2"]["improved"]["area_pct"]
+        )
+        self.assertAlmostEqual(
+            total_pct_2,
+            100.0,
+            places=1,
+            msg="Band 2 marginal percentages should sum to 100%",
+        )
+
+    def test_crosstab_consistency_with_same_band(self):
+        """Test crosstab with the same band against itself - should have no off-diagonal values."""
+        # Create a simple band with clear classes
+        same_band = np.array([[-1, 0, 1], [1, 0, -1]], dtype=np.int16)
+        cell_areas_small = np.ones((2, 3)) * 0.25
+
+        crosstab_result = land_deg_stats._get_stats_crosstab(
+            config.SDG_BAND_NAME,
+            config.SDG_BAND_NAME,  # Same band
+            same_band,
+            same_band,
+            cell_areas_small,
+            self.nodata,
+        )
+
+        # All off-diagonal values should be 0
+        self.assertEqual(
+            crosstab_result["crosstab"]["degraded"]["stable"]["area_pct"], 0.0
+        )
+        self.assertEqual(
+            crosstab_result["crosstab"]["degraded"]["improved"]["area_pct"], 0.0
+        )
+        self.assertEqual(
+            crosstab_result["crosstab"]["stable"]["degraded"]["area_pct"], 0.0
+        )
+        self.assertEqual(
+            crosstab_result["crosstab"]["stable"]["improved"]["area_pct"], 0.0
+        )
+        self.assertEqual(
+            crosstab_result["crosstab"]["improved"]["degraded"]["area_pct"], 0.0
+        )
+        self.assertEqual(
+            crosstab_result["crosstab"]["improved"]["stable"]["area_pct"], 0.0
+        )
+
+        # Diagonal values should match marginal totals
+        self.assertAlmostEqual(
+            crosstab_result["crosstab"]["degraded"]["degraded"]["area_pct"],
+            crosstab_result["marginals_1"]["degraded"]["area_pct"],
+            places=2,
+        )
+        self.assertAlmostEqual(
+            crosstab_result["crosstab"]["stable"]["stable"]["area_pct"],
+            crosstab_result["marginals_1"]["stable"]["area_pct"],
+            places=2,
+        )
+        self.assertAlmostEqual(
+            crosstab_result["crosstab"]["improved"]["improved"]["area_pct"],
+            crosstab_result["marginals_1"]["improved"]["area_pct"],
+            places=2,
+        )
 
 
 if __name__ == "__main__":
