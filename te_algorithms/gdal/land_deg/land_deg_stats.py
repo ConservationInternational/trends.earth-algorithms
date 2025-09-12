@@ -345,7 +345,7 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
 
     # Calculate stats for each band
     results = {}
-    band_arrays = {}  # Store arrays for crosstab calculations
+    band_arrays = {}  # Store arrays for crosstab calculations, keyed by (name, index) tuple
     logger.debug("Getting stats for {} bands".format(len(band_info)))
 
     for band_data in band_info:
@@ -371,45 +371,41 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
             band_name, masked, cell_areas, band_nodata_value
         )
 
-        # Store masked array for potential crosstab calculations
+        # Store masked array for potential crosstab calculations using unique key
         if crosstabs:
-            band_arrays[band_name] = masked
+            band_key = (band_name, band_index)
+            band_arrays[band_key] = masked
 
     # Calculate crosstabs if requested
     if crosstabs:
-        # Validate crosstab specifications
-        band_names_set = {band["name"] for band in band_info}
-        for crosstab_spec in crosstabs:
-            if "band_1" not in crosstab_spec or "band_2" not in crosstab_spec:
-                raise ValueError(
-                    "Each crosstab specification must have 'band_1' and 'band_2' keys"
-                )
-            if crosstab_spec["band_1"] not in band_names_set:
-                raise ValueError(
-                    f"Band '{crosstab_spec['band_1']}' not found in band_info"
-                )
-            if crosstab_spec["band_2"] not in band_names_set:
-                raise ValueError(
-                    f"Band '{crosstab_spec['band_2']}' not found in band_info"
-                )
-
         results["crosstabs"] = []
-        for crosstab_spec in crosstabs:
-            band_1_name = crosstab_spec["band_1"]
-            band_2_name = crosstab_spec["band_2"]
+        for band_data_1, band_data_2 in crosstabs:
+            # Extract band information from the band data tuples passed from main.py
+            band_1_name = band_data_1["name"]
+            band_1_index = band_data_1["index"]
+            band_2_name = band_data_2["name"]
+            band_2_index = band_data_2["index"]
+
+            # Create unique keys for band arrays lookup
+            band_1_key = (band_1_name, band_1_index)
+            band_2_key = (band_2_name, band_2_index)
+
+            # Validate that we have the band arrays
+            if band_1_key not in band_arrays:
+                raise ValueError(
+                    f"Band '{band_1_name}' (index {band_1_index}) not found in band arrays"
+                )
+            if band_2_key not in band_arrays:
+                raise ValueError(
+                    f"Band '{band_2_name}' (index {band_2_index}) not found in band arrays"
+                )
 
             # Get nodata values for both bands
             band_1_nodata = nodata_value
             band_2_nodata = nodata_value
             if band_1_nodata is None:
-                band_1_index = next(
-                    b["index"] for b in band_info if b["name"] == band_1_name
-                )
                 band_1_nodata = rds.GetRasterBand(band_1_index).GetNoDataValue()
             if band_2_nodata is None:
-                band_2_index = next(
-                    b["index"] for b in band_info if b["name"] == band_2_name
-                )
                 band_2_nodata = rds.GetRasterBand(band_2_index).GetNoDataValue()
 
             # Use default nodata values if not specified
@@ -421,12 +417,25 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
             crosstab_stats = _get_stats_crosstab(
                 band_1_name,
                 band_2_name,
-                band_arrays[band_1_name],
-                band_arrays[band_2_name],
+                band_arrays[band_1_key],
+                band_arrays[band_2_key],
                 cell_areas,
                 band_1_nodata,
                 band_2_nodata,
             )
+
+            # Add band metadata to the crosstab output
+            crosstab_stats["band_1_info"] = {
+                "name": band_1_name,
+                "index": band_1_index,
+                "metadata": band_data_1.get("metadata", {}),
+            }
+            crosstab_stats["band_2_info"] = {
+                "name": band_2_name,
+                "index": band_2_index,
+                "metadata": band_data_2.get("metadata", {}),
+            }
+
             results["crosstabs"].append(crosstab_stats)
 
     return results
