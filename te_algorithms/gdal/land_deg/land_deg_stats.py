@@ -474,7 +474,7 @@ def _calc_features_stats(geojson, raster_path, band_datas, crosstabs=None):
 def calculate_statistics(params: Dict) -> Job:
     crosstabs = params.get("crosstabs", None)
     stats = _calc_features_stats(
-        params["error_polygons"],
+        params["polygons"],
         params["path"],
         params["band_datas"],
         crosstabs=crosstabs,
