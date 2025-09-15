@@ -1016,21 +1016,8 @@ def productivity_faowocat(
         .rename("LPD")
     )
 
-    degradation_band = (
-        ee.Image(-32768)
-        .where(final_lpd.eq(1).Or(final_lpd.eq(2)), -1)
-        .where(final_lpd.eq(3).Or(final_lpd.eq(4)), 0)
-        .where(final_lpd.eq(5), 1)
-        .rename("Productivity_degradation")
-    )
-
-    out_img = degradation_band.addBands(final_lpd).unmask(-32768).int16()
+    out_img = final_lpd.unmask(-32768).int16()
     band_infos = [
-        BandInfo(
-            "Land Productivity Degradation (from FAO-WOCAT)",
-            add_to_map=True,
-            metadata={"year_initial": year_initial, "year_final": year_end},
-        ),
         BandInfo(
             "Land Productivity Dynamics (from FAO-WOCAT)",
             add_to_map=True,
