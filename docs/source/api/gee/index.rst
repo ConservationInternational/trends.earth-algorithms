@@ -3,7 +3,7 @@ te_algorithms.gee
 
 .. toctree::
    :maxdepth: 6
-   
+
    carbon
    download
    land_cover

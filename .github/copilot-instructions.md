@@ -100,7 +100,7 @@ te_algorithms/
 
 ### Making Code Changes
 1. **Always** install dependencies first: `pip install openpyxl backoff marshmallow defusedxml marshmallow-dataclass`
-2. **Always** run linting before commits: `ruff check .` 
+2. **Always** run linting before commits: `ruff check .`
 3. Fix linting issues with: `ruff check --fix .`
 4. Run tests: `pytest` (may fail without te_schemas)
 5. Check specific modules: `python -c "import te_algorithms; print(te_algorithms.__version__)"`
@@ -164,7 +164,7 @@ print(te_algorithms.__version__)  # Current: 2.1.17
 
 ### File Layout Summary
 - **Root files:** pyproject.toml (config), tasks.py (invoke), version.txt
-- **Main code:** te_algorithms/ package with api/, common/, gdal/, gee/ modules  
+- **Main code:** te_algorithms/ package with api/, common/, gdal/, gee/ modules
 - **Tests:** tests/ (minimal test suite, requires te_schemas)
 - **Docs:** docs/source/ (Sphinx), .readthedocs.yaml (RTD config)
 - **CI:** .github/workflows/ (ruff.yaml, test.yaml)
