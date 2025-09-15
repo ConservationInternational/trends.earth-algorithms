@@ -782,13 +782,16 @@ def productivity_faowocat(
     prod_asset=None,
     logger=None,
 ):
-    """Compute FAO‑WOCAT Land Productivity Dynamics (LPD) and the Productivity
+    """Compute FAO-WOCAT Land Productivity Dynamics (LPD) and the Productivity
     State diagram in one call.
 
     Notes:
-      * `year_final` is REQUIRED for the FAO‑WOCAT dynamics period.
-      * `years_interval` (default 3) controls the baseline/target windows used
-        for the Productivity State calculation.
+      * `year_final` is REQUIRED for the FAO-WOCAT dynamics period.
+      * `years_interval` controls:
+          - the MTID "last N years" window,
+          - the initial biomass window (first N years),
+          - the T1 (first N years) and T2 (last N years) means for Emerging State,
+          - the baseline/target windows for Productivity State (already using it).
     """
     logger.debug("Entering productivity_faowocat function.")
 
@@ -798,6 +801,7 @@ def productivity_faowocat(
     if year_final is None:
         raise GEEIOError("Must specify 'year_final' for FAO-WOCAT dynamics")
 
+    n = max(1, int(years_interval))
     ndvi_dataset = ee.Image(prod_asset)
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
     ndvi_dataset = ndvi_dataset.updateMask(ndvi_dataset.neq(-32768))
@@ -807,10 +811,6 @@ def productivity_faowocat(
     has_annual = any(re.match(r"^y\d{4}$", bn) for bn in band_names)
 
     def _annual_imgs_mean(year):
-        """Compute mean NDVI for *year* and rename to 'yYYYY'. If the source
-        data are already annual, just pick that band; if they are daily/monthly
-        (e.g. 'dYYYY_MM_DD'), compute the yearly mean. If nothing exists for
-        that year, return a fully masked band named 'yYYYY'."""
         if has_annual:
             try:
                 return ndvi_dataset.select(f"y{year}").rename(f"y{year}")
@@ -838,7 +838,6 @@ def productivity_faowocat(
 
     def _annual_mean(ic_img, years):
         images = []
-        # Supports both yYYYY and dYYYY_* inputs; after the conversion above,
         bnames = ic_img.bandNames().getInfo()
         for year in years:
             y_bands = [b for b in bnames if (f"d{year}_" in b)]
@@ -876,7 +875,7 @@ def productivity_faowocat(
     )
 
     def _mtid(ic):
-        last_mean = ic.filter(ee.Filter.gt("year", year_end - 3)).select("NDVI").mean()
+        last_mean = ic.filter(ee.Filter.gt("year", year_end - n)).select("NDVI").mean()
         diffs = ic.map(lambda im: last_mean.subtract(im.select("NDVI")))
         return ee.ImageCollection(diffs).sum()
 
@@ -911,8 +910,9 @@ def productivity_faowocat(
             .where(trend_3cat.eq(3), 4)
         )
 
+    # --- Initial biomass using the first `n` years ---
     init_mean = (
-        annual_ic.filter(ee.Filter.lte("year", year_initial + 2))
+        annual_ic.filter(ee.Filter.lte("year", year_initial + (n - 1)))
         .select("NDVI")
         .mean()
         .divide(10000)
@@ -946,10 +946,14 @@ def productivity_faowocat(
         )
 
     t1_mean = (
-        annual_ic.filter(ee.Filter.lte("year", year_initial + 3)).select("NDVI").mean()
+        annual_ic.filter(ee.Filter.lte("year", year_initial + (n - 1)))
+        .select("NDVI")
+        .mean()
     )
     t2_mean = (
-        annual_ic.filter(ee.Filter.gte("year", year_end - 3)).select("NDVI").mean()
+        annual_ic.filter(ee.Filter.gte("year", year_end - (n - 1)))
+        .select("NDVI")
+        .mean()
     )
     t1_class = _pct_class(t1_mean)
     t2_class = _pct_class(t2_mean)
@@ -1012,11 +1016,9 @@ def productivity_faowocat(
         .rename("LPD")
     )
 
-    win = max(1, int(years_interval))
-
+    win = n
     bl_start = year_initial
     bl_end = max(year_initial, year_final - win)
-
     tg_end = year_final
     tg_start = max(year_initial, year_final - win)
 
