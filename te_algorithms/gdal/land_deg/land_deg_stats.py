@@ -9,6 +9,7 @@ from te_schemas.results import JsonResults
 
 from ..util_numba import calc_cell_area
 from . import config
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -273,20 +274,19 @@ def _get_stats_for_band(band_name, masked, cell_areas, nodata):
     return this_out
 
 
-def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstabs=None):
+def get_stats_for_geom(raster_path, bands, geom, nodata_value=None, crosstabs=None):
     """
     Calculate statistics for multiple bands over the same geometry.
 
     Args:
         raster_path: Path to the raster file
-        band_info: List of dicts with 'name' and 'index' keys
+        bands: Dictionary with hash keys mapping to band data with 'name', 'index', 'metadata'
         geom: Geometry to calculate stats for
         nodata_value: Optional nodata value to use (if None, uses band's nodata value)
-        crosstabs: Optional list of dicts with 'band_1' and 'band_2' keys specifying
-                  band names for crosstab calculations. Band names must exist in band_info.
+        crosstabs: Optional list of tuples with (band_hash_1, band_hash_2) for crosstab calculations
 
     Returns:
-        Dict with band names as keys and their stats as values, plus 'crosstabs' key
+        Dict with band hashes as keys and their stats as values, plus 'crosstabs' key
         if crosstabs were requested
     """
 
@@ -360,10 +360,10 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
 
     # Calculate stats for each band
     results = {}
-    band_arrays = {}  # Store arrays for crosstab calculations, keyed by (name, index) tuple
-    logger.debug("Getting stats for {} bands".format(len(band_info)))
+    band_arrays = {}  # Store arrays for crosstab calculations, keyed by band_hash
+    logger.debug("Getting stats for {} bands".format(len(bands)))
 
-    for band_data in band_info:
+    for band_hash, band_data in bands.items():
         band_name = band_data["name"]
         band_index = band_data["index"]
 
@@ -382,37 +382,35 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
         if band_nodata_value is None:
             band_nodata_value = rb.GetNoDataValue()
 
-        results[band_name] = _get_stats_for_band(
+        results[band_hash] = _get_stats_for_band(
             band_name, masked, cell_areas, band_nodata_value
         )
 
-        # Store masked array for potential crosstab calculations using unique key
+        # Store masked array for potential crosstab calculations using band hash
         if crosstabs:
-            band_key = (band_name, band_index)
-            band_arrays[band_key] = masked
+            band_arrays[band_hash] = masked
 
     # Calculate crosstabs if requested
     if crosstabs:
         results["crosstabs"] = []
-        for band_data_1, band_data_2 in crosstabs:
-            # Extract band information from the band data tuples passed from main.py
+        for band_hash_1, band_hash_2 in crosstabs:
+            # Get band data from hashes
+            band_data_1 = bands[band_hash_1]
+            band_data_2 = bands[band_hash_2]
+
             band_1_name = band_data_1["name"]
             band_1_index = band_data_1["index"]
             band_2_name = band_data_2["name"]
             band_2_index = band_data_2["index"]
 
-            # Create unique keys for band arrays lookup
-            band_1_key = (band_1_name, band_1_index)
-            band_2_key = (band_2_name, band_2_index)
-
             # Validate that we have the band arrays
-            if band_1_key not in band_arrays:
+            if band_hash_1 not in band_arrays:
                 raise ValueError(
-                    f"Band '{band_1_name}' (index {band_1_index}) not found in band arrays"
+                    f"Band '{band_1_name}' (hash {band_hash_1}) not found in band arrays"
                 )
-            if band_2_key not in band_arrays:
+            if band_hash_2 not in band_arrays:
                 raise ValueError(
-                    f"Band '{band_2_name}' (index {band_2_index}) not found in band arrays"
+                    f"Band '{band_2_name}' (hash {band_hash_2}) not found in band arrays"
                 )
 
             # Get nodata values for both bands
@@ -432,20 +430,22 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
             crosstab_stats = _get_stats_crosstab(
                 band_1_name,
                 band_2_name,
-                band_arrays[band_1_key],
-                band_arrays[band_2_key],
+                band_arrays[band_hash_1],
+                band_arrays[band_hash_2],
                 cell_areas,
                 band_1_nodata,
                 band_2_nodata,
             )
 
-            # Add band metadata to the crosstab output
+            # Add band metadata to the crosstab output using hashes
             crosstab_stats["band_1"] = {
+                "hash": band_hash_1,
                 "name": band_1_name,
                 "index": band_1_index,
                 "metadata": band_data_1.get("metadata", {}),
             }
             crosstab_stats["band_2"] = {
+                "hash": band_hash_2,
                 "name": band_2_name,
                 "index": band_2_index,
                 "metadata": band_data_2.get("metadata", {}),
@@ -456,62 +456,111 @@ def get_stats_for_geom(raster_path, band_info, geom, nodata_value=None, crosstab
     return results
 
 
-def _calc_features_stats(geojson, raster_path, band_datas, crosstabs=None):
-    """Calculate stats for multiple bands efficiently by processing each geometry once."""
-    # Prepare band info list
-    band_info = [{"name": band["name"], "index": band["index"]} for band in band_datas]
+def _calc_features_stats(geojson, raster_path, bands, bands_crosstabs=None):
+    """Calculate stats for multiple bands efficiently by processing each geometry once.
 
-    # Initialize output structure
-    stats = {band["name"]: {} for band in band_datas}
-    if crosstabs:
+    Args:
+        geojson: GeoJSON containing polygons with uuid field
+        raster_path: Path to raster file
+        bands: Dictionary with hash keys mapping to band data with 'name', 'index', 'metadata'
+        bands_crosstabs: List of tuples with (band_hash_1, band_hash_2) for crosstab calculations
+    """
+    # Initialize output structure - keyed by band hash
+    stats = {}
+    for band_hash in bands.keys():
+        stats[band_hash] = {}
+
+    if bands_crosstabs:
         stats["crosstabs"] = {}
 
     for layer in ogr.Open(json.dumps(geojson)):
         for feature in layer:
             geom = feature.geometry()
-            uuid = feature.GetField("uuid")
+            feature_uuid = feature.GetField("uuid")
 
-            # Get stats for all bands at once
+            # Get stats for all bands at once using the new hash-based interface
             multi_band_stats = get_stats_for_geom(
-                raster_path, band_info, geom, crosstabs=crosstabs
+                raster_path, bands, geom, crosstabs=bands_crosstabs
             )
 
-            # Distribute results to each band's stats
-            for band_name, band_stats in multi_band_stats.items():
-                if band_name == "crosstabs":
-                    stats["crosstabs"][uuid] = band_stats
+            # Distribute results directly since they're already keyed by band hash
+            for band_hash, band_stats in multi_band_stats.items():
+                if band_hash == "crosstabs":
+                    stats["crosstabs"][feature_uuid] = band_stats
                 else:
-                    stats[band_name][uuid] = band_stats
+                    stats[band_hash][feature_uuid] = band_stats
 
     return stats
 
 
+def _hash_band(band: Dict) -> str:
+    """Generate a unique hash for a band based on its properties."""
+    return hashlib.md5(
+        f"{band['name']}_{band['index']}_"
+        f"{json.dumps(band.get('metadata', {}), sort_keys=True)}".encode()
+    ).hexdigest()
+
+
 def calculate_statistics(params: Dict) -> Job:
-    crosstabs = params.get("crosstabs", None)
+    # Setup unique keys to refer to bands
+    bands = {
+        _hash_band(band): {
+            "name": band["name"],
+            "index": band["index"],
+            "metadata": band.get("metadata", {}),
+        }
+        for band in params["band_datas"]
+    }
+
+    # Initialize output structure
+    stats = {"bands": bands, "stats": {}}
+
+    # If crosstab is supplied, ensure each band in crosstabs exists in bands as well
+    bands_crosstabs = []
+    if params.get("crosstabs"):
+        for crosstabs in params["crosstabs"]:
+            # Crosstabs is something like: [(band 1, band 2), (band 1, band 3), ...]
+            for band_pair in crosstabs:
+                # Each band_pair is (band 1, band 2)
+                assert len(band_pair) == 2
+                band_1_hash = _hash_band(band_pair[0])
+                band_2_hash = _hash_band(band_pair[1])
+
+                if band_1_hash not in bands:
+                    raise ValueError(
+                        f"Crosstab band '{band_pair[0]['name']}' (index {band_pair[0]['index']}) not found in band_datas"
+                    )
+                if band_2_hash not in bands:
+                    raise ValueError(
+                        f"Crosstab band '{band_pair[1]['name']}' (index {band_pair[1]['index']}) not found in band_datas"
+                    )
+                bands_crosstabs.append((band_1_hash, band_2_hash))
+
     stats = _calc_features_stats(
-        params["polygons"],
-        params["path"],
-        params["band_datas"],
-        crosstabs=crosstabs,
+        params["polygons"], params["path"], bands, bands_crosstabs
     )
 
     # Before reorganizing the dictionary ensure all stats have the same set of uuids
-    band_names = [key for key in stats.keys() if key != "crosstabs"]
-    if band_names:
-        uuids = [*stats[band_names[0]].keys()]
-        if len(band_names) > 1:
-            for band_name in band_names[1:]:
-                these_uuids = [*stats[band_name].keys()]
+    band_hashes = [key for key in stats.keys() if key != "crosstabs"]
+    if band_hashes:
+        uuids = [*stats[band_hashes[0]].keys()]
+        if len(band_hashes) > 1:
+            for band_hash in band_hashes[1:]:
+                these_uuids = [*stats[band_hash].keys()]
                 assert set(uuids) == set(these_uuids)
     else:
         uuids = []
 
-    # reorganize stats so they are keyed by uuid and then by band_name
+    # reorganize stats so they are keyed by uuid and then by band_hash
     out = {}
-    for uuid in uuids:
-        stat_dict = {band_name: stats[band_name][uuid] for band_name in band_names}
+    for feature_uuid in uuids:
+        stat_dict = {
+            band_hash: stats[band_hash][feature_uuid] for band_hash in band_hashes
+        }
         if "crosstabs" in stats:
-            stat_dict["crosstabs"] = stats["crosstabs"][uuid]
-        out[uuid] = stat_dict
+            stat_dict["crosstabs"] = stats["crosstabs"][feature_uuid]
+        out[feature_uuid] = stat_dict
 
-    return JsonResults(name="sdg-15-3-1-statistics", data={"stats": out})
+    return JsonResults(
+        name="sdg-15-3-1-statistics", data={"bands": bands, "stats": out}
+    )
