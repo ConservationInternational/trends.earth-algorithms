@@ -1542,8 +1542,11 @@ def get_bands_by_name(
 # This version drops the sort_property in favor of filtering down to a single band based
 # on metadata
 def get_band_by_name(
-    job: jobs.Job, band_name: str, filters: Union[None, List[Dict]] = None
-) -> typing.List[BandData]:
+    job: jobs.Job,
+    band_name: str,
+    filters: Union[None, List[Dict]] = None,
+    return_band: bool = False,
+) -> typing.Union[BandData, typing.Tuple[BandData, results.Band]]:
     bands = job.results.get_bands()
 
     if filters:
@@ -1578,7 +1581,12 @@ def get_band_by_name(
             f"for {band_name} with {filters} "
         )
     else:
-        return BandData(*bands_and_indices[0])
+        band, index = bands_and_indices[0]
+        band_data = BandData(band, index)
+        if return_band:
+            return band_data, band
+        else:
+            return band_data
 
 
 def make_job(params: Dict, script):
