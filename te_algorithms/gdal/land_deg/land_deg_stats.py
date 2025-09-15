@@ -4,7 +4,6 @@ from typing import Dict
 
 import numpy as np
 from osgeo import gdal, ogr
-from te_schemas.jobs import Job
 from te_schemas.results import JsonResults
 
 from ..util_numba import calc_cell_area
@@ -501,40 +500,49 @@ def _hash_band(band: Dict) -> str:
     ).hexdigest()
 
 
-def calculate_statistics(params: Dict) -> Job:
-    # Setup unique keys to refer to bands
-    bands = {
-        _hash_band(band): {
-            "name": band["name"],
-            "index": band["index"],
-            "metadata": band.get("metadata", {}),
-        }
-        for band in params["band_datas"]
-    }
+def calculate_statistics(params: Dict) -> JsonResults:
+    """
+    Calculate statistics for land degradation analysis from raster bands and polygon features.
 
-    # Initialize output structure
-    stats = {"bands": bands, "stats": {}}
+    This function processes raster data within polygon boundaries to compute statistics
+    for each band and optionally generates crosstab analysis between band pairs.
 
-    # If crosstab is supplied, ensure each band in crosstabs exists in bands as well
-    bands_crosstabs = []
-    if params.get("crosstabs"):
-        for crosstabs in params["crosstabs"]:
-            # Crosstabs is something like: [(band 1, band 2), (band 1, band 3), ...]
-            for band_pair in crosstabs:
-                # Each band_pair is (band 1, band 2)
-                assert len(band_pair) == 2
-                band_1_hash = _hash_band(band_pair[0])
-                band_2_hash = _hash_band(band_pair[1])
+    Args:
+        params (Dict): A dictionary containing the following keys:
+            - band_datas (Dict[str, Dict]): Dictionary of band definitions keyed by band hash.
+              Each value is a dictionary containing:
+                * name (str): Band name
+                * index (int): Band index (1-based raster band number)
+                * metadata (Dict, optional): Additional band metadata
+            - polygons: Polygon features to use for zonal statistics (GeoJSON format)
+            - path (str): Path to the raster file
+            - crosstabs (List[Tuple[str, str]], optional): List of crosstab definitions,
+              where each tuple contains two band hashes for cross-tabulation analysis.
+              The band hashes must correspond to keys in the band_datas dictionary.
 
-                if band_1_hash not in bands:
-                    raise ValueError(
-                        f"Crosstab band '{band_pair[0]['name']}' (index {band_pair[0]['index']}) not found in band_datas"
-                    )
-                if band_2_hash not in bands:
-                    raise ValueError(
-                        f"Crosstab band '{band_pair[1]['name']}' (index {band_pair[1]['index']}) not found in band_datas"
-                    )
-                bands_crosstabs.append((band_1_hash, band_2_hash))
+    Returns:
+        JsonResults: A JsonResults object containing:
+            - name: "sdg-15-3-1-statistics"
+            - data: Dictionary with:
+                * bands: Band metadata keyed by band hash
+                * stats: Statistics organized by feature UUID, then by band hash,
+                  including optional crosstab results
+
+    Raises:
+        ValueError: If a crosstab band hash is not found in the provided band_datas
+        AssertionError: If features have inconsistent UUIDs across bands
+        KeyError: If required keys are missing from band_datas entries
+
+    Note:
+        This function is designed for SDG 15.3.1 (land degradation) indicator
+        calculations and expects specific data structures for polygon features
+        and raster band definitions. Band hashes are generated using the _hash_band()
+        function based on band name, index, and metadata.
+    """
+
+    # Extract parameters
+    bands = params["band_datas"]
+    bands_crosstabs = params.get("crosstabs", [])
 
     stats = _calc_features_stats(
         params["polygons"], params["path"], bands, bands_crosstabs
