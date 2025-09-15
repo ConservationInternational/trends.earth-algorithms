@@ -437,18 +437,8 @@ def get_stats_for_geom(raster_path, bands, geom, nodata_value=None, crosstabs=No
             )
 
             # Add band metadata to the crosstab output using hashes
-            crosstab_stats["band_1"] = {
-                "hash": band_hash_1,
-                "name": band_1_name,
-                "index": band_1_index,
-                "metadata": band_data_1.get("metadata", {}),
-            }
-            crosstab_stats["band_2"] = {
-                "hash": band_hash_2,
-                "name": band_2_name,
-                "index": band_2_index,
-                "metadata": band_data_2.get("metadata", {}),
-            }
+            crosstab_stats["band_1"] = band_hash_1
+            crosstab_stats["band_2"] = band_hash_2
 
             results["crosstabs"].append(crosstab_stats)
 
