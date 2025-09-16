@@ -6,7 +6,7 @@ import multiprocessing
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Callable, Optional, Union
+from typing import Callable, Optional
 
 import numpy as np
 from osgeo import gdal
@@ -599,7 +599,7 @@ class Rasterize:
     out_file: Path
     model_file: Path
     geojson: dict
-    attributes: Union[str, list]
+    attribute: str
 
     def progress_callback(self, *args, **kwargs):
         """Reimplement to display progress messages"""
@@ -630,7 +630,7 @@ class Rasterize:
             format="GTiff",
             outputBounds=output_bounds,
             initValues=NODATA_VALUE,
-            attribute=self.attributes,
+            attribute=self.attribute,
             xRes=x_res,
             yRes=y_res,
             outputSRS="epsg:4326",

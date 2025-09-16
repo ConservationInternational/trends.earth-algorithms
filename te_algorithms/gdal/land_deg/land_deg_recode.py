@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import os
 import tempfile
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple, Optional, Union
@@ -55,7 +56,15 @@ def rasterize_error_recode(
 
         # Convert periods_affected to a bitmask for rasterization
         # bit 1 = baseline, bit 2 = reporting_1, bit 4 = reporting_2
-        periods_affected = feat["properties"].get("periods_affected", ["baseline"])
+        periods_affected = feat["properties"].get("periods_affected")
+        if not periods_affected:
+            raise ValueError(
+                f"periods_affected is required and cannot be empty for feature with "
+                f"recode_deg_to={feat['properties'].get('recode_deg_to')}, "
+                f"recode_stable_to={feat['properties'].get('recode_stable_to')}, "
+                f"recode_imp_to={feat['properties'].get('recode_imp_to')}"
+            )
+
         periods_mask = 0
         if "baseline" in periods_affected:
             periods_mask |= 1
@@ -66,13 +75,50 @@ def rasterize_error_recode(
         feat["properties"]["periods_mask"] = periods_mask
 
     # TODO: Assumes WGS84 for now
-    rasterize_worker = workers.Rasterize(
-        out_file,
-        model_file,
-        error_recode_dict,
-        ["error_recode", "periods_mask"],
-    )
-    rasterize_worker.work()
+    # Create temporary files for each band
+    temp_error_recode = tempfile.NamedTemporaryFile(
+        suffix="_temp_error_recode.tif", delete=False
+    ).name
+    temp_periods_mask = tempfile.NamedTemporaryFile(
+        suffix="_temp_periods_mask.tif", delete=False
+    ).name
+
+    try:
+        rasterize_worker_error = workers.Rasterize(
+            Path(temp_error_recode),
+            model_file,
+            error_recode_dict,
+            "error_recode",
+        )
+        rasterize_worker_error.work()
+
+        rasterize_worker_periods = workers.Rasterize(
+            Path(temp_periods_mask),
+            model_file,
+            error_recode_dict,
+            "periods_mask",
+        )
+        rasterize_worker_periods.work()
+
+        # Combine both single-band rasters into one multi-band raster
+        gdal.BuildVRT(
+            str(out_file), [temp_error_recode, temp_periods_mask], separate=True
+        )
+
+        # Convert VRT to GeoTIFF
+        gdal.Translate(
+            str(out_file),
+            str(out_file),
+            format="GTiff",
+            creationOptions=["COMPRESS=LZW", "NUM_THREADS=ALL_CPUS", "TILED=YES"],
+        )
+
+    finally:
+        # Clean up temporary files
+        if os.path.exists(temp_error_recode):
+            os.remove(temp_error_recode)
+        if os.path.exists(temp_periods_mask):
+            os.remove(temp_periods_mask)
 
 
 def _process_block(
@@ -330,6 +376,32 @@ def _prepare_df(path, band_str, band_index) -> DataFile:
     return DataFile(path=Path(save_vrt(path, band_index)), bands=[band])
 
 
+def _prepare_error_recode_df(path, band_str) -> DataFile:
+    """Special version of _prepare_df for error recode files with multiple bands."""
+    # Create the primary band (Error recode) - always band 1
+    primary_band = Band(**band_str)
+
+    # Open the raster to check for additional bands
+    ds = gdal.Open(str(path))
+    bands = [primary_band]
+
+    if ds and ds.RasterCount >= 2:
+        # Assume the second band is the periods_affected band
+        # (since we create it that way in rasterize_error_recode)
+        periods_band = Band(
+            name="periods_affected",
+            metadata={},
+            no_data_value=primary_band.no_data_value,
+            activated=True,
+        )
+        bands.append(periods_band)
+
+    if ds:
+        ds = None  # Close the dataset
+
+    return DataFile(path=Path(save_vrt(path, 1)), bands=bands)
+
+
 def get_serialized_results(st, layer_name):
     """Get serialized results for all available periods."""
 
@@ -405,10 +477,9 @@ def recode_errors(params) -> Job:
             params["layer_reporting_2_band_index"],
         )
 
-    error_recode_df = _prepare_df(
+    error_recode_df = _prepare_error_recode_df(
         params["layer_error_recode_path"],
         params["layer_error_recode_band"],
-        params["layer_error_recode_band_index"],
     )
     logger.debug("Loading error polygons")
     error_polygons_data = params["error_polygons"]
