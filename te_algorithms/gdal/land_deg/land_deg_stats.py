@@ -166,7 +166,7 @@ def _get_stats_crosstab(
         # This is a regular array from tests - treat all cells as within geometry
         geometry_mask = np.ones_like(masked_1, dtype=bool)
 
-    # Calculate total area only within the geometry
+    # Calculate total area as the full geometry area (including nodata)
     total_area_ha = np.sum(geometry_mask * cell_areas)
 
     if total_area_ha == 0:
@@ -215,7 +215,7 @@ def _get_stats_crosstab(
         if class_name in band_1_totals:
             continue
 
-        # Band 1 totals
+        # Band 1 totals (include all classes including nodata)
         mask_1 = np.logical_and(recoded_1 == val, geometry_mask)
         area_1 = np.sum(mask_1 * cell_areas)
         band_1_totals[class_name] = {
@@ -225,7 +225,7 @@ def _get_stats_crosstab(
             ),
         }
 
-        # Band 2 totals
+        # Band 2 totals (include all classes including nodata)
         mask_2 = np.logical_and(recoded_2 == val, geometry_mask)
         area_2 = np.sum(mask_2 * cell_areas)
         band_2_totals[class_name] = {
