@@ -100,17 +100,9 @@ def rasterize_error_recode(
         )
         rasterize_worker_periods.work()
 
-        # Combine both single-band rasters into one multi-band raster
+        # Combine both single-band rasters into one multi-band VRT
         gdal.BuildVRT(
             str(out_file), [temp_error_recode, temp_periods_mask], separate=True
-        )
-
-        # Convert VRT to GeoTIFF
-        gdal.Translate(
-            str(out_file),
-            str(out_file),
-            format="GTiff",
-            creationOptions=["COMPRESS=LZW", "NUM_THREADS=ALL_CPUS", "TILED=YES"],
         )
 
     finally:
