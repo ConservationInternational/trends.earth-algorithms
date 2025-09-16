@@ -1016,129 +1016,18 @@ def productivity_faowocat(
         .rename("LPD")
     )
 
-    win = n
-    bl_start = year_initial
-    bl_end = max(year_initial, year_final - win)
-    tg_end = year_final
-    tg_start = max(year_initial, year_final - win)
-
-    ndvi_1yr = ndvi_dataset
-
-    bl_ndvi_range = ndvi_1yr.select(
-        ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)])
-    ).reduce(ee.Reducer.percentile([0, 100]))
-
-    bl_ndvi_ext = (
-        ndvi_1yr.select(ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)]))
-        .addBands(
-            bl_ndvi_range.select("p0").subtract(
-                (
-                    bl_ndvi_range.select("p100").subtract(bl_ndvi_range.select("p0"))
-                ).multiply(0.05)
-            )
-        )
-        .addBands(
-            bl_ndvi_range.select("p100").add(
-                (
-                    bl_ndvi_range.select("p100").subtract(bl_ndvi_range.select("p0"))
-                ).multiply(0.05)
-            )
-        )
-    )
-
-    percentiles = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    bl_ndvi_perc = bl_ndvi_ext.reduce(ee.Reducer.percentile(percentiles))
-
-    bl_ndvi_mean = (
-        ndvi_1yr.select(ee.List([f"y{i}" for i in range(bl_start, bl_end + 1)]))
-        .reduce(ee.Reducer.mean())
-        .rename(["ndvi"])
-    )
-    tg_ndvi_mean = (
-        ndvi_1yr.select(ee.List([f"y{i}" for i in range(tg_start, tg_end + 1)]))
-        .reduce(ee.Reducer.mean())
-        .rename(["ndvi"])
-    )
-
-    bl_classes = (
-        ee.Image(-32768)
-        .where(bl_ndvi_mean.lte(bl_ndvi_perc.select("p10")), 1)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p10")), 2)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p20")), 3)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p30")), 4)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p40")), 5)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p50")), 6)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p60")), 7)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p70")), 8)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p80")), 9)
-        .where(bl_ndvi_mean.gt(bl_ndvi_perc.select("p90")), 10)
-    )
-
-    tg_classes = (
-        ee.Image(-32768)
-        .where(tg_ndvi_mean.lte(bl_ndvi_perc.select("p10")), 1)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p10")), 2)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p20")), 3)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p30")), 4)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p40")), 5)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p50")), 6)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p60")), 7)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p70")), 8)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p80")), 9)
-        .where(tg_ndvi_mean.gt(bl_ndvi_perc.select("p90")), 10)
-    )
-
-    classes_chg = tg_classes.subtract(bl_classes).where(
-        bl_ndvi_mean.subtract(tg_ndvi_mean).abs().lte(100), 0
-    )
-
-    classes_chg = classes_chg.rename("Productivity_state_degradation")
-    bl_classes = bl_classes.rename(f"Productivity_state_classes_{bl_start}-{bl_end}")
-    tg_classes = tg_classes.rename(f"Productivity_state_classes_{tg_start}-{tg_end}")
-    bl_ndvi_mean = bl_ndvi_mean.rename(
-        f"Productivity_state_NDVI_mean_{bl_start}-{bl_end}"
-    )
-    tg_ndvi_mean = tg_ndvi_mean.rename(
-        f"Productivity_state_NDVI_mean_{tg_start}-{tg_end}"
-    )
-
-    signif_band_lpd = (
-        ee.Image(-32768)
-        .where(final_lpd.eq(1), -2)
-        .where(final_lpd.eq(2), -2)
-        .where(final_lpd.eq(3), 1)
-        .where(final_lpd.eq(4), 1)
-        .where(final_lpd.eq(5), 3)
-        .rename("Productivity_significance")
-    )
-
-    trend_band = (
+    degradation_band = (
         ee.Image(-32768)
         .where(final_lpd.eq(1).Or(final_lpd.eq(2)), -1)
-        .where(final_lpd.eq(3), 0)
-        .where(final_lpd.eq(4).Or(final_lpd.eq(5)), 1)
-        .rename("Productivity_trend")
+        .where(final_lpd.eq(3).Or(final_lpd.eq(4)), 0)
+        .where(final_lpd.eq(5), 1)
+        .rename("Productivity_degradation")
     )
 
-    out_img = (
-        trend_band.addBands(signif_band_lpd)
-        .addBands(final_lpd)
-        .addBands(classes_chg)
-        .addBands(bl_classes)
-        .addBands(tg_classes)
-        .addBands(bl_ndvi_mean)
-        .addBands(tg_ndvi_mean)
-        .unmask(-32768)
-        .int16()
-    )
+    out_img = degradation_band.addBands(final_lpd).unmask(-32768).int16()
     band_infos = [
         BandInfo(
-            "Productivity trajectory (trend)",
-            add_to_map=True,
-            metadata={"year_initial": year_initial, "year_final": year_end},
-        ),
-        BandInfo(
-            "Productivity trajectory (significance)",
+            "Land Productivity Degradation (from FAO-WOCAT)",
             add_to_map=True,
             metadata={"year_initial": year_initial, "year_final": year_end},
         ),
@@ -1146,32 +1035,6 @@ def productivity_faowocat(
             "Land Productivity Dynamics (from FAO-WOCAT)",
             add_to_map=True,
             metadata={"year_initial": year_initial, "year_final": year_end},
-        ),
-        BandInfo(
-            "Productivity state (degradation)",
-            add_to_map=True,
-            metadata={
-                "year_bl_start": bl_start,
-                "year_bl_end": bl_end,
-                "year_tg_start": tg_start,
-                "year_tg_end": tg_end,
-            },
-        ),
-        BandInfo(
-            "Productivity state classes",
-            metadata={"year_initial": bl_start, "year_final": bl_end},
-        ),
-        BandInfo(
-            "Productivity state classes",
-            metadata={"year_initial": tg_start, "year_final": tg_end},
-        ),
-        BandInfo(
-            "Productivity state NDVI mean",
-            metadata={"year_initial": bl_start, "year_final": bl_end},
-        ),
-        BandInfo(
-            "Productivity state NDVI mean",
-            metadata={"year_initial": tg_start, "year_final": tg_end},
         ),
     ]
 
