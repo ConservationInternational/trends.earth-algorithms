@@ -5,6 +5,8 @@ This module tests the land degradation statistics calculation functions used for
 analyzing degradation indicators across different spatial units and geometries.
 """
 
+import hashlib
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -33,6 +35,14 @@ except ImportError:
         "te_algorithms.gdal modules require numpy and GDAL dependencies",
         allow_module_level=True,
     )
+
+
+def _hash_band(band):
+    """Generate a unique hash for a band based on its properties."""
+    return hashlib.md5(
+        f"{band['name']}_{band['index']}_"
+        f"{json.dumps(band.get('metadata', {}), sort_keys=True)}".encode()
+    ).hexdigest()
 
 
 class TestLandDegStats(unittest.TestCase):
@@ -321,19 +331,24 @@ class TestLandDegStats(unittest.TestCase):
             # Mock rasterization
             mock_gdal.RasterizeLayer = Mock()
 
+            # Create bands dictionary with hash key for new interface
+            band_data = {"name": config.SDG_BAND_NAME, "index": 1, "metadata": {}}
+            band_hash = _hash_band(band_data)
+            bands = {band_hash: band_data}
+
             result = land_deg_stats.get_stats_for_geom(
                 "/fake/path.tif",
-                [{"name": config.SDG_BAND_NAME, "index": 1}],
+                bands,
                 mock_geom,
             )
 
-            # Verify result structure
+            # Verify result structure - should be keyed by band hash now
             self.assertIsInstance(result, dict)
-            self.assertIn(config.SDG_BAND_NAME, result)
-            self.assertIn("area_ha", result[config.SDG_BAND_NAME])
-            self.assertIn("degraded_pct", result[config.SDG_BAND_NAME])
-            self.assertIn("stable_pct", result[config.SDG_BAND_NAME])
-            self.assertIn("improved_pct", result[config.SDG_BAND_NAME])
+            self.assertIn(band_hash, result)
+            self.assertIn("area_ha", result[band_hash])
+            self.assertIn("degraded_pct", result[band_hash])
+            self.assertIn("stable_pct", result[band_hash])
+            self.assertIn("improved_pct", result[band_hash])
 
     def test_get_stats_for_geom_raster_open_failure(self):
         """Test get_stats_for_geom when raster fails to open."""
@@ -341,10 +356,15 @@ class TestLandDegStats(unittest.TestCase):
             mock_gdal.Open.return_value = None
             mock_geom = Mock()
 
+            # Create bands dictionary with hash key for new interface
+            band_data = {"name": config.SDG_BAND_NAME, "index": 1, "metadata": {}}
+            band_hash = _hash_band(band_data)
+            bands = {band_hash: band_data}
+
             with self.assertRaises(Exception) as context:
                 land_deg_stats.get_stats_for_geom(
                     "/fake/path.tif",
-                    [{"name": config.SDG_BAND_NAME, "index": 1}],
+                    bands,
                     mock_geom,
                 )
 
@@ -371,10 +391,15 @@ class TestLandDegStats(unittest.TestCase):
             # Mock OGR geometry creation
             mock_ogr.CreateGeometryFromWkt.return_value = mock_geom
 
+            # Create bands dictionary with hash key for new interface
+            band_data = {"name": config.SDG_BAND_NAME, "index": 999, "metadata": {}}
+            band_hash = _hash_band(band_data)
+            bands = {band_hash: band_data}
+
             with self.assertRaises(Exception) as context:
                 land_deg_stats.get_stats_for_geom(
                     "/fake/path.tif",
-                    [{"name": config.SDG_BAND_NAME, "index": 999}],
+                    bands,
                     mock_geom,
                 )
 
@@ -407,8 +432,14 @@ class TestLandDegStats(unittest.TestCase):
 
             # Mock get_stats_for_geom
             with patch.object(land_deg_stats, "get_stats_for_geom") as mock_get_stats:
+                # Create bands dictionary with hash key for new interface
+                band_data = {"name": config.SDG_BAND_NAME, "index": 1, "metadata": {}}
+                band_hash = _hash_band(band_data)
+                bands = {band_hash: band_data}
+
+                # Mock return value should be keyed by band hash
                 mock_get_stats.return_value = {
-                    config.SDG_BAND_NAME: {
+                    band_hash: {
                         "area_ha": 100.0,
                         "degraded_pct": 10.0,
                         "stable_pct": 80.0,
@@ -419,17 +450,23 @@ class TestLandDegStats(unittest.TestCase):
                 result = land_deg_stats._calc_features_stats(
                     test_geojson,
                     "/fake/path.tif",
-                    [{"name": config.SDG_BAND_NAME, "index": 1}],
+                    bands,
                 )
 
-            # Verify result structure
+            # Verify result structure - should be keyed by band hash now
             self.assertIsInstance(result, dict)
-            self.assertIn(config.SDG_BAND_NAME, result)
-            self.assertIn("test-uuid-1", result[config.SDG_BAND_NAME])
+            self.assertIn(band_hash, result)
+            self.assertIn("test-uuid-1", result[band_hash])
 
     def test_calculate_statistics_basic(self):
         """Test calculate_statistics with basic functionality."""
-        # Mock input parameters
+        # Create test bands
+        band_1_data = {"name": config.SDG_BAND_NAME, "index": 1, "metadata": {}}
+        band_2_data = {"name": config.SOC_DEG_BAND_NAME, "index": 2, "metadata": {}}
+        band_1_hash = _hash_band(band_1_data)
+        band_2_hash = _hash_band(band_2_data)
+
+        # Mock input parameters using new hash-based format
         test_params = {
             "polygons": {
                 "type": "FeatureCollection",
@@ -442,16 +479,17 @@ class TestLandDegStats(unittest.TestCase):
                 ],
             },
             "path": "/fake/path.tif",
-            "band_datas": [
-                {"name": config.SDG_BAND_NAME, "index": 1},
-                {"name": config.SOC_DEG_BAND_NAME, "index": 2},
-            ],
+            "band_datas": {
+                band_1_hash: band_1_data,
+                band_2_hash: band_2_data,
+            },
         }
 
         # Mock _calc_features_stats
         with patch.object(land_deg_stats, "_calc_features_stats") as mock_calc_stats:
+            # Mock return value should be keyed by band hashes
             mock_calc_stats.return_value = {
-                config.SDG_BAND_NAME: {
+                band_1_hash: {
                     "test-uuid-1": {
                         "area_ha": 100.0,
                         "degraded_pct": 10.0,
@@ -459,7 +497,7 @@ class TestLandDegStats(unittest.TestCase):
                         "improved_pct": 10.0,
                     }
                 },
-                config.SOC_DEG_BAND_NAME: {
+                band_2_hash: {
                     "test-uuid-1": {
                         "area_ha": 100.0,
                         "degraded_pct": 15.0,
@@ -475,31 +513,47 @@ class TestLandDegStats(unittest.TestCase):
         self.assertIsInstance(result, JsonResults)
         self.assertEqual(result.name, "sdg-15-3-1-statistics")
         self.assertIn("stats", result.data)
+        self.assertIn("bands", result.data)
+
+        # Check that bands are included with correct structure
+        bands_data = result.data["bands"]
+        self.assertIn(band_1_hash, bands_data)
+        self.assertIn(band_2_hash, bands_data)
+        self.assertEqual(bands_data[band_1_hash]["name"], config.SDG_BAND_NAME)
+        self.assertEqual(bands_data[band_2_hash]["name"], config.SOC_DEG_BAND_NAME)
 
         # Check that stats are reorganized by UUID
         stats_data = result.data["stats"]
         self.assertIn("test-uuid-1", stats_data)
 
+        # Stats should now be keyed by band hash within each UUID
         uuid_stats = stats_data["test-uuid-1"]
-        self.assertIn(config.SDG_BAND_NAME, uuid_stats)
-        self.assertIn(config.SOC_DEG_BAND_NAME, uuid_stats)
+        self.assertIn(band_1_hash, uuid_stats)
+        self.assertIn(band_2_hash, uuid_stats)
 
     def test_calculate_statistics_uuid_mismatch(self):
         """Test calculate_statistics with mismatched UUIDs across bands."""
+        # Create test bands
+        band_1_data = {"name": config.SDG_BAND_NAME, "index": 1, "metadata": {}}
+        band_2_data = {"name": config.SOC_DEG_BAND_NAME, "index": 2, "metadata": {}}
+        band_1_hash = _hash_band(band_1_data)
+        band_2_hash = _hash_band(band_2_data)
+
         test_params = {
             "polygons": {},
             "path": "/fake/path.tif",
-            "band_datas": [
-                {"name": config.SDG_BAND_NAME, "index": 1},
-                {"name": config.SOC_DEG_BAND_NAME, "index": 2},
-            ],
+            "band_datas": {
+                band_1_hash: band_1_data,
+                band_2_hash: band_2_data,
+            },
         }
 
         # Mock _calc_features_stats with different UUIDs
         with patch.object(land_deg_stats, "_calc_features_stats") as mock_calc_stats:
+            # Mock return value with mismatched UUIDs
             mock_calc_stats.return_value = {
-                config.SDG_BAND_NAME: {"uuid-1": {}, "uuid-2": {}},
-                config.SOC_DEG_BAND_NAME: {
+                band_1_hash: {"uuid-1": {}, "uuid-2": {}},
+                band_2_hash: {
                     "uuid-1": {},
                     "uuid-3": {},
                 },  # Different UUID
@@ -510,15 +564,19 @@ class TestLandDegStats(unittest.TestCase):
 
     def test_calculate_statistics_single_band(self):
         """Test calculate_statistics with single band."""
+        # Create test band
+        band_data = {"name": config.SDG_BAND_NAME, "index": 1, "metadata": {}}
+        band_hash = _hash_band(band_data)
+
         test_params = {
             "polygons": {},
             "path": "/fake/path.tif",
-            "band_datas": [{"name": config.SDG_BAND_NAME, "index": 1}],
+            "band_datas": {band_hash: band_data},
         }
 
         with patch.object(land_deg_stats, "_calc_features_stats") as mock_calc_stats:
             mock_calc_stats.return_value = {
-                config.SDG_BAND_NAME: {
+                band_hash: {
                     "test-uuid": {
                         "area_ha": 100.0,
                         "degraded_pct": 10.0,
@@ -532,6 +590,95 @@ class TestLandDegStats(unittest.TestCase):
 
             # Should not raise assertion error for single band
             self.assertIsInstance(result, JsonResults)
+
+    def test_calculate_statistics_with_crosstabs(self):
+        """Test calculate_statistics with crosstab functionality."""
+        # Create test bands
+        band_1_data = {"name": config.SDG_BAND_NAME, "index": 1, "metadata": {}}
+        band_2_data = {"name": config.SOC_DEG_BAND_NAME, "index": 2, "metadata": {}}
+        band_1_hash = _hash_band(band_1_data)
+        band_2_hash = _hash_band(band_2_data)
+
+        test_params = {
+            "polygons": {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"uuid": "test-uuid-1"},
+                        "geometry": {"type": "Polygon", "coordinates": []},
+                    }
+                ],
+            },
+            "path": "/fake/path.tif",
+            "band_datas": {
+                band_1_hash: band_1_data,
+                band_2_hash: band_2_data,
+            },
+            "crosstabs": [(band_1_hash, band_2_hash)],
+        }
+
+        with patch.object(land_deg_stats, "_calc_features_stats") as mock_calc_stats:
+            # Mock return value with crosstab data
+            mock_calc_stats.return_value = {
+                band_1_hash: {
+                    "test-uuid-1": {
+                        "area_ha": 100.0,
+                        "degraded_pct": 10.0,
+                        "stable_pct": 80.0,
+                        "improved_pct": 10.0,
+                    }
+                },
+                band_2_hash: {
+                    "test-uuid-1": {
+                        "area_ha": 100.0,
+                        "degraded_pct": 15.0,
+                        "stable_pct": 75.0,
+                        "improved_pct": 10.0,
+                    }
+                },
+                "crosstabs": {
+                    "test-uuid-1": [
+                        {
+                            "band_1": {
+                                "hash": band_1_hash,
+                                "name": config.SDG_BAND_NAME,
+                                "index": 1,
+                                "metadata": {},
+                            },
+                            "band_2": {
+                                "hash": band_2_hash,
+                                "name": config.SOC_DEG_BAND_NAME,
+                                "index": 2,
+                                "metadata": {},
+                            },
+                            "total_area_ha": 100.0,
+                            "crosstab": {
+                                "degraded": {
+                                    "degraded": {"area_ha": 5.0, "area_pct": 5.0},
+                                    "stable": {"area_ha": 3.0, "area_pct": 3.0},
+                                    "improved": {"area_ha": 2.0, "area_pct": 2.0},
+                                },
+                            },
+                        }
+                    ]
+                },
+            }
+
+            result = land_deg_stats.calculate_statistics(test_params)
+
+            # Verify result structure includes crosstabs
+            self.assertIsInstance(result, JsonResults)
+            self.assertEqual(result.name, "sdg-15-3-1-statistics")
+            self.assertIn("stats", result.data)
+
+            # Check that crosstabs are included in the result
+            stats_data = result.data["stats"]
+            self.assertIn("test-uuid-1", stats_data)
+            uuid_stats = stats_data["test-uuid-1"]
+            self.assertIn("crosstabs", uuid_stats)
+            self.assertIsInstance(uuid_stats["crosstabs"], list)
+            self.assertGreater(len(uuid_stats["crosstabs"]), 0)
 
     def test_stats_performance_large_dataset(self):
         """Test _get_stats_for_band performance with larger dataset."""
