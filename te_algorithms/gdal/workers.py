@@ -6,7 +6,7 @@ import multiprocessing
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import numpy as np
 from osgeo import gdal
@@ -599,7 +599,7 @@ class Rasterize:
     out_file: Path
     model_file: Path
     geojson: dict
-    attribute: str
+    attributes: Union[str, list]
 
     def progress_callback(self, *args, **kwargs):
         """Reimplement to display progress messages"""
@@ -614,7 +614,7 @@ class Rasterize:
 
         if self.model_file:
             # Assumes an image with no rotation
-            ds = gdal.Open(self.model_file)
+            ds = gdal.Open(str(self.model_file))
             gt = ds.GetGeoTransform()
             x_res = abs(gt[1])  # Use absolute value for resolution
             y_res = abs(gt[5])  # Use absolute value for resolution
@@ -625,12 +625,12 @@ class Rasterize:
             y_res = None
 
         res = gdal.Rasterize(
-            self.out_file,
+            str(self.out_file),
             json_file,
             format="GTiff",
             outputBounds=output_bounds,
             initValues=NODATA_VALUE,
-            attribute=self.attribute,
+            attribute=self.attributes,
             xRes=x_res,
             yRes=y_res,
             outputSRS="epsg:4326",
