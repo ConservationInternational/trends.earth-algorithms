@@ -1133,7 +1133,7 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             np.logical_and(self.band_1 == 1, valid_mask_1) * self.cell_areas
         )
 
-        # Check that marginals_1 percentages are correct
+        # Check that band_1_totals percentages are correct
         total_valid_area = crosstab_result["total_area_ha"]
         expected_degraded_pct_1 = (
             (degraded_area_1 / total_valid_area * 100) if total_valid_area > 0 else 0
@@ -1146,19 +1146,19 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
         )
 
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["degraded"]["area_pct"],
+            crosstab_result["band_1_totals"]["degraded"]["area_pct"],
             expected_degraded_pct_1,
             places=2,
             msg="Band 1 degraded marginal percentage should match expected value",
         )
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["stable"]["area_pct"],
+            crosstab_result["band_1_totals"]["stable"]["area_pct"],
             expected_stable_pct_1,
             places=2,
             msg="Band 1 stable marginal percentage should match expected value",
         )
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["improved"]["area_pct"],
+            crosstab_result["band_1_totals"]["improved"]["area_pct"],
             expected_improved_pct_1,
             places=2,
             msg="Band 1 improved marginal percentage should match expected value",
@@ -1190,19 +1190,19 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
         )
 
         self.assertAlmostEqual(
-            crosstab_result["marginals_2"]["degraded"]["area_pct"],
+            crosstab_result["band_2_totals"]["degraded"]["area_pct"],
             expected_degraded_pct_2,
             places=2,
             msg="Band 2 degraded marginal percentage should match expected value",
         )
         self.assertAlmostEqual(
-            crosstab_result["marginals_2"]["stable"]["area_pct"],
+            crosstab_result["band_2_totals"]["stable"]["area_pct"],
             expected_stable_pct_2,
             places=2,
             msg="Band 2 stable marginal percentage should match expected value",
         )
         self.assertAlmostEqual(
-            crosstab_result["marginals_2"]["improved"]["area_pct"],
+            crosstab_result["band_2_totals"]["improved"]["area_pct"],
             expected_improved_pct_2,
             places=2,
             msg="Band 2 improved marginal percentage should match expected value",
@@ -1246,40 +1246,40 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
 
         # Check that marginal percentages match individual stats percentages
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["degraded"]["area_pct"],
+            crosstab_result["band_1_totals"]["degraded"]["area_pct"],
             individual_stats["degraded_pct"],
             places=2,
             msg="Degraded percentages should match between individual stats and crosstab marginals",
         )
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["stable"]["area_pct"],
+            crosstab_result["band_1_totals"]["stable"]["area_pct"],
             individual_stats["stable_pct"],
             places=2,
             msg="Stable percentages should match between individual stats and crosstab marginals",
         )
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["improved"]["area_pct"],
+            crosstab_result["band_1_totals"]["improved"]["area_pct"],
             individual_stats["improved_pct"],
             places=2,
             msg="Improved percentages should match between individual stats and crosstab marginals",
         )
 
-        # Since it's the same band against itself, marginals_2 should equal marginals_1
+        # Since it's the same band against itself, band_2_totals should equal band_1_totals
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["degraded"]["area_pct"],
-            crosstab_result["marginals_2"]["degraded"]["area_pct"],
+            crosstab_result["band_1_totals"]["degraded"]["area_pct"],
+            crosstab_result["band_2_totals"]["degraded"]["area_pct"],
             places=2,
             msg="Marginals for same band should be identical",
         )
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["stable"]["area_pct"],
-            crosstab_result["marginals_2"]["stable"]["area_pct"],
+            crosstab_result["band_1_totals"]["stable"]["area_pct"],
+            crosstab_result["band_2_totals"]["stable"]["area_pct"],
             places=2,
             msg="Marginals for same band should be identical",
         )
         self.assertAlmostEqual(
-            crosstab_result["marginals_1"]["improved"]["area_pct"],
-            crosstab_result["marginals_2"]["improved"]["area_pct"],
+            crosstab_result["band_1_totals"]["improved"]["area_pct"],
+            crosstab_result["band_2_totals"]["improved"]["area_pct"],
             places=2,
             msg="Marginals for same band should be identical",
         )
@@ -1296,11 +1296,12 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             self.nodata,
         )
 
-        # Check marginals_1 sum to 100%
+        # Check band_1_totals sum to 100% (including nodata)
         total_pct_1 = (
-            crosstab_result["marginals_1"]["degraded"]["area_pct"]
-            + crosstab_result["marginals_1"]["stable"]["area_pct"]
-            + crosstab_result["marginals_1"]["improved"]["area_pct"]
+            crosstab_result["band_1_totals"]["degraded"]["area_pct"]
+            + crosstab_result["band_1_totals"]["stable"]["area_pct"]
+            + crosstab_result["band_1_totals"]["improved"]["area_pct"]
+            + crosstab_result["band_1_totals"]["nodata"]["area_pct"]
         )
         self.assertAlmostEqual(
             total_pct_1,
@@ -1309,11 +1310,12 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             msg="Band 1 marginal percentages should sum to 100%",
         )
 
-        # Check marginals_2 sum to 100%
+        # Check band_2_totals sum to 100% (including nodata)
         total_pct_2 = (
-            crosstab_result["marginals_2"]["degraded"]["area_pct"]
-            + crosstab_result["marginals_2"]["stable"]["area_pct"]
-            + crosstab_result["marginals_2"]["improved"]["area_pct"]
+            crosstab_result["band_2_totals"]["degraded"]["area_pct"]
+            + crosstab_result["band_2_totals"]["stable"]["area_pct"]
+            + crosstab_result["band_2_totals"]["improved"]["area_pct"]
+            + crosstab_result["band_2_totals"]["nodata"]["area_pct"]
         )
         self.assertAlmostEqual(
             total_pct_2,
@@ -1361,17 +1363,17 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
         # Diagonal values should match marginal totals
         self.assertAlmostEqual(
             crosstab_result["crosstab"]["degraded"]["degraded"]["area_pct"],
-            crosstab_result["marginals_1"]["degraded"]["area_pct"],
+            crosstab_result["band_1_totals"]["degraded"]["area_pct"],
             places=2,
         )
         self.assertAlmostEqual(
             crosstab_result["crosstab"]["stable"]["stable"]["area_pct"],
-            crosstab_result["marginals_1"]["stable"]["area_pct"],
+            crosstab_result["band_1_totals"]["stable"]["area_pct"],
             places=2,
         )
         self.assertAlmostEqual(
             crosstab_result["crosstab"]["improved"]["improved"]["area_pct"],
-            crosstab_result["marginals_1"]["improved"]["area_pct"],
+            crosstab_result["band_1_totals"]["improved"]["area_pct"],
             places=2,
         )
 
@@ -1398,10 +1400,9 @@ class TestConsistencyBetweenFunctions(unittest.TestCase):
             -9999,  # band_2_nodata
         )
 
-        # Should exclude cells where either band has nodata
-        # band_1 has nodata at [1,2], band_2 has nodata at [0,2]
-        # So we exclude 2 cells, leaving 4 valid cells
-        expected_total = 4 * 0.25  # 1.0 hectare
+        # total_area_ha should represent the full geometry area (including nodata)
+        # All 6 cells should be counted in the total area
+        expected_total = 6 * 0.25  # 1.5 hectare (all cells in geometry)
         self.assertAlmostEqual(
             crosstab_result["total_area_ha"], expected_total, places=2
         )

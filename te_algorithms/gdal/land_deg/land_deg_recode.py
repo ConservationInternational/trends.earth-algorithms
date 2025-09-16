@@ -2,7 +2,7 @@ import dataclasses
 import logging
 import tempfile
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple, Optional, Union
 
 import numpy as np
 from osgeo import gdal
@@ -26,7 +26,7 @@ from .. import workers
 from ..util import accumulate_dicts, save_vrt, wkt_geom_to_geojson_file_string
 from ..util_numba import zonal_total
 from . import config
-from .land_deg_numba import recode_indicator_errors
+from .land_deg_numba import recode_indicator_errors, sdg_status_expanded
 from .models import DegradationErrorRecodeSummaryParams, SummaryTableLDErrorRecode
 from .worker import DegradationSummary
 
@@ -53,9 +53,24 @@ def rasterize_error_recode(
             )
         ]
 
+        # Convert periods_affected to a bitmask for rasterization
+        # bit 1 = baseline, bit 2 = reporting_1, bit 4 = reporting_2
+        periods_affected = feat["properties"].get("periods_affected", ["baseline"])
+        periods_mask = 0
+        if "baseline" in periods_affected:
+            periods_mask |= 1
+        if "reporting_1" in periods_affected:
+            periods_mask |= 2
+        if "reporting_2" in periods_affected:
+            periods_mask |= 4
+        feat["properties"]["periods_mask"] = periods_mask
+
     # TODO: Assumes WGS84 for now
     rasterize_worker = workers.Rasterize(
-        str(out_file), str(model_file), error_recode_dict, "error_recode"
+        out_file,
+        model_file,
+        error_recode_dict,
+        ["error_recode", "periods_mask"],
     )
     rasterize_worker.work()
 
@@ -68,23 +83,139 @@ def _process_block(
     yoff: int,
     cell_areas_raw,
 ) -> Tuple[SummaryTableLDErrorRecode, Dict]:
-    sdg_array = in_array[params.band_dict["sdg_bandnum"] - 1, :, :]
+    """
+    Process a block of data to recode multiple SDG bands and compute zonal statistics.
+
+    Returns summary statistics for baseline and reporting periods, plus arrays to write.
+    """
+    # Extract band arrays
+    baseline_array = None
+    reporting_1_array = None
+    reporting_2_array = None
     recode_array = in_array[params.band_dict["recode_bandnum"] - 1, :, :]
+    periods_mask_array = in_array[params.band_dict["periods_mask_bandnum"] - 1, :, :]
+
+    # Get the available bands based on parameters
+    if params.baseline_band_num is not None:
+        baseline_array = in_array[params.band_dict["baseline_bandnum"] - 1, :, :]
+    if params.reporting_1_band_num is not None:
+        reporting_1_array = in_array[params.band_dict["reporting_1_bandnum"] - 1, :, :]
+    if params.reporting_2_band_num is not None:
+        reporting_2_array = in_array[params.band_dict["reporting_2_bandnum"] - 1, :, :]
+
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
-    # below works on data in place
-    sdg_array = recode_indicator_errors(
-        sdg_array, recode_array, *params.trans_code_lists
+    # Get the recode parameters
+    codes, deg_to, stable_to, imp_to = params.trans_code_lists
+
+    write_arrays = []
+    summaries = {}
+
+    # Process each band that exists
+    if baseline_array is not None:
+        # Call the error recoding function with actual or None arrays
+        baseline_recoded, reporting_1_recoded, reporting_2_recoded = (
+            recode_indicator_errors(
+                baseline_array,
+                reporting_1_array,  # Can be None
+                reporting_2_array,  # Can be None
+                recode_array,
+                periods_mask_array,
+                np.array(codes, dtype=np.int16),
+                np.array(deg_to, dtype=np.int16),
+                np.array(stable_to, dtype=np.int16),
+                np.array(imp_to, dtype=np.int16),
+            )
+        )
+
+        # Compute zonal statistics for baseline
+        baseline_summary = zonal_total(baseline_recoded, cell_areas, mask)
+        summaries["baseline_summary"] = baseline_summary
+
+        # Add baseline to write arrays
+        write_arrays.append(
+            {
+                "array": baseline_recoded,
+                "xoff": xoff,
+                "yoff": yoff,
+                "band_name": "baseline",
+            }
+        )
+
+        # Process reporting periods if they exist
+        if params.reporting_1_band_num is not None and reporting_1_recoded is not None:
+            # Calculate 7-class status map for reporting period 1
+            reporting_1_status = sdg_status_expanded(
+                baseline_recoded, reporting_1_recoded
+            )
+
+            reporting_1_summary = zonal_total(reporting_1_status, cell_areas, mask)
+            summaries["reporting_1_summary"] = reporting_1_summary
+
+            # Default output: 7-class status map
+            write_arrays.append(
+                {
+                    "array": reporting_1_status,
+                    "xoff": xoff,
+                    "yoff": yoff,
+                    "band_name": "reporting_1_status",
+                }
+            )
+
+            # Optionally write out the raw reporting period layer
+            if params.write_reporting_sdg_tifs:
+                write_arrays.append(
+                    {
+                        "array": reporting_1_recoded,
+                        "xoff": xoff,
+                        "yoff": yoff,
+                        "band_name": "reporting_1_raw",
+                    }
+                )
+
+        if params.reporting_2_band_num is not None and reporting_2_recoded is not None:
+            # Calculate 7-class status map for reporting period 2
+            reporting_2_status = sdg_status_expanded(
+                baseline_recoded, reporting_2_recoded
+            )
+
+            reporting_2_summary = zonal_total(reporting_2_status, cell_areas, mask)
+            summaries["reporting_2_summary"] = reporting_2_summary
+
+            # Default output: 7-class status map
+            write_arrays.append(
+                {
+                    "array": reporting_2_status,
+                    "xoff": xoff,
+                    "yoff": yoff,
+                    "band_name": "reporting_2_status",
+                }
+            )
+
+            # Optionally write out the raw reporting period layer
+            if params.write_reporting_sdg_tifs:
+                write_arrays.append(
+                    {
+                        "array": reporting_2_recoded,
+                        "xoff": xoff,
+                        "yoff": yoff,
+                        "band_name": "reporting_2_raw",
+                    }
+                )
+
+    # Always include the recode array in output
+    write_arrays.append(
+        {"array": recode_array, "xoff": xoff, "yoff": yoff, "band_name": "recode"}
     )
 
-    sdg_summary = zonal_total(sdg_array, cell_areas, mask)
+    # Create summary table
+    summary_table = SummaryTableLDErrorRecode(
+        baseline_summary=summaries.get("baseline_summary", {}),
+        reporting_1_summary=summaries.get("reporting_1_summary"),
+        reporting_2_summary=summaries.get("reporting_2_summary"),
+    )
 
-    write_arrays = [
-        {"array": sdg_array, "xoff": xoff, "yoff": yoff},
-        {"array": recode_array, "xoff": xoff, "yoff": yoff},
-    ]
-
-    return (SummaryTableLDErrorRecode(sdg_summary), write_arrays)
+    return summary_table, {"write_arrays": write_arrays}
 
 
 def _accumulate_summary_tables(
@@ -96,65 +227,183 @@ def _accumulate_summary_tables(
         out = tables[0]
 
         for table in tables[1:]:
-            out.sdg_summary = accumulate_dicts([out.sdg_summary, table.sdg_summary])
+            out.baseline_summary = accumulate_dicts(
+                [out.baseline_summary, table.baseline_summary]
+            )
+
+            if (
+                out.reporting_1_summary is not None
+                and table.reporting_1_summary is not None
+            ):
+                out.reporting_1_summary = accumulate_dicts(
+                    [out.reporting_1_summary, table.reporting_1_summary]
+                )
+            elif table.reporting_1_summary is not None:
+                out.reporting_1_summary = table.reporting_1_summary
+
+            if (
+                out.reporting_2_summary is not None
+                and table.reporting_2_summary is not None
+            ):
+                out.reporting_2_summary = accumulate_dicts(
+                    [out.reporting_2_summary, table.reporting_2_summary]
+                )
+            elif table.reporting_2_summary is not None:
+                out.reporting_2_summary = table.reporting_2_summary
 
         return out
 
 
-def _get_error_recode_input_vrt(sdg_df, error_df):
-    df_band_list = [
-        ("sdg_bandnum", 1),  # there is only 1 band in sdg_df
-        ("recode_bandnum", error_df.index_for_name(config.ERROR_RECODE_BAND_NAME)),
-    ]
+def _get_error_recode_input_vrt(
+    baseline_df=None, reporting_1_df=None, reporting_2_df=None, error_df=None
+):
+    """
+    Create a VRT with multiple input bands for error recoding.
 
-    band_vrts = [
-        save_vrt(sdg_df.path, 1),  # there is only 1 band in sdg_df
-        save_vrt(
-            error_df.path, error_df.index_for_name(config.ERROR_RECODE_BAND_NAME) + 1
-        ),
-    ]
+    Parameters:
+    - baseline_df: DataFile for baseline SDG layer (optional)
+    - reporting_1_df: DataFile for reporting period 1 SDG layer (optional)
+    - reporting_2_df: DataFile for reporting period 2 SDG layer (optional)
+    - error_df: DataFile containing error recode and periods_affected bands (required)
+
+    Returns:
+    - out_vrt: Path to the created VRT file
+    - vrt_band_dict: Dictionary mapping band names to band numbers in the VRT
+    """
+    band_vrts = []
+    df_band_list = []
+    band_counter = 1
+
+    # Add baseline if available
+    if baseline_df is not None:
+        band_vrts.append(save_vrt(baseline_df.path, 1))
+        df_band_list.append(("baseline_bandnum", band_counter))
+        band_counter += 1
+
+    # Add reporting period 1 if available
+    if reporting_1_df is not None:
+        band_vrts.append(save_vrt(reporting_1_df.path, 1))
+        df_band_list.append(("reporting_1_bandnum", band_counter))
+        band_counter += 1
+
+    # Add reporting period 2 if available
+    if reporting_2_df is not None:
+        band_vrts.append(save_vrt(reporting_2_df.path, 1))
+        df_band_list.append(("reporting_2_bandnum", band_counter))
+        band_counter += 1
+
+    # Add error recode band (required)
+    if error_df is not None:
+        band_vrts.append(
+            save_vrt(
+                error_df.path,
+                error_df.index_for_name(config.ERROR_RECODE_BAND_NAME) + 1,
+            )
+        )
+        df_band_list.append(("recode_bandnum", band_counter))
+        band_counter += 1
+
+        # Add periods_affected band if it exists
+        try:
+            periods_band_index = error_df.index_for_name("periods_affected")
+            band_vrts.append(save_vrt(error_df.path, periods_band_index + 1))
+            df_band_list.append(("periods_mask_bandnum", band_counter))
+            band_counter += 1
+        except (ValueError, AttributeError):
+            # periods_affected band doesn't exist, create a dummy band
+            # This ensures backward compatibility
+            pass
 
     out_vrt = tempfile.NamedTemporaryFile(
         suffix="_error_recode_inputs.vrt", delete=False
     ).name
     gdal.BuildVRT(out_vrt, [vrt for vrt in band_vrts], separate=True)
 
-    vrt_band_dict = {item[0]: index for index, item in enumerate(df_band_list, start=1)}
+    vrt_band_dict = {item[0]: item[1] for item in df_band_list}
 
     return out_vrt, vrt_band_dict
 
 
-def _prepare_df(path, band_str, band_index) -> List[DataFile]:
+def _prepare_df(path, band_str, band_index) -> DataFile:
     band = Band(**band_str)
 
-    return DataFile(path=save_vrt(path, band_index), bands=[band])
+    return DataFile(path=Path(save_vrt(path, band_index)), bands=[band])
 
 
 def get_serialized_results(st, layer_name):
-    sdg_summary = reporting.AreaList(
-        "SDG Indicator 15.3.1",
-        "sq km",
-        [
-            reporting.Area("Improved", st.sdg_summary.get(1, 0.0)),
-            reporting.Area("Stable", st.sdg_summary.get(0, 0.0)),
-            reporting.Area("Degraded", st.sdg_summary.get(-1, 0.0)),
-            reporting.Area("No data", st.sdg_summary.get(int(config.NODATA_VALUE), 0)),
-        ],
-    )
-    sdg_report = reporting.SDG15Report(summary=sdg_summary)
+    """Get serialized results for all available periods."""
 
-    return dataclasses.asdict(sdg_report)
+    def create_area_list(summary_dict, title_suffix=""):
+        return reporting.AreaList(
+            f"SDG Indicator 15.3.1{title_suffix}",
+            "sq km",
+            [
+                reporting.Area("Improved", summary_dict.get(1, 0.0)),
+                reporting.Area("Stable", summary_dict.get(0, 0.0)),
+                reporting.Area("Degraded", summary_dict.get(-1, 0.0)),
+                reporting.Area(
+                    "No data", summary_dict.get(int(config.NODATA_VALUE), 0)
+                ),
+            ],
+        )
+
+    # Create baseline summary
+    baseline_summary = create_area_list(st.baseline_summary, " - Baseline")
+    reports = [baseline_summary]
+
+    # Add reporting periods if they exist
+    if st.reporting_1_summary is not None:
+        reporting_1_summary = create_area_list(
+            st.reporting_1_summary, " - Reporting Period 1"
+        )
+        reports.append(reporting_1_summary)
+
+    if st.reporting_2_summary is not None:
+        reporting_2_summary = create_area_list(
+            st.reporting_2_summary, " - Reporting Period 2"
+        )
+        reports.append(reporting_2_summary)
+
+    # Create the main report with the baseline summary
+    sdg_report = reporting.SDG15Report(summary=baseline_summary)
+
+    # Add additional summaries to the serialized output
+    result_dict = dataclasses.asdict(sdg_report)
+    if len(reports) > 1:
+        result_dict["additional_summaries"] = [
+            dataclasses.asdict(report) for report in reports[1:]
+        ]
+
+    return result_dict
 
 
 def recode_errors(params) -> Job:
     logger.debug("Entering recode_errors")
     aoi = AOI(params["aoi"])
     job_output_path = Path(params["output_path"])
-    sdg_df = _prepare_df(
-        params["layer_input_band_path"],
-        params["layer_input_band"],
-        params["layer_input_band_index"],
+    baseline_df = _prepare_df(
+        params["layer_baseline_band_path"],
+        params["layer_baseline_band"],
+        params["layer_baseline_band_index"],
     )
+
+    # Prepare reporting period 1 data if provided
+    reporting_1_df = None
+    if "layer_reporting_1_band_path" in params:
+        reporting_1_df = _prepare_df(
+            params["layer_reporting_1_band_path"],
+            params["layer_reporting_1_band"],
+            params["layer_reporting_1_band_index"],
+        )
+
+    # Prepare reporting period 2 data if provided
+    reporting_2_df = None
+    if "layer_reporting_2_band_path" in params:
+        reporting_2_df = _prepare_df(
+            params["layer_reporting_2_band_path"],
+            params["layer_reporting_2_band"],
+            params["layer_reporting_2_band_index"],
+        )
 
     error_recode_df = _prepare_df(
         params["layer_error_recode_path"],
@@ -170,48 +419,106 @@ def recode_errors(params) -> Job:
         type=error_polygons_data.get("type", "FeatureCollection"),
     )
 
-    input_band_data = params["layer_input_band"]
-    input_band = Band(
-        name=input_band_data["name"],
-        no_data_value=input_band_data.get("no_data_value"),
-        metadata=input_band_data.get("metadata", {}),
-        add_to_map=input_band_data.get("add_to_map", False),
-        activated=input_band_data.get("activated", False),
+    baseline_band_data = params["layer_baseline_band"]
+    baseline_band = Band(
+        name=baseline_band_data["name"],
+        no_data_value=baseline_band_data.get("no_data_value"),
+        metadata=baseline_band_data.get("metadata", {}),
+        add_to_map=baseline_band_data.get("add_to_map", False),
+        activated=baseline_band_data.get("activated", False),
     )
 
     logger.debug("Running _compute_error_recode")
     summary_table, error_recode_paths = _compute_error_recode(
-        sdg_df=sdg_df,
+        baseline_df=baseline_df,
+        reporting_1_df=reporting_1_df,
+        reporting_2_df=reporting_2_df,
         error_recode_df=error_recode_df,
-        aoi=aoi,
         error_polygons=error_polygons,
         job_output_path=job_output_path.parent / f"{job_output_path.stem}.json",
+        aoi=aoi,
     )
 
     if params["write_tifs"]:
-        out_bands = [
+        # Create bands dynamically based on what was processed
+        out_bands = []
+
+        # Always include baseline band
+        out_bands.append(
             Band(
-                name=input_band.name,
+                name=f"{baseline_band.name} - Baseline",
                 no_data_value=int(config.NODATA_VALUE),
                 metadata=params["metadata"],  # copy metadata from input job
                 add_to_map=True,
                 activated=True,
-            ),
+            )
+        )
+
+        # Add reporting period 1 status band if it exists
+        if reporting_1_df is not None:
+            out_bands.append(
+                Band(
+                    name=f"{baseline_band.name} - Reporting Period 1 Status",
+                    no_data_value=int(config.NODATA_VALUE),
+                    metadata=params["metadata"],
+                    add_to_map=True,
+                    activated=True,
+                )
+            )
+
+            # Add raw reporting period 1 band if write_reporting_sdg_tifs is enabled
+            if params.get("write_reporting_sdg_tifs", False):
+                out_bands.append(
+                    Band(
+                        name=f"{baseline_band.name} - Reporting Period 1 Raw",
+                        no_data_value=int(config.NODATA_VALUE),
+                        metadata=params["metadata"],
+                        add_to_map=False,
+                        activated=False,
+                    )
+                )
+
+        # Add reporting period 2 status band if it exists
+        if reporting_2_df is not None:
+            out_bands.append(
+                Band(
+                    name=f"{baseline_band.name} - Reporting Period 2 Status",
+                    no_data_value=int(config.NODATA_VALUE),
+                    metadata=params["metadata"],
+                    add_to_map=True,
+                    activated=True,
+                )
+            )
+
+            # Add raw reporting period 2 band if write_reporting_sdg_tifs is enabled
+            if params.get("write_reporting_sdg_tifs", False):
+                out_bands.append(
+                    Band(
+                        name=f"{baseline_band.name} - Reporting Period 2 Raw",
+                        no_data_value=int(config.NODATA_VALUE),
+                        metadata=params["metadata"],
+                        add_to_map=False,
+                        activated=False,
+                    )
+                )
+
+        # Always include the error recode band
+        out_bands.append(
             Band(
                 name=config.ERROR_RECODE_BAND_NAME,
                 no_data_value=int(config.NODATA_VALUE),
                 metadata=params["metadata"],  # copy metadata from input job
                 add_to_map=False,
                 activated=False,
-            ),
-        ]
+            )
+        )
 
         if len(error_recode_paths) > 1:
             error_recode_vrt = (
                 job_output_path.parent / f"{job_output_path.stem}_error_recode.vrt"
             )
             gdal.BuildVRT(str(error_recode_vrt), [str(p) for p in error_recode_paths])
-            rasters = {
+            rasters: Dict[str, Union[Raster, TiledRaster]] = {
                 DataType.INT16.value: TiledRaster(
                     tile_uris=[URI(uri=p) for p in error_recode_paths],
                     uri=URI(uri=error_recode_vrt),
@@ -220,9 +527,9 @@ def recode_errors(params) -> Job:
                     filetype=RasterFileType.COG,
                 )
             }
-            main_uri = (URI(uri=error_recode_vrt),)
+            main_uri = URI(uri=error_recode_vrt)
         else:
-            rasters = {
+            rasters: Dict[str, Union[Raster, TiledRaster]] = {
                 DataType.INT16.value: Raster(
                     uri=URI(uri=error_recode_paths[0]),
                     bands=out_bands,
@@ -233,19 +540,19 @@ def recode_errors(params) -> Job:
             main_uri = URI(uri=error_recode_paths[0])
 
         results = RasterResults(
-            name=params["layer_input_band"]["name"],
+            name=params["layer_baseline_band"]["name"],
             uri=main_uri,
             rasters=rasters,
             data=get_serialized_results(
-                summary_table, params["layer_input_band"]["name"] + " recode"
+                summary_table, params["layer_baseline_band"]["name"] + " recode"
             ),
         )
 
     else:
         results = JsonResults(
-            name=params["layer_input_band"]["name"],
+            name=params["layer_baseline_band"]["name"],
             data=get_serialized_results(
-                summary_table, params["layer_input_band"]["name"] + " recode"
+                summary_table, params["layer_baseline_band"]["name"] + " recode"
             ),
         )
 
@@ -253,20 +560,27 @@ def recode_errors(params) -> Job:
 
 
 def _compute_error_recode(
-    sdg_df,
-    error_recode_df,
-    error_polygons,
-    job_output_path,
-    aoi,
-    mask_worker_function: Callable = None,
-    mask_worker_params: dict = None,
-    error_recode_worker_function: Callable = None,
-    error_recode_worker_params: dict = None,
+    baseline_df=None,
+    reporting_1_df=None,
+    reporting_2_df=None,
+    error_recode_df=None,
+    error_polygons=None,
+    job_output_path=None,
+    aoi=None,
+    write_reporting_sdg_tifs=False,
+    mask_worker_function: Optional[Callable] = None,
+    mask_worker_params: Optional[dict] = None,
+    error_recode_worker_function: Optional[Callable] = None,
+    error_recode_worker_params: Optional[dict] = None,
 ):
-    in_vrt, band_dict = _get_error_recode_input_vrt(sdg_df, error_recode_df)
+    in_vrt, band_dict = _get_error_recode_input_vrt(
+        baseline_df, reporting_1_df, reporting_2_df, error_recode_df
+    )
 
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
-    bbs = aoi.get_aligned_output_bounds(sdg_df.path)
+    # Use the first available datafile for getting bounds
+    model_df = baseline_df or reporting_1_df or reporting_2_df or error_recode_df
+    bbs = aoi.get_aligned_output_bounds(model_df.path)
 
     error_recode_name_pattern = {
         1: f"{job_output_path.stem}" + "_error_recode.tif",
@@ -298,13 +612,16 @@ def _compute_error_recode(
 
         if mask_worker_function:
             mask_result = mask_worker_function(
-                mask_tif, geojson, str(cropped_in_vrt), **mask_worker_params
+                Path(mask_tif),
+                geojson,
+                Path(cropped_in_vrt),
+                **(mask_worker_params or {}),
             )
         else:
             mask_worker = workers.Mask(
-                mask_tif,
+                Path(mask_tif),
                 geojson,
-                str(cropped_in_vrt),
+                Path(cropped_in_vrt),
             )
             mask_result = mask_worker.work()
 
@@ -315,26 +632,57 @@ def _compute_error_recode(
             error_recode_paths.append(out_path)
 
             logger.info(f"Calculating error recode and saving layer to: {out_path}")
+
+            # Determine which band numbers are available
+            baseline_band_num = band_dict.get("baseline_bandnum")
+            reporting_1_band_num = band_dict.get("reporting_1_bandnum")
+            reporting_2_band_num = band_dict.get("reporting_2_bandnum")
+
+            # Calculate the number of output bands accurately
+            n_out_bands = 1  # Always include recode band
+
+            # Add baseline band if available
+            if baseline_df is not None:
+                n_out_bands += 1
+
+            # Add reporting period 1 bands if available
+            if reporting_1_df is not None:
+                n_out_bands += 1  # Status map
+                if write_reporting_sdg_tifs:
+                    n_out_bands += 1  # Raw recoded band
+
+            # Add reporting period 2 bands if available
+            if reporting_2_df is not None:
+                n_out_bands += 1  # Status map
+                if write_reporting_sdg_tifs:
+                    n_out_bands += 1  # Raw recoded band
+
             error_recode_params = DegradationErrorRecodeSummaryParams(
                 in_file=str(cropped_in_vrt),
                 out_file=str(out_path),
                 band_dict=band_dict,
                 model_band_number=1,
-                n_out_bands=2,
+                n_out_bands=n_out_bands,
                 mask_file=mask_tif,
                 trans_code_lists=error_polygons.trans_code_lists,
+                write_reporting_sdg_tifs=write_reporting_sdg_tifs,
+                baseline_band_num=baseline_band_num,
+                reporting_1_band_num=reporting_1_band_num,
+                reporting_2_band_num=reporting_2_band_num,
             )
 
             if error_recode_worker_function:
                 result = error_recode_worker_function(
-                    error_recode_params, _process_block, **error_recode_worker_params
+                    error_recode_params,
+                    _process_block,
+                    **(error_recode_worker_params or {}),
                 )
             else:
                 summarizer = DegradationSummary(error_recode_params, _process_block)
                 result = summarizer.work()
 
             if not result:
-                if result.is_killed():
+                if hasattr(result, "is_killed") and result.is_killed():
                     error_message = "Cancelled calculation of error recoding."
                 else:
                     error_message = "Failed while performing error recode."

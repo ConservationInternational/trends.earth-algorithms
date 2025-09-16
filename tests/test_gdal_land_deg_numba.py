@@ -43,18 +43,23 @@ class TestRecodeIndicatorErrors:
         deg_to = np.array([10, 20], dtype=np.int16)
         stable_to = np.array([11, 21], dtype=np.int16)
         imp_to = np.array([12, 22], dtype=np.int16)
+        # Create periods mask - 1 indicates baseline period is affected
+        periods_mask = np.ones_like(recode, dtype=np.int16)
 
-        result = recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to)
+        result = recode_indicator_errors(
+            x, None, None, recode, periods_mask, codes, deg_to, stable_to, imp_to
+        )
 
-        # Check zone 1 (first row)
-        assert result[0, 0] == 10  # deg (-1) -> 10
-        assert result[0, 1] == 11  # stable (0) -> 11
-        assert result[0, 2] == 12  # imp (1) -> 12
+        # Check zone 1 (first row) - result is a tuple, take the baseline (first element)
+        baseline_result = result[0]
+        assert baseline_result[0, 0] == 10  # deg (-1) -> 10
+        assert baseline_result[0, 1] == 11  # stable (0) -> 11
+        assert baseline_result[0, 2] == 12  # imp (1) -> 12
 
         # Check zone 2 (second row)
-        assert result[1, 0] == 20  # deg (-1) -> 20
-        assert result[1, 1] == 21  # stable (0) -> 21
-        assert result[1, 2] == 22  # imp (1) -> 22
+        assert baseline_result[1, 0] == 20  # deg (-1) -> 20
+        assert baseline_result[1, 1] == 21  # stable (0) -> 21
+        assert baseline_result[1, 2] == 22  # imp (1) -> 22
 
     def test_recode_indicator_errors_no_recoding(self):
         """Test recoding when target values are -9999 (no recoding sentinel)."""
@@ -68,12 +73,18 @@ class TestRecodeIndicatorErrors:
         imp_to = np.array(
             [-9999], dtype=np.int16
         )  # Don't recode improved (None -> -9999)
+        # Create periods mask - 1 indicates baseline period is affected
+        periods_mask = np.ones_like(recode, dtype=np.int16)
 
-        result = recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to)
+        result = recode_indicator_errors(
+            x, None, None, recode, periods_mask, codes, deg_to, stable_to, imp_to
+        )
 
-        assert result[0, 0] == -1  # Unchanged (deg)
-        assert result[0, 1] == 50  # Recoded (stable)
-        assert result[0, 2] == 1  # Unchanged (improved)
+        # result is a tuple, take the baseline (first element)
+        baseline_result = result[0]
+        assert baseline_result[0, 0] == -1  # Unchanged (deg)
+        assert baseline_result[0, 1] == 50  # Recoded (stable)
+        assert baseline_result[0, 2] == 1  # Unchanged (improved)
 
     def test_recode_indicator_errors_to_nodata(self):
         """Test recoding to NODATA (-32768) values."""
@@ -87,12 +98,18 @@ class TestRecodeIndicatorErrors:
         imp_to = np.array(
             [NODATA_VALUE[0]], dtype=np.int16
         )  # Recode improved to nodata
+        # Create periods mask - 1 indicates baseline period is affected
+        periods_mask = np.ones_like(recode, dtype=np.int16)
 
-        result = recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to)
+        result = recode_indicator_errors(
+            x, None, None, recode, periods_mask, codes, deg_to, stable_to, imp_to
+        )
 
-        assert result[0, 0] == NODATA_VALUE[0]  # Recoded to nodata (deg)
-        assert result[0, 1] == 50  # Recoded to 50 (stable)
-        assert result[0, 2] == NODATA_VALUE[0]  # Recoded to nodata (improved)
+        # result is a tuple, take the baseline (first element)
+        baseline_result = result[0]
+        assert baseline_result[0, 0] == NODATA_VALUE[0]  # Recoded to nodata (deg)
+        assert baseline_result[0, 1] == 50  # Recoded to 50 (stable)
+        assert baseline_result[0, 2] == NODATA_VALUE[0]  # Recoded to nodata (improved)
 
     def test_recode_indicator_errors_comprehensive_semantics(self):
         """Test comprehensive recoding scenarios showing the difference between no recoding vs recode to nodata."""
@@ -123,23 +140,29 @@ class TestRecodeIndicatorErrors:
         deg_to = np.array([-9999, NODATA_VALUE[0], 100], dtype=np.int16)
         stable_to = np.array([-9999, NODATA_VALUE[0], 200], dtype=np.int16)
         imp_to = np.array([-9999, NODATA_VALUE[0], 300], dtype=np.int16)
+        # Create periods mask - 1 indicates baseline period is affected
+        periods_mask = np.ones_like(recode, dtype=np.int16)
 
-        result = recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to)
+        result = recode_indicator_errors(
+            x, None, None, recode, periods_mask, codes, deg_to, stable_to, imp_to
+        )
 
+        # result is a tuple, take the baseline (first element)
+        baseline_result = result[0]
         # Zone 1: Should remain unchanged (no recoding)
-        assert result[0, 0] == -1  # deg unchanged
-        assert result[0, 1] == 0  # stable unchanged
-        assert result[0, 2] == 1  # imp unchanged
+        assert baseline_result[0, 0] == -1  # deg unchanged
+        assert baseline_result[0, 1] == 0  # stable unchanged
+        assert baseline_result[0, 2] == 1  # imp unchanged
 
         # Zone 2: Should be recoded to nodata
-        assert result[1, 0] == NODATA_VALUE[0]  # deg -> nodata
-        assert result[1, 1] == NODATA_VALUE[0]  # stable -> nodata
-        assert result[1, 2] == NODATA_VALUE[0]  # imp -> nodata
+        assert baseline_result[1, 0] == NODATA_VALUE[0]  # deg -> nodata
+        assert baseline_result[1, 1] == NODATA_VALUE[0]  # stable -> nodata
+        assert baseline_result[1, 2] == NODATA_VALUE[0]  # imp -> nodata
 
         # Zone 3: Should be recoded to specific values
-        assert result[2, 0] == 100  # deg -> 100
-        assert result[2, 1] == 200  # stable -> 200
-        assert result[2, 2] == 300  # imp -> 300
+        assert baseline_result[2, 0] == 100  # deg -> 100
+        assert baseline_result[2, 1] == 200  # stable -> 200
+        assert baseline_result[2, 2] == 300  # imp -> 300
 
     def test_recode_indicator_errors_no_matching_zones(self):
         """Test recoding when no zones match the codes."""
@@ -149,11 +172,17 @@ class TestRecodeIndicatorErrors:
         deg_to = np.array([10], dtype=np.int16)
         stable_to = np.array([11], dtype=np.int16)
         imp_to = np.array([12], dtype=np.int16)
+        # Create periods mask - 1 indicates baseline period is affected
+        periods_mask = np.ones_like(recode, dtype=np.int16)
 
-        result = recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to)
+        result = recode_indicator_errors(
+            x, None, None, recode, periods_mask, codes, deg_to, stable_to, imp_to
+        )
 
+        # result is a tuple, take the baseline (first element)
+        baseline_result = result[0]
         # Should remain unchanged since zone 99 doesn't match code 1
-        np.testing.assert_array_equal(result, x)
+        np.testing.assert_array_equal(baseline_result, x)
 
 
 class TestRecodeTraj:

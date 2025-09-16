@@ -34,33 +34,123 @@ MASK_VALUE = np.array([-32767], dtype=np.int16)
 
 @numba.jit(nopython=True)
 @cc.export(
-    "recode_indicator_errors", "i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i2[:], i2[:])"
+    "recode_indicator_errors",
+    "Tuple((i2[:,:], optional(i2[:,:]), optional(i2[:,:])))(i2[:,:], optional(i2[:,:]), optional(i2[:,:]), i2[:,:], i2[:,:], i2[:], i2[:], i2[:], i2[:])",
 )
-def recode_indicator_errors(x, recode, codes, deg_to, stable_to, imp_to):
-    """Optimized version with numba JIT compilation enabled"""
-    original_shape = x.shape
-    x_flat = x.ravel()
-    recode_flat = recode.ravel()
-    out_flat = x_flat.copy()
+def recode_indicator_errors(
+    baseline,
+    reporting_1,
+    reporting_2,
+    recode,
+    periods_mask,
+    codes,
+    deg_to,
+    stable_to,
+    imp_to,
+):
+    """
+    Recode multiple bands based on error correction polygons and periods_affected.
 
-    # Process each code using flattened arrays for numba compatibility
+    Parameters:
+    - baseline: Input baseline SDG array to be recoded (required)
+    - reporting_1: Input reporting period 1 SDG array to be recoded (can be None)
+    - reporting_2: Input reporting period 2 SDG array to be recoded (can be None)
+    - recode: Recode array with polygon codes
+    - periods_mask: Array indicating which periods are affected (bitfield: 1=baseline, 2=reporting_1, 4=reporting_2)
+    - codes: Array of recode codes from polygons
+    - deg_to, stable_to, imp_to: Recode target values
+
+    Returns:
+    - Tuple of recoded (baseline, reporting_1, reporting_2) arrays.
+      Reporting arrays will be None if input was None.
+    """
+    original_shape = baseline.shape
+
+    # Flatten arrays for processing
+    baseline_flat = baseline.ravel()
+    recode_flat = recode.ravel()
+    periods_mask_flat = periods_mask.ravel()
+
+    # Always process baseline
+    baseline_out = baseline_flat.copy()
+
+    # Initialize reporting period arrays and outputs
+    reporting_1_flat = None
+    reporting_2_flat = None
+    reporting_1_out = None
+    reporting_2_out = None
+
+    # Process reporting period 1 if provided
+    if reporting_1 is not None:
+        reporting_1_flat = reporting_1.ravel()
+        reporting_1_out = reporting_1_flat.copy()
+
+    # Process reporting period 2 if provided
+    if reporting_2 is not None:
+        reporting_2_flat = reporting_2.ravel()
+        reporting_2_out = reporting_2_flat.copy()
+
+    # Process each recode code
     for i in range(len(codes)):
         code = codes[i]
-        mask = recode_flat == code
+        recode_mask = recode_flat == code
 
-        if deg_to[i] != -9999:  # -9999 means "no recoding", anything else gets applied
-            deg_mask = (x_flat == -1) & mask
-            out_flat[deg_mask] = deg_to[i]
-
+        # Apply recoding to baseline (always processed)
+        baseline_affected = recode_mask & ((periods_mask_flat & 1) > 0)
+        if deg_to[i] != -9999:
+            deg_mask = (baseline_flat == -1) & baseline_affected
+            baseline_out[deg_mask] = deg_to[i]
         if stable_to[i] != -9999:
-            stable_mask = (x_flat == 0) & mask
-            out_flat[stable_mask] = stable_to[i]
-
+            stable_mask = (baseline_flat == 0) & baseline_affected
+            baseline_out[stable_mask] = stable_to[i]
         if imp_to[i] != -9999:
-            imp_mask = (x_flat == 1) & mask
-            out_flat[imp_mask] = imp_to[i]
+            imp_mask = (baseline_flat == 1) & baseline_affected
+            baseline_out[imp_mask] = imp_to[i]
 
-    return out_flat.reshape(original_shape)
+        # Apply recoding to reporting period 1 if provided
+        if (
+            reporting_1 is not None
+            and reporting_1_flat is not None
+            and reporting_1_out is not None
+        ):
+            rep1_affected = recode_mask & ((periods_mask_flat & 2) > 0)
+            if deg_to[i] != -9999:
+                deg_mask = (reporting_1_flat == -1) & rep1_affected
+                reporting_1_out[deg_mask] = deg_to[i]
+            if stable_to[i] != -9999:
+                stable_mask = (reporting_1_flat == 0) & rep1_affected
+                reporting_1_out[stable_mask] = stable_to[i]
+            if imp_to[i] != -9999:
+                imp_mask = (reporting_1_flat == 1) & rep1_affected
+                reporting_1_out[imp_mask] = imp_to[i]
+
+        # Apply recoding to reporting period 2 if provided
+        if (
+            reporting_2 is not None
+            and reporting_2_flat is not None
+            and reporting_2_out is not None
+        ):
+            rep2_affected = recode_mask & ((periods_mask_flat & 4) > 0)
+            if deg_to[i] != -9999:
+                deg_mask = (reporting_2_flat == -1) & rep2_affected
+                reporting_2_out[deg_mask] = deg_to[i]
+            if stable_to[i] != -9999:
+                stable_mask = (reporting_2_flat == 0) & rep2_affected
+                reporting_2_out[stable_mask] = stable_to[i]
+            if imp_to[i] != -9999:
+                imp_mask = (reporting_2_flat == 1) & rep2_affected
+                reporting_2_out[imp_mask] = imp_to[i]
+
+    # Reshape outputs
+    baseline_reshaped = baseline_out.reshape(original_shape)
+    reporting_1_reshaped = (
+        None if reporting_1_out is None else reporting_1_out.reshape(original_shape)
+    )
+    reporting_2_reshaped = (
+        None if reporting_2_out is None else reporting_2_out.reshape(original_shape)
+    )
+
+    return (baseline_reshaped, reporting_1_reshaped, reporting_2_reshaped)
 
 
 @numba.jit(nopython=True)
