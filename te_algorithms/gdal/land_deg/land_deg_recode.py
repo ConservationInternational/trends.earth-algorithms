@@ -122,7 +122,7 @@ def _process_block(
     xoff: int,
     yoff: int,
     cell_areas_raw,
-) -> Tuple[SummaryTableLDErrorRecode, Dict]:
+) -> Tuple[SummaryTableLDErrorRecode, List[Dict]]:
     """
     Process a block of data to recode multiple SDG bands and compute zonal statistics.
 
@@ -255,7 +255,7 @@ def _process_block(
         reporting_2_summary=summaries.get("reporting_2_summary"),
     )
 
-    return summary_table, {"write_arrays": write_arrays}
+    return summary_table, write_arrays
 
 
 def _accumulate_summary_tables(
