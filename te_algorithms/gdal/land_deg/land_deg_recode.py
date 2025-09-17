@@ -101,16 +101,18 @@ def rasterize_error_recode(
         rasterize_worker_periods.work()
 
         # Combine both single-band rasters into one multi-band VRT
+        # Note: Do NOT delete the temp files here as the VRT references them
         gdal.BuildVRT(
             str(out_file), [temp_error_recode, temp_periods_mask], separate=True
         )
 
-    finally:
-        # Clean up temporary files
+    except Exception:
+        # Only clean up temporary files if there was an error
         if os.path.exists(temp_error_recode):
             os.remove(temp_error_recode)
         if os.path.exists(temp_periods_mask):
             os.remove(temp_periods_mask)
+        raise
 
 
 def _process_block(
