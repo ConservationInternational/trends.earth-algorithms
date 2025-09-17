@@ -393,7 +393,7 @@ def _prepare_error_recode_df(path, band_str) -> DataFile:
     if ds:
         ds = None  # Close the dataset
 
-    return DataFile(path=Path(save_vrt(path, 1)), bands=bands)
+    return DataFile(path=Path(path), bands=bands)
 
 
 def get_serialized_results(st, layer_name):
