@@ -3,7 +3,7 @@ te_algorithms.gdal.land_deg
 
 .. toctree::
    :maxdepth: 6
-   
+
    config
    land_deg
    land_deg_numba
