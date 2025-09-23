@@ -7,6 +7,68 @@ from . import GEEIOError, stats
 from .util import TEImage
 
 
+def calc_prod5(traj_signif, perf_deg, state_classes, NODATA_VALUE=-32768):
+    # Trajectory significance layer is coded as:
+    # -3: 99% signif decline
+    # -2: 95% signif decline
+    # -1: 90% signif decline
+    #  0: stable
+    #  1: 90% signif increase
+    #  2: 95% signif increase
+    #  3: 99% signif increase
+    # -1 and 1 are not signif at 95%, so stable
+    traj_deg = (
+        traj_signif.where(traj_signif.gte(-1).And(traj_signif.lte(1)), 0)
+        .where(traj_signif.gte(-3).And(traj_signif.lt(-1)), -1)
+        .where(traj_signif.gt(1).And(traj_signif.lte(3)), 1)
+    )
+
+    # Recode state into deg, stable, imp. Note the >= -10 is so no data
+    # isn't coded as degradation. More than two changes in class is defined
+    # as degradation in state.
+    state_deg = (
+        state_classes.where(state_classes.gt(-2).And(state_classes.lt(2)), 0)
+        .where(state_classes.gte(-10).And(state_classes.lte(-2)), -1)
+        .where(state_classes.gte(2), 1)
+    )
+
+    return (
+        traj_deg.where(traj_deg.eq(-1), 1)
+        .where(traj_deg.eq(0), 4)
+        .where(traj_deg.eq(1), 5)
+        .where(
+            traj_deg.eq(0).And(state_deg.eq(0)).And(perf_deg.eq(-1)),
+            3,
+        )
+        .where(
+            traj_deg.eq(1).And(state_deg.eq(-1)).And(perf_deg.eq(-1)),
+            2,
+        )
+        .where(
+            traj_deg.eq(0).And(state_deg.eq(-1)).And(perf_deg.eq(0)),
+            2,
+        )
+        .where(
+            traj_deg.eq(0).And(state_deg.eq(-1)).And(perf_deg.eq(-1)),
+            1,
+        )
+        .where(
+            traj_deg.eq(NODATA_VALUE)
+            .Or(state_deg.eq(NODATA_VALUE))
+            .Or(perf_deg.eq(NODATA_VALUE)),
+            NODATA_VALUE,
+        )
+    )
+
+
+def calc_prod3(prod5):
+    return (
+        prod5.where(prod5.eq(1).Or(prod5.eq(2)), -1)
+        .where(prod5.eq(3).Or(prod5.eq(4)), 0)
+        .where(prod5.eq(5), 1)
+    )
+
+
 def linear_trend(ndvi_series, logger):
     logger.debug("Entering linear_trend function")
     lf_trend = ndvi_series.select(["year", "ndvi"]).reduce(ee.Reducer.linearFit())
