@@ -10,12 +10,17 @@ def maybe_add_image_to_sheet(image_filename: str, sheet, place="H1"):
         from openpyxl.drawing.image import Image
 
         image_path = Path(__file__).parents[1] / "data" / image_filename
-        logo = Image(image_path)
-        sheet.add_image(logo, place)
+        # Use a context manager to ensure the file is properly closed
+        with open(image_path, "rb") as img_file:
+            logo = Image(img_file)
+            sheet.add_image(logo, place)
     except ImportError:
         # add_image will fail on computers without PIL installed (this will be
         # an issue on some Macs, likely others). it is only used here to add
         # our logo, so no big deal.
+        pass
+    except (FileNotFoundError, OSError):
+        # Handle cases where the image file doesn't exist or can't be read
         pass
 
 
