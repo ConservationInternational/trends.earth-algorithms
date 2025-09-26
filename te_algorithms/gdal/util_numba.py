@@ -77,6 +77,29 @@ def calc_cell_area(ymin, ymax, x_width):
 @numba.jit(nopython=True)
 @cc.export("zonal_total", "DictType(i4, f8)(i4[:,:], f8[:,:], b1[:,:])")
 def zonal_total(z, d, mask):
+    """
+    Calculate zonal totals by summing data values within each zone.
+
+    This function sums the values in the data array (d) for each unique zone
+    identified in the zone array (z). It is typically used for calculating
+    area totals where the data array contains area values (cell_areas) and
+    the zone array contains class values (-1, 0, 1 for SDG indicators).
+
+    For 7-class status maps, use zonal_status_total() instead which counts
+    areas for each status class rather than summing the status values.
+
+    Args:
+        z: 2D array with zone identifiers (e.g., SDG classes -1, 0, 1)
+        d: 2D array with data values to sum (e.g., cell areas in sq km)
+        mask: 2D boolean mask array (True = masked/excluded pixels)
+
+    Returns:
+        Dictionary mapping zone identifier (int) to total summed value (float)
+
+    Example:
+        For SDG indicators with z=[-1,0,1] and d=[cell_areas], returns:
+        {-1: total_degraded_area, 0: total_stable_area, 1: total_improved_area}
+    """
     # Use int32 to avoid overflow issues with int16
     z = z.copy().ravel().astype(np.int32)  # Use int32 instead of int16
     d = d.copy().ravel().astype(np.float64)  # Ensure float64 type

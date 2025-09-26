@@ -413,20 +413,47 @@ def get_serialized_results(st, layer_name):
             ],
         )
 
+    def create_status_area_list(status_summary_dict, title_suffix=""):
+        """Create area list from 7-class status summary."""
+        return reporting.AreaList(
+            f"SDG Indicator 15.3.1{title_suffix}",
+            "sq km",
+            [
+                # Degraded classes (1, 2, 3)
+                reporting.Area(
+                    "Persistent degradation", status_summary_dict.get(1, 0.0)
+                ),
+                reporting.Area("Recent degradation", status_summary_dict.get(2, 0.0)),
+                reporting.Area("Baseline degradation", status_summary_dict.get(3, 0.0)),
+                # Stable class (4)
+                reporting.Area("Stability", status_summary_dict.get(4, 0.0)),
+                # Improved classes (5, 6, 7)
+                reporting.Area("Baseline improvement", status_summary_dict.get(5, 0.0)),
+                reporting.Area("Recent improvement", status_summary_dict.get(6, 0.0)),
+                reporting.Area(
+                    "Persistent improvement", status_summary_dict.get(7, 0.0)
+                ),
+                # No data
+                reporting.Area(
+                    "No data", status_summary_dict.get(int(config.NODATA_VALUE), 0)
+                ),
+            ],
+        )
+
     # Create baseline summary
     baseline_summary = create_area_list(st.baseline_summary, " - Baseline")
     reports = [baseline_summary]
 
     # Add reporting periods if they exist
     if st.reporting_1_summary is not None:
-        reporting_1_summary = create_area_list(
-            st.reporting_1_summary, " - Reporting Period 1"
+        reporting_1_summary = create_status_area_list(
+            st.reporting_1_summary, " - Reporting Period 1 Status"
         )
         reports.append(reporting_1_summary)
 
     if st.reporting_2_summary is not None:
-        reporting_2_summary = create_area_list(
-            st.reporting_2_summary, " - Reporting Period 2"
+        reporting_2_summary = create_status_area_list(
+            st.reporting_2_summary, " - Reporting Period 2 Status"
         )
         reports.append(reporting_2_summary)
 
