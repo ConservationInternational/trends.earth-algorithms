@@ -8,12 +8,16 @@ from openpyxl.styles.borders import Border, Side
 def maybe_add_image_to_sheet(image_filename: str, sheet, place="H1"):
     try:
         from openpyxl.drawing.image import Image
+        from io import BytesIO
 
         image_path = Path(__file__).parents[1] / "data" / image_filename
-        # Use a context manager to ensure the file is properly closed
+        # Read the image data into memory to avoid file handle issues
         with open(image_path, "rb") as img_file:
-            logo = Image(img_file)
-            sheet.add_image(logo, place)
+            image_data = img_file.read()
+
+        # Create Image object from in-memory data
+        logo = Image(BytesIO(image_data))
+        sheet.add_image(logo, place)
     except ImportError:
         # add_image will fail on computers without PIL installed (this will be
         # an issue on some Macs, likely others). it is only used here to add
