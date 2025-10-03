@@ -132,7 +132,14 @@ def set_version(c, v=None, tag=False):
         with open(c.version_file_raw, "w") as f:
             f.write(v)
 
-        # Set in setup.py
+        # Set in pyproject.toml
+        print("Setting version to {} in pyproject.toml".format(v))
+        pyproject_version_regex = re.compile(
+            r'^(version\s*=\s*["\'])[0-9]+([.][0-9]+)+(rc[0-9]*)?(["\'])'
+        )
+        _replace("pyproject.toml", pyproject_version_regex, r"\g<1>" + v + r"\g<4>")
+
+        # Set in setup.py (legacy support)
         print("Setting version to {} in setup.py".format(v))
         setup_regex = re.compile(
             "^([ ]*version=[ ]*['\"])[0-9]+([.][0-9]+)+(rc[0-9]*)?"

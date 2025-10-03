@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "te_algorithms"
+version = "2.1.17"
 description = "Library supporting analysis of land degradation."
 readme = "README.md"
 keywords = ["land degradation", "LDN", "SDG", "sustainable development goals"]
@@ -28,7 +29,6 @@ dependencies = [
     "defusedxml>=0.7.1",
     "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git",
 ]
-dynamic = ["version"]
 
 [project.license]
 text = "MIT"
@@ -66,6 +66,3 @@ te_algorithms = "te_algorithms"
 
 [tool.setuptools.package-data]
 te_algorithms = ["version.json", "data/*"]
-
-[tool.setuptools.dynamic.version]
-file = "version.txt"
