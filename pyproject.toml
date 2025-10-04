@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools >= 64"]
+requires = ["setuptools >= 64", "setuptools-scm[toml]>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "te_algorithms"
-version = "2.1.17"
+dynamic = ["version"]
 description = "Library supporting analysis of land degradation."
 readme = "README.md"
 keywords = ["land degradation", "LDN", "SDG", "sustainable development goals"]
@@ -66,3 +66,7 @@ te_algorithms = "te_algorithms"
 
 [tool.setuptools.package-data]
 te_algorithms = ["version.json", "data/*"]
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
