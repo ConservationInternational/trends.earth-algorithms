@@ -1,11 +1,8 @@
-import json
 import os
-import re
 import shutil
 import stat
 import subprocess
 import sys
-from datetime import datetime, timezone
 from tempfile import mkstemp
 
 from invoke import Collection, task
@@ -45,8 +42,28 @@ def query_yes_no(question, default="yes"):
 
 
 def get_version(c):
-    with open(c.version_file_raw) as f:
-        return f.readline().strip()
+    """
+    Get version from setuptools-scm (git tags only - no fallbacks).
+
+    Returns version string derived from git tags using setuptools-scm with guess-next-dev scheme.
+    This means commits after a tag will get a version like "2.1.19.dev1" (next minor version).
+    Raises RuntimeError with helpful message if version cannot be determined.
+    """
+    try:
+        from setuptools_scm import get_version as scm_get_version
+
+        return scm_get_version(
+            root=os.path.dirname(__file__),
+            version_scheme="guess-next-dev",
+            local_scheme="no-local-version",
+        )
+    except Exception as e:
+        print("ERROR: Unable to determine version from git tags.")
+        print("Please ensure:")
+        print("  1. setuptools-scm is installed (pip install setuptools-scm)")
+        print("  2. You are in a git repository with at least one version tag")
+        print("  3. Git tags follow the format 'v2.1.18' or similar")
+        raise RuntimeError(f"Version determination failed: {e}")
 
 
 # Handle long filenames or readonly files on windows, see:
@@ -103,64 +120,53 @@ def _replace(file_path, regex, subst):
 ###############################################################################
 
 
-@task(help={"v": "Version to set", "tag": "Also set tag"})
-def set_version(c, v=None, tag=False):
-    # Validate the version matches the regex
-    if not v:
-        version_update = False
-        v = get_version(c)
-        print(
-            "No version specified, retaining version {}, but updating "
-            "SHA and release date".format(v)
-        )
-    elif not re.match("[0-9]+([.][0-9]+)+", v):
-        print("Must specify a valid version (example: 0.36)")
-        return
-    else:
-        version_update = True
+@task
+def set_version(c):
+    """
+    Generate _version.py with git information.
 
-    release_date = datetime.now(timezone.utc).strftime("%Y/%m/%d %H:%M:%SZ")
+    Version is always determined automatically from git tags using setuptools-scm.
+    No manual version parameter needed - setuptools-scm reads from git tags.
+    """
 
-    # Set in version.json
-    print("Setting version to {} in version.json".format(v))
-    with open(c.version_file_details, "w") as f:
-        json.dump({"version": v, "release_date": release_date}, f, indent=4)
+    # Get version from setuptools-scm (git tags) - this is the ONLY source of truth
+    version_to_write = get_version(c)
+    print(f"Using version {version_to_write} from git tags")
 
-    if version_update:
-        # Set in version.txt
-        print("Setting version to {} in {}".format(v, c.version_file_raw))
-        with open(c.version_file_raw, "w") as f:
-            f.write(v)
+    # Always generate _version.py with git information captured at build time
+    print("Generating te_algorithms/_version.py with git information")
 
-        # Set in pyproject.toml
-        print("Setting version to {} in pyproject.toml".format(v))
-        pyproject_version_regex = re.compile(
-            r'^(version\s*=\s*["\'])[0-9]+([.][0-9]+)+(rc[0-9]*)?(["\'])'
-        )
-        _replace("pyproject.toml", pyproject_version_regex, r"\g<1>" + v + r"\g<4>")
+    # Get git commit info at build time
+    try:
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        git_sha = "unknown"
 
-        # Set in setup.py (legacy support)
-        print("Setting version to {} in setup.py".format(v))
-        setup_regex = re.compile(
-            "^([ ]*version=[ ]*['\"])[0-9]+([.][0-9]+)+(rc[0-9]*)?"
-        )
-        _replace("setup.py", setup_regex, r"\g<1>" + v)
+    try:
+        git_date = subprocess.check_output(
+            ["git", "log", "-1", "--format=%ci"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except Exception:
+        git_date = "unknown"
 
-        setup_install_requires_schemas_regex = re.compile(
-            "(trends.earth-schemas.git@)([.0-9a-z]*)"
-        )
-        if ("rc" in v.split(".")[-1]) or (int(v.split(".")[-1]) % 2 == 0):
-            # Last number in version string is even (or this is a release
-            # candidate), so use a tagged version of schemas matching this
-            # version
-            _replace("setup.py", setup_install_requires_schemas_regex, r"\g<1>v" + v)
-        else:
-            # Last number in version string is odd, so this is a development
-            # version, so use development version of schemas
-            _replace("setup.py", setup_install_requires_schemas_regex, r"\g<1>master")
+    # Write _version.py with all information
+    version_file_path = "te_algorithms/_version.py"
+    with open(version_file_path, "w") as f:
+        f.write("# This file is auto-generated at build time\n")
+        f.write("# Do not edit this file manually\n")
+        f.write(f'__version__ = "{version_to_write}"\n')
+        f.write("\n")
+        f.write("# Git information captured at build time\n")
+        f.write(f'__git_sha__ = "{git_sha}"\n')
+        f.write(f'__git_date__ = "{git_date}"\n')
 
-    if tag:
-        set_tag(c)
+    print(
+        f"Successfully generated _version.py with version {version_to_write}, git SHA {git_sha}"
+    )
 
 
 ###############################################################################
@@ -224,10 +230,3 @@ def set_tag(c):
 ###############################################################################
 
 ns = Collection(set_version, set_tag)
-
-ns.configure(
-    {
-        "version_file_raw": "version.txt",
-        "version_file_details": "te_algorithms/version.json",
-    }
-)

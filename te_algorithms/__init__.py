@@ -1,13 +1,16 @@
-import json
-import os
-import re
+try:
+    from te_algorithms._version import __version__, __git_sha__, __git_date__
+except ImportError:
+    __version__ = "unknown"
+    __git_sha__ = "unknown"
+    __git_date__ = "unknown"
+    import logging
 
-plugin_dir = os.path.dirname(os.path.realpath(__file__))
-with open(os.path.join(plugin_dir, "version.json")) as f:
-    version_info = json.load(f)
-__version__ = version_info["version"]
-__version_major__ = re.sub(r"([0-9]+)(\.[0-9]+)+$", r"\g<1>", __version__)
-__release_date__ = version_info["release_date"]
+    logging.warning(
+        "te_algorithms version could not be determined. "
+        "If you're running from source, please run 'invoke set-version' first. "
+        "If you're running from a package, this may indicate a packaging issue."
+    )
 
 
 class TEAlgorithmsError(Exception):

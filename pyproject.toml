@@ -65,7 +65,7 @@ include-package-data = true
 te_algorithms = "te_algorithms"
 
 [tool.setuptools.package-data]
-te_algorithms = ["version.json", "data/*"]
+te_algorithms = ["data/*"]
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
