@@ -158,9 +158,19 @@ def _prepare_precalculated_lpd_df(params: Dict) -> DataFile:
 
 
 def _process_single_period_with_schemas(
-    period, ldn_job, aoi, job_output_path, n_cpus, prepared_schemas
+    period,
+    ldn_job,
+    aoi,
+    job_output_path,
+    n_cpus,
+    prepared_schemas,
+    target_resolution=None,
 ):
-    """Process a single period with pre-loaded schemas - for parallel processing"""
+    """Process a single period with pre-loaded schemas - for parallel processing
+
+    Args:
+        target_resolution: Optional tuple of (xRes, yRes) to ensure consistent resolution across periods
+    """
     period_name = period["name"]
     period_params = period["params"]
     logger.debug("preparing land cover dfs")
@@ -208,6 +218,7 @@ def _process_single_period_with_schemas(
         "period_name": period_name,
         "periods": period_params["periods"],
         "n_cpus": n_cpus,
+        "target_resolution": target_resolution,
     }
 
     if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -305,13 +316,29 @@ def _process_single_period_with_schemas(
 
 
 def _process_single_period(
-    period, ldn_job, aoi, job_output_path, n_cpus, prepared_schemas=None
+    period,
+    ldn_job,
+    aoi,
+    job_output_path,
+    n_cpus,
+    target_resolution=None,
+    prepared_schemas=None,
 ):
-    """Process a single period - updated to accept pre-loaded schemas for thread safety"""
+    """Process a single period - updated to accept pre-loaded schemas for thread safety
+
+    Args:
+        target_resolution: Optional tuple of (xRes, yRes) to ensure consistent resolution across periods
+    """
     if prepared_schemas is not None:
         # Use pre-loaded schemas (for threaded execution)
         return _process_single_period_with_schemas(
-            period, ldn_job, aoi, job_output_path, n_cpus, prepared_schemas
+            period,
+            ldn_job,
+            aoi,
+            job_output_path,
+            n_cpus,
+            prepared_schemas,
+            target_resolution,
         )
 
     # Original non-threaded execution path (load schemas here)
@@ -368,6 +395,7 @@ def _process_single_period(
         "period_name": period_name,
         "periods": period_params["periods"],
         "n_cpus": n_cpus,
+        "target_resolution": target_resolution,
     }
 
     if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -464,6 +492,120 @@ def _process_single_period(
     return period_df, period_vrt, summary_table, period_name
 
 
+def get_reference_file_for_period(period_params: Dict, prod_mode: str) -> Optional[str]:
+    """Get the reference file path based on productivity mode.
+
+    Args:
+        period_params: Dictionary containing period parameters
+        prod_mode: Productivity mode string
+
+    Returns:
+        Path to reference file, or None if mode is not recognized
+    """
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        return period_params.get("layer_traj_path")
+    elif prod_mode in (
+        ProductivityMode.JRC_5_CLASS_LPD.value,
+        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+    ):
+        return period_params.get("layer_lpd_path")
+    return None
+
+
+def get_resolution_from_file(file_path: str) -> Optional[Tuple[float, float]]:
+    """Extract resolution from a GDAL-compatible raster file.
+
+    Args:
+        file_path: Path to the raster file
+
+    Returns:
+        Tuple of (xRes, yRes) as positive floats, or None if file cannot be read
+    """
+    try:
+        ref_ds = gdal.Open(file_path)
+        if ref_ds:
+            gt = ref_ds.GetGeoTransform()
+            resolution = (abs(gt[1]), abs(gt[5]))  # (xRes, yRes)
+            ref_ds = None  # Close dataset
+            return resolution
+    except Exception as e:
+        logger.warning(f"Could not get resolution from {file_path}: {e}")
+    return None
+
+
+def collect_resolutions_from_periods(periods: List[Dict]) -> List[Tuple[float, float]]:
+    """Collect resolutions from all periods.
+
+    Args:
+        periods: List of period dictionaries containing params and metadata
+
+    Returns:
+        List of (xRes, yRes) tuples for all successfully read periods
+    """
+    resolutions = []
+
+    for period in periods:
+        period_params = period["params"]
+        prod_mode = period_params["prod_mode"]
+
+        ref_file = get_reference_file_for_period(period_params, prod_mode)
+
+        if ref_file:
+            resolution = get_resolution_from_file(ref_file)
+            if resolution:
+                resolutions.append(resolution)
+                logger.debug(f"Period '{period['name']}' resolution: {resolution}")
+
+    return resolutions
+
+
+def select_highest_resolution(
+    resolutions: List[Tuple[float, float]],
+) -> Optional[Tuple[float, float]]:
+    """Select the highest resolution (smallest pixel size) from a list of resolutions.
+
+    Args:
+        resolutions: List of (xRes, yRes) tuples
+
+    Returns:
+        Tuple of (min_xRes, min_yRes) representing the highest resolution,
+        or None if the input list is empty
+    """
+    if not resolutions:
+        return None
+
+    # Find minimum xRes and yRes separately to get the highest resolution
+    min_xres = min(res[0] for res in resolutions)
+    min_yres = min(res[1] for res in resolutions)
+    target_resolution = (min_xres, min_yres)
+
+    logger.info(f"Using highest resolution across all periods: {target_resolution}")
+    logger.info(
+        f"  (selected from {len(resolutions)} period resolutions: {resolutions})"
+    )
+
+    return target_resolution
+
+
+def determine_target_resolution(periods: List[Dict]) -> Optional[Tuple[float, float]]:
+    """Determine the target resolution to use for consistent processing across all periods.
+
+    This function collects resolutions from all periods and selects the highest resolution
+    (smallest pixel size) to ensure all output VRTs have consistent geotransforms.
+
+    Args:
+        periods: List of period dictionaries from job parameters
+
+    Returns:
+        Tuple of (xRes, yRes) for the highest resolution, or None if no resolutions found
+    """
+    if not periods:
+        return None
+
+    resolutions = collect_resolutions_from_periods(periods)
+    return select_highest_resolution(resolutions)
+
+
 def summarise_land_degradation(
     ldn_job: "Job",
     aoi: "AOI",
@@ -498,6 +640,9 @@ def summarise_land_degradation(
     period_dfs = []
     period_vrts = []
 
+    # Determine highest resolution across all periods to ensure consistency
+    target_resolution = determine_target_resolution(ldn_job.params["periods"])
+
     # Process periods in parallel when there are multiple periods
     if len(ldn_job.params["periods"]) > 1 and effective_n_cpus > 2:
         # Reserve CPUs for period-level parallelization
@@ -528,7 +673,13 @@ def summarise_land_degradation(
             period, cpus, prepared_schemas = period_data
             # Process single period with allocated CPU count and pre-loaded schemas
             return _process_single_period_with_schemas(
-                period, ldn_job, aoi, job_output_path, cpus, prepared_schemas
+                period,
+                ldn_job,
+                aoi,
+                job_output_path,
+                cpus,
+                prepared_schemas,
+                target_resolution,
             )
 
         # Pre-load schemas in main thread to avoid thread-safety issues
@@ -607,7 +758,12 @@ def summarise_land_degradation(
         # Sequential processing for single period or when CPU count is low
         for period in ldn_job.params["periods"]:
             result = _process_single_period(
-                period, ldn_job, aoi, job_output_path, effective_n_cpus
+                period,
+                ldn_job,
+                aoi,
+                job_output_path,
+                effective_n_cpus,
+                target_resolution,
             )
             if result is None:
                 raise RuntimeError("Error processing period")
@@ -1552,6 +1708,7 @@ def _process_region(
     period_name: str,
     periods: dict,
     n_cpus: int,
+    target_resolution=None,
     translate_worker_function: Callable = None,
     translate_worker_params: dict = None,
     mask_worker_function: Callable = None,
@@ -1559,21 +1716,39 @@ def _process_region(
     deg_worker_function: Callable = None,
     deg_worker_params: dict = None,
 ) -> Tuple[Optional[models.SummaryTableLD], str]:
-    """Runs summary statistics for a particular area"""
+    """Runs summary statistics for a particular area
+
+    Args:
+        target_resolution: Optional tuple of (xRes, yRes) to ensure consistent resolution across periods
+    """
 
     # Combines SDG 15.3.1 input raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(
         suffix="_ld_summary_inputs.vrt", delete=False
     ).name
     logger.info(f"Saving indicator VRT to: {indic_vrt}")
-    gdal.BuildVRT(
-        indic_vrt,
-        [item.path for item in in_dfs],
-        outputBounds=pixel_aligned_bbox,
-        resolution="highest",
-        resampleAlg=gdal.GRA_NearestNeighbour,
-        separate=True,
-    )
+
+    # Use target_resolution if provided, otherwise use "highest"
+    if target_resolution:
+        logger.info(f"Using explicit target resolution: {target_resolution}")
+        gdal.BuildVRT(
+            indic_vrt,
+            [item.path for item in in_dfs],
+            outputBounds=pixel_aligned_bbox,
+            xRes=target_resolution[0],
+            yRes=target_resolution[1],
+            resampleAlg=gdal.GRA_NearestNeighbour,
+            separate=True,
+        )
+    else:
+        gdal.BuildVRT(
+            indic_vrt,
+            [item.path for item in in_dfs],
+            outputBounds=pixel_aligned_bbox,
+            resolution="highest",
+            resampleAlg=gdal.GRA_NearestNeighbour,
+            separate=True,
+        )
 
     error_message = ""
     logger.info(
@@ -1664,8 +1839,13 @@ def _compute_ld_summary_table(
     period_name: str,
     periods: dict,
     n_cpus: int,
+    target_resolution=None,
 ) -> Tuple[models.SummaryTableLD, Path, Path]:
-    """Computes summary table and the output tif file(s)"""
+    """Computes summary table and the output tif file(s)
+
+    Args:
+        target_resolution: Optional tuple of (xRes, yRes) to ensure consistent resolution across periods
+    """
 
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
@@ -1684,6 +1864,7 @@ def _compute_ld_summary_table(
         "period_name": period_name,
         "periods": periods,
         "n_cpus": n_cpus,
+        "target_resolution": target_resolution,
     }
 
     summary_tables = []
