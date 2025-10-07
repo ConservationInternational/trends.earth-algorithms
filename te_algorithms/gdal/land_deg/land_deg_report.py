@@ -487,6 +487,20 @@ def save_reporting_json(
 
     ##########################################################################
     # Format final JSON output
+    # Parse release date with fallback for unknown or invalid dates
+    try:
+        if __release_date__ == "unknown":
+            # Use a default datetime for unknown release dates (schema requires datetime, not None)
+            parsed_release_date = dt.datetime(2000, 1, 1, 0, 0, 0)
+        else:
+            # Try parsing with the actual format from _version.py: "2025-10-06 13:12:28 -0400"
+            parsed_release_date = dt.datetime.strptime(
+                __release_date__[:19], "%Y-%m-%d %H:%M:%S"
+            )
+    except (ValueError, TypeError, AttributeError):
+        # Use a default datetime for invalid dates (schema requires datetime, not None)
+        parsed_release_date = dt.datetime(2000, 1, 1, 0, 0, 0)
+
     te_summary = reporting.TrendsEarthLandConditionSummary(
         metadata=reporting.ReportMetadata(
             title="Trends.Earth Summary Report",
@@ -494,9 +508,7 @@ def save_reporting_json(
             trends_earth_version=schemas.TrendsEarthVersion(
                 version=__version__,
                 revision=None,
-                release_date=dt.datetime.strptime(
-                    __release_date__, "%Y/%m/%d %H:%M:%SZ"
-                ),
+                release_date=parsed_release_date,
             ),
             area_of_interest=schemas.AreaOfInterest(
                 name=task_name,  # TODO replace this with area of interest name once implemented in TE
