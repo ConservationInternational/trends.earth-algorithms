@@ -43,7 +43,7 @@ Repository = "https://github.com/ConservationInternational/trends.earth-algorith
 
 [project.optional-dependencies]
 api = ["boto3>=1.16", "GDAL>=3.0.0"]
-gee = ["earthengine-api==0.1.232"]
+gee = ["earthengine-api==1.6.6"]
 gdal = ["GDAL>=3.0.0", "numpy>=1.17.0"]
 numba = ["numba>=0.54.1"]
 dev = ["check-manifest"]
