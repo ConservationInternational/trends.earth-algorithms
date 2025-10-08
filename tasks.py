@@ -121,17 +121,48 @@ def _replace(file_path, regex, subst):
 
 
 @task
-def set_version(c):
+def set_version(c, version=None):
     """
-    Generate _version.py with git information.
+    Generate _version.py with git information and update pyproject.toml dependencies.
 
-    Version is always determined automatically from git tags using setuptools-scm.
-    No manual version parameter needed - setuptools-scm reads from git tags.
+    Args:
+        version: Optional manual version string (e.g., "2.1.20"). If not provided,
+                 version is determined automatically from git tags using setuptools-scm.
+
+    Version behavior based on last digit:
+    - Even number (e.g., 2.1.18): Stable release - use tagged versions for te_schemas
+    - Odd number (e.g., 2.1.19): Development release - use master branch for te_schemas
     """
+    import re
 
-    # Get version from setuptools-scm (git tags) - this is the ONLY source of truth
-    version_to_write = get_version(c)
-    print(f"Using version {version_to_write} from git tags")
+    # Get version - either from manual override or git tags
+    if version:
+        version_to_write = version
+        print(f"Using manually specified version: {version_to_write}")
+    else:
+        version_to_write = get_version(c)
+        print(f"Using version {version_to_write} from git tags")
+
+    # Extract the last numeric component to determine if even or odd
+    # Strip dev/post/rc suffixes (with or without dot separator)
+    version_clean = re.sub(r"(\.?(dev|post|rc).*$)", "", version_to_write)
+    version_parts = version_clean.split(".")
+    try:
+        last_number = int(version_parts[-1])
+        is_even_version = (last_number % 2) == 0
+    except (ValueError, IndexError):
+        # If we can't parse, default to odd (experimental)
+        is_even_version = False
+        last_number = None
+
+    if is_even_version:
+        print(
+            f"Even version detected ({last_number}) - Using tagged versions for dependencies"
+        )
+    else:
+        print(
+            f"Odd version detected ({last_number}) - Using master branch for dependencies"
+        )
 
     # Always generate _version.py with git information captured at build time
     print("Generating te_algorithms/_version.py with git information")
@@ -168,6 +199,28 @@ def set_version(c):
         f"Successfully generated _version.py with version {version_to_write}, git SHA {git_sha}"
     )
 
+    # Update pyproject.toml dependencies based on even/odd version
+    print("Updating pyproject.toml dependencies")
+
+    # Regex to match te_schemas dependency line
+    # Handles both with and without @version, with optional trailing comma
+    te_schemas_regex = re.compile(
+        r'(\s*"te_schemas @ git\+https://github\.com/ConservationInternational/trends\.earth-schemas\.git)(@[.0-9a-z]+)?("(?:,)?)'
+    )
+
+    pyproject_path = "pyproject.toml"
+
+    if is_even_version:
+        # Stable release - use tagged version
+        replacement = r"\g<1>@v" + version_clean + r"\g<3>"
+        print(f"Setting te_schemas dependency to v{version_clean} in pyproject.toml")
+    else:
+        # Development release - use master branch
+        replacement = r"\g<1>@master\g<3>"
+        print("Setting te_schemas dependency to master in pyproject.toml")
+
+    _replace(pyproject_path, te_schemas_regex, replacement)
+
 
 ###############################################################################
 # Setup dependencies and install package
@@ -194,8 +247,21 @@ def read_requirements():
 
 
 @task()
-def set_tag(c):
-    v = get_version(c)
+def set_tag(c, version=None):
+    """
+    Create and push a git tag for the current version.
+
+    Args:
+        version: Optional manual version string (e.g., "2.1.20"). If not provided,
+                 version is determined automatically from git tags using setuptools-scm.
+    """
+    if version:
+        v = version
+        print(f"Using manually specified version: {v}")
+    else:
+        v = get_version(c)
+        print(f"Using version {v} from git tags")
+
     ret = subprocess.run(
         ["git", "diff-index", "HEAD", "--"], capture_output=True, text=True
     )
