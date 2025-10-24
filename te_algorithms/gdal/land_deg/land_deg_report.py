@@ -96,14 +96,22 @@ def save_reporting_json(
     }
 
     for period_num, period in enumerate(params["periods"]):
-        period_name = period["name"]
+        original_period_name = period["name"]
+        # Standardize period names to ensure consistent naming in summary.json
+        if period_num == 0:
+            standardized_period_name = "baseline"
+        else:
+            standardized_period_name = f"report_{period_num}"
+
         period_params = period["params"]
-        st = summary_tables[period_name]
+        st = summary_tables[original_period_name]
 
         ##########################################################################
         # Area summary tables
-        lc_legend_nesting = summary_table_kwargs[period_name]["lc_legend_nesting"]
-        lc_trans_matrix = summary_table_kwargs[period_name]["lc_trans_matrix"]
+        lc_legend_nesting = summary_table_kwargs[original_period_name][
+            "lc_legend_nesting"
+        ]
+        lc_trans_matrix = summary_table_kwargs[original_period_name]["lc_trans_matrix"]
 
         period_sdg_summary = reporting.AreaList(
             "SDG Indicator 15.3.1",
@@ -333,8 +341,8 @@ def save_reporting_json(
                 )
             )
 
-        affected_pop_reports[period_name] = reporting.AffectedPopulationReport(
-            affected_by_deg_summary
+        affected_pop_reports[standardized_period_name] = (
+            reporting.AffectedPopulationReport(affected_by_deg_summary)
         )
 
         if period_num == 0:
@@ -479,10 +487,12 @@ def save_reporting_json(
                 ),
             )
 
-        land_condition_reports[period_name] = reporting.LandConditionReport(
-            period_assessment=period_assessment,
-            status_assessment=status_assessment,
-            change_assessment=change_assessment,
+        land_condition_reports[standardized_period_name] = (
+            reporting.LandConditionReport(
+                period_assessment=period_assessment,
+                status_assessment=status_assessment,
+                change_assessment=change_assessment,
+            )
         )
 
     ##########################################################################
