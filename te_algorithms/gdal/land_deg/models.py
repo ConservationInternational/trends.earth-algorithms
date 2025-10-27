@@ -71,8 +71,8 @@ class SummaryTableLDChange(SchemaBase):
 @marshmallow_dataclass.dataclass
 class SummaryTableLDErrorRecode(SchemaBase):
     baseline_summary: Dict[int, float]
-    reporting_1_summary: Optional[Dict[int, float]] = None
-    reporting_2_summary: Optional[Dict[int, float]] = None
+    report_1_summary: Optional[Dict[int, float]] = None
+    report_2_summary: Optional[Dict[int, float]] = None
 
 
 @dataclasses.dataclass()
@@ -117,8 +117,8 @@ class DegradationErrorRecodeSummaryParams(SchemaBase):
         False  # Whether to write out the reporting period layers
     )
     baseline_band_num: Optional[int] = None  # Band number for baseline SDG
-    reporting_1_band_num: Optional[int] = None  # Band number for reporting period 1 SDG
-    reporting_2_band_num: Optional[int] = None  # Band number for reporting period 2 SDG
+    report_1_band_num: Optional[int] = None  # Band number for report period 1 SDG
+    report_2_band_num: Optional[int] = None  # Band number for report period 2 SDG
 
 
 def accumulate_summarytableld(
