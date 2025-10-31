@@ -618,11 +618,19 @@ def productivity_performance(
                 logger.error(f"All retries failed: {final_error}")
                 raise
 
-    perc90 = {"groups": perc90_results.get("groups")}
+    groups = ee.List(perc90_results.get("groups", ee.List([])))
+    groups_size = ee.Number(groups.size())
+
+    try:
+        if groups_size.getInfo() == 0:
+            logger.warning(
+                "Percentile grouping returned no data; productivity performance will be nodata."
+            )
+    except Exception as info_error:  # pragma: no cover - diagnostic only
+        logger.debug(f"Unable to inspect percentile group size: {info_error}")
 
     # Extract the cluster IDs and the 90th percentile (server-side only)
     logger.debug("Extracting cluster IDs and percentiles from results (server-side)...")
-    groups = ee.List(perc90.get("groups"))
     ids = groups.map(lambda d: ee.Dictionary(d).get("code"))
     perc = groups.map(lambda d: ee.Dictionary(d).get("p90"))
 
@@ -636,7 +644,14 @@ def productivity_performance(
     # Remap the units raster using their 90th percentile value
     # (calculated from unified area)
     # Provide a default value and then mask it out to avoid using unmapped units
-    raster_perc = global_units.remap(ids, perc, -32768)
+    default_perc = ee.Image.constant(-32768).rename(global_units.bandNames())
+    raster_perc = ee.Image(
+        ee.Algorithms.If(
+            groups_size.gt(0),
+            global_units.remap(ids, perc, -32768),
+            default_perc,
+        )
+    )
     # Mask out missing (-32768) and zero percentiles to avoid divide-by-zero
     raster_perc = raster_perc.updateMask(raster_perc.neq(-32768)).updateMask(
         raster_perc.neq(0)
