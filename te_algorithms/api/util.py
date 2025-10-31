@@ -491,31 +491,95 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
     )  # Disable caching for very large files
     gdal.SetConfigOption("GDAL_ONE_BIG_READ", "YES")  # Read entire blocks at once
 
-    # Optimize for specific data types and sizes
-    if estimated_size_mb > 5000:  # For very large datasets (>5GB)
-        logger.info("Applying optimizations for very large dataset")
-        gdal.SetConfigOption("GDAL_CACHEMAX", "4096")  # 4GB cache for huge datasets
-        gdal.SetConfigOption("GDAL_SWATH_SIZE", "200000000")  # 200MB swath
+    # Optimize for specific data types and sizes with memory awareness
+    try:
+        import psutil
+
+        available_memory_gb = psutil.virtual_memory().available / (1024**3)
+        logger.info(f"Available system memory: {available_memory_gb:.1f}GB")
+
+        # Adjust cache sizes based on available memory
+        if available_memory_gb < 4:
+            # Low memory system
+            max_cache_mb = 512
+            max_swath_mb = 50
+            logger.info("Low memory system detected - using conservative settings")
+        elif available_memory_gb < 8:
+            # Medium memory system
+            max_cache_mb = 1024
+            max_swath_mb = 100
+            logger.info("Medium memory system detected - using moderate settings")
+        else:
+            # High memory system
+            max_cache_mb = 4096
+            max_swath_mb = 300
+            logger.info("High memory system detected - using optimized settings")
+    except ImportError:
+        # Conservative defaults if psutil not available
+        max_cache_mb = 1024
+        max_swath_mb = 100
+        logger.warning("Cannot detect memory - using conservative defaults")
+
+    if estimated_size_mb > 15000:  # For extremely large datasets (>15GB) like Japan
+        logger.info(
+            "Applying aggressive optimizations for extremely large dataset (>15GB)"
+        )
+        gdal.SetConfigOption("GDAL_CACHEMAX", str(min(max_cache_mb * 2, 8192)))
+        gdal.SetConfigOption(
+            "GDAL_SWATH_SIZE", str(min(max_swath_mb * 5, 500) * 1000000)
+        )
+        gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
+        # Use internal masks for efficiency
+        gdal.SetConfigOption("GDAL_TIFF_INTERNAL_MASK", "YES")
+        gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
+        block_size = "1024"  # Large blocks for massive datasets
+        overview_count = "2"  # Minimal overviews to speed up processing
+        compression = "ZSTD"  # ZSTD is faster than LZW for large datasets
+        compression_level = "1"  # Fast compression
+    elif estimated_size_mb > 5000:  # For very large datasets (>5GB)
+        logger.info("Applying optimizations for very large dataset (>5GB)")
+        gdal.SetConfigOption("GDAL_CACHEMAX", str(max_cache_mb))
+        gdal.SetConfigOption("GDAL_SWATH_SIZE", str(max_swath_mb * 1000000))
         block_size = "1024"  # Larger blocks for better I/O
         overview_count = "3"  # Fewer overviews to speed up processing
+        compression = "LZW"
+        compression_level = None
     elif estimated_size_mb > 1000:  # For large datasets (>1GB)
-        logger.info("Applying optimizations for large dataset")
+        logger.info("Applying optimizations for large dataset (>1GB)")
+        gdal.SetConfigOption("GDAL_CACHEMAX", str(min(max_cache_mb, 2048)))
         block_size = "512"
         overview_count = "4"
+        compression = "LZW"
+        compression_level = None
     else:
+        gdal.SetConfigOption("GDAL_CACHEMAX", str(min(max_cache_mb, 1024)))
         block_size = "512"
         overview_count = "5"
+        compression = "LZW"
+        compression_level = None
 
     creation_options = [
         "BIGTIFF=YES",
         "NUM_THREADS=ALL_CPUS",
         f"BLOCKSIZE={block_size}",
-        "COMPRESS=LZW",
-        "PREDICTOR=2",
-        "OVERVIEW_RESAMPLING=NEAREST",
-        f"OVERVIEW_COUNT={overview_count}",
-        "SPARSE_OK=TRUE",  # Allow sparse files to save space
+        f"COMPRESS={compression}",
     ]
+
+    # Add compression level for ZSTD
+    if compression_level is not None:
+        creation_options.append(f"LEVEL={compression_level}")
+
+    # Add predictor for LZW compression
+    if compression == "LZW":
+        creation_options.append("PREDICTOR=2")
+
+    creation_options.extend(
+        [
+            "OVERVIEW_RESAMPLING=NEAREST",
+            f"OVERVIEW_COUNT={overview_count}",
+            "SPARSE_OK=TRUE",  # Allow sparse files to save space
+        ]
+    )
 
     # Add quality vs speed trade-offs for different dataset sizes
     if estimated_size_mb > 5000:
@@ -679,40 +743,137 @@ def write_to_cog_tiled(
 
         # Create temporary directory for tiles
         import tempfile
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        import multiprocessing
+
+        # Determine optimal number of workers based on CPU count and tile count
+        cpu_count = multiprocessing.cpu_count()
+
+        # Import config to get COG optimization settings
+        try:
+            from unccd_data.config import conf
+
+            max_parallel_tiles = conf.get("COG_MAX_PARALLEL_TILES", 8)
+            force_parallel = conf.get("COG_FORCE_PARALLEL", False)
+            memory_aware = conf.get("COG_MEMORY_AWARE", True)
+        except ImportError:
+            max_parallel_tiles = 8
+            force_parallel = False
+            memory_aware = True
+
+        # Memory-aware worker count calculation
+        if memory_aware:
+            try:
+                import psutil
+
+                available_memory_gb = psutil.virtual_memory().available / (1024**3)
+                # Estimate ~1GB per worker process (conservative estimate including tile data)
+                memory_limited_workers = max(
+                    1, int(available_memory_gb * 0.8)
+                )  # Use 80% of available
+                logger.info(
+                    f"Available memory: {available_memory_gb:.1f}GB, memory-limited workers: {memory_limited_workers}"
+                )
+            except ImportError:
+                # If psutil not available, use conservative defaults
+                memory_limited_workers = 4
+                logger.warning(
+                    "psutil not available, using conservative worker count of 4"
+                )
+        else:
+            memory_limited_workers = max_parallel_tiles
+            logger.info("Memory-aware processing disabled")
+
+        # Choose the most restrictive limit to avoid memory issues
+        max_workers = min(
+            cpu_count, total_tiles, max_parallel_tiles, memory_limited_workers
+        )
+
+        # Additional safety check for very large datasets
+        if max_workers > 4 and total_tiles > 16:
+            logger.warning(
+                "Large dataset with many tiles - limiting workers to prevent memory issues"
+            )
+            max_workers = min(max_workers, 4)
+
+        logger.info(
+            f"Using {max_workers} parallel workers for tile processing (CPU: {cpu_count}, memory-limited: {memory_limited_workers}, configured: {max_parallel_tiles})"
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            tile_files = []
 
-            # Process each tile
+            # Prepare tile processing arguments
+            tile_args = []
             for y in range(tiles_y):
                 for x in range(tiles_x):
-                    tile_num = y * tiles_x + x + 1
-                    logger.info(f"Processing tile {tile_num}/{total_tiles}")
-
                     # Calculate tile bounds
                     x_off = x * tile_size
                     y_off = y * tile_size
                     x_size = min(tile_size, width - x_off)
                     y_size = min(tile_size, height - y_off)
 
-                    # Extract tile as a temporary file using gdal.Translate
                     tile_tif = temp_path / f"tile_{x}_{y}.tif"
-                    gdal.Translate(
-                        str(tile_tif),
-                        str(in_file),
-                        srcWin=[x_off, y_off, x_size, y_size],
+                    cog_tile = temp_path / f"cog_tile_{x}_{y}.tif"
+
+                    tile_args.append(
+                        {
+                            "input_file": str(in_file),
+                            "tile_tif": str(tile_tif),
+                            "cog_tile": str(cog_tile),
+                            "x_off": x_off,
+                            "y_off": y_off,
+                            "x_size": x_size,
+                            "y_size": y_size,
+                            "nodata_value": nodata_value,
+                            "tile_num": y * tiles_x + x + 1,
+                            "total_tiles": total_tiles,
+                            "max_time": max_processing_time_hours / total_tiles,
+                        }
                     )
 
-                    # Convert tile to COG (in-place or to another file if needed)
-                    cog_tile = temp_path / f"cog_tile_{x}_{y}.tif"
-                    write_to_cog(
-                        str(tile_tif),
-                        str(cog_tile),
-                        nodata_value,
-                        max_processing_time_hours / total_tiles,
-                    )
-                    tile_files.append(str(cog_tile))
+            # Process tiles in parallel
+            tile_files = []
+            if (total_tiles <= 2 and not force_parallel) or max_workers == 1:
+                # For small numbers of tiles or single CPU, process sequentially
+                logger.info("Processing tiles sequentially")
+                for tile_arg in tile_args:
+                    cog_path = _process_single_tile(tile_arg)
+                    if cog_path:
+                        tile_files.append(cog_path)
+            else:
+                # Process tiles in parallel
+                logger.info(
+                    f"Processing {total_tiles} tiles in parallel with {max_workers} workers"
+                )
+                with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                    # Submit all tile processing jobs
+                    future_to_tile = {
+                        executor.submit(_process_single_tile, tile_arg): tile_arg[
+                            "tile_num"
+                        ]
+                        for tile_arg in tile_args
+                    }
+
+                    # Collect results as they complete
+                    for future in as_completed(future_to_tile):
+                        tile_num = future_to_tile[future]
+                        try:
+                            cog_path = future.result()
+                            if cog_path:
+                                tile_files.append(cog_path)
+                                logger.debug(f"Completed tile {tile_num}/{total_tiles}")
+                        except Exception as exc:
+                            logger.error(f"Tile {tile_num} failed: {exc}")
+                            raise
+
+            # Sort tile files to ensure consistent ordering
+            tile_files.sort()
+
+            if len(tile_files) != total_tiles:
+                raise Exception(
+                    f"Expected {total_tiles} tiles, but got {len(tile_files)}"
+                )
 
             # Build final VRT from all tiles
             logger.info("Combining tiles into final COG")
@@ -728,6 +889,56 @@ def write_to_cog_tiled(
 
     except Exception as e:
         logger.error(f"Tiled COG conversion failed: {e}")
+        raise
+
+
+def _process_single_tile(tile_arg):
+    """
+    Process a single tile for parallel execution.
+    This function needs to be at module level for multiprocessing.
+    """
+    try:
+        import os
+
+        # Memory-aware GDAL settings per worker process
+        try:
+            import psutil
+
+            # Use conservative cache per worker (max 256MB per process)
+            worker_cache_mb = min(
+                256, max(64, int(psutil.virtual_memory().available / (1024**3) * 50))
+            )
+        except ImportError:
+            worker_cache_mb = 128  # Conservative default
+
+        os.environ["GDAL_CACHEMAX"] = str(worker_cache_mb)
+        os.environ["GDAL_NUM_THREADS"] = "1"  # One thread per process
+        os.environ["GDAL_SWATH_SIZE"] = "25000000"  # 25MB swath per worker
+
+        # Extract tile using gdal.Translate
+        gdal.Translate(
+            tile_arg["tile_tif"],
+            tile_arg["input_file"],
+            srcWin=[
+                tile_arg["x_off"],
+                tile_arg["y_off"],
+                tile_arg["x_size"],
+                tile_arg["y_size"],
+            ],
+        )
+
+        # Convert tile to COG with reduced timeout per tile
+        write_to_cog(
+            tile_arg["tile_tif"],
+            tile_arg["cog_tile"],
+            tile_arg["nodata_value"],
+            max(int(tile_arg["max_time"]), 1),  # Minimum 1 hour per tile
+        )
+
+        return tile_arg["cog_tile"]
+
+    except Exception as e:
+        logger.error(f"Failed to process tile {tile_arg['tile_num']}: {e}")
         raise
 
 
@@ -838,20 +1049,40 @@ def choose_optimal_cog_conversion(
                 in_file, out_file, nodata_value, max_processing_time_hours
             )
 
-        elif file_size_mb < 5000:  # Medium files - chunked conversion
+        elif file_size_mb < 1000:  # Medium files - chunked conversion
             logger.info("Using chunked COG conversion for medium dataset")
             return write_to_cog_chunked(
                 in_file,
                 out_file,
                 nodata_value,
-                chunk_size_mb=min(1000, int(file_size_mb // 4)),
+                chunk_size_mb=min(500, int(file_size_mb // 4)),
                 max_processing_time_hours=max_processing_time_hours,
             )
 
-        else:  # Large files - tiled conversion
+        elif file_size_mb < 15000:  # Large files - tiled conversion
             logger.info("Using tiled COG conversion for large dataset")
-            tile_size = 8000 if file_size_mb > 20000 else 10000
-            timeout = max(max_processing_time_hours, 12)
+            tile_size = 8000 if file_size_mb > 10000 else 10000
+            timeout = max(max_processing_time_hours, 8)
+            return write_to_cog_tiled(
+                in_file,
+                out_file,
+                nodata_value,
+                tile_size=tile_size,
+                max_processing_time_hours=timeout,
+            )
+
+        else:  # Extremely large files (>15GB) - aggressive tiling strategy
+            logger.info(
+                f"Using aggressive tiled COG conversion for extremely large dataset "
+                f"({file_size_mb:.1f} MB)"
+            )
+            # Use smaller tiles for extreme datasets to enable better parallelization
+            tile_size = 6000 if file_size_mb > 25000 else 7000
+            # Allow much more time for extreme datasets
+            timeout = max(max_processing_time_hours, 24)
+            logger.warning(
+                f"Processing extremely large dataset may take up to {timeout} hours"
+            )
             return write_to_cog_tiled(
                 in_file,
                 out_file,
