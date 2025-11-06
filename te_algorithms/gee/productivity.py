@@ -857,6 +857,7 @@ def productivity_faowocat(
     year_initial=2001,
     year_final=2015,
     prod_asset=None,
+    desert_max_vi=0.25,
     logger=None,
 ):
     """Compute FAO-WOCAT Land Productivity Dynamics (LPD) and the Productivity
@@ -871,6 +872,8 @@ def productivity_faowocat(
           - the baseline/target windows for Productivity State (already using it).
     """
     logger.debug("Entering productivity_faowocat function.")
+
+    MANN_KENDALL_SIG_LEVEL = 95
 
     if prod_asset is None:
         raise GEEIOError("Must specify a prod_asset")
@@ -942,7 +945,7 @@ def productivity_faowocat(
     # Trend + MK significance
     lf_trend, mk_trend = ndvi_trend(year_initial, year_end, ndvi_dataset, logger)
     period = year_end - year_initial + 1
-    kendall_s = stats.get_kendall_coef(period, 95)
+    kendall_s = stats.get_kendall_coef(period, MANN_KENDALL_SIG_LEVEL)
 
     trend_3cat = (
         ee.Image(0)
@@ -1083,6 +1086,15 @@ def productivity_faowocat(
         {"a": steadiness, "b": init_biomass, "c": eme_state},
     )
 
+    # Mask out deserts
+    modis_mask = (
+        ee.ImageCollection("MODIS/061/MOD13Q1")
+        .filterDate(f"{year_initial}-01-01", f"{year_final}-12-31")
+        .select("NDVI")
+        .max()
+    )
+    desert_mask = modis_mask.lte(desert_max_vi * 10000)
+
     final_lpd = (
         ee.Image(0)
         .where(semi.lte(8), 1)
@@ -1090,6 +1102,8 @@ def productivity_faowocat(
         .where(semi.gt(14).And(semi.lte(21)), 3)
         .where(semi.gt(21).And(semi.lte(30)), 4)
         .where(semi.gt(30).And(semi.lte(36)), 5)
+        .where(desert_mask.eq(1), 4)
+        .updateMask(1)
         .rename("LPD")
     )
 
