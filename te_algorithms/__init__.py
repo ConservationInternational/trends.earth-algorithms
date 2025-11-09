@@ -1,6 +1,23 @@
 import re
 
 try:
+    from te_schemas import SchemaBase  # type: ignore
+except ImportError:
+    SchemaBase = None
+else:
+    if SchemaBase and not hasattr(SchemaBase, "schema"):
+        import marshmallow_dataclass
+
+        def _compat_schema(cls):
+            schema_attr = getattr(cls, "Schema", None)
+            if isinstance(schema_attr, str) or not callable(schema_attr):
+                schema_attr = marshmallow_dataclass.class_schema(cls)
+                setattr(cls, "Schema", schema_attr)
+            return schema_attr()
+
+        SchemaBase.schema = classmethod(_compat_schema)  # type: ignore[attr-defined]
+
+try:
     from te_algorithms._version import __version__, __git_sha__, __git_date__
 except ImportError:
     __version__ = "unknown"

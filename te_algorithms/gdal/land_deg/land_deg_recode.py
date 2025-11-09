@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Tuple, Optional, Union
 import numpy as np
 from osgeo import gdal
 from te_schemas import reporting
+from te_schemas import schema_for  # type: ignore[attr-defined]
 from te_schemas.aoi import AOI
 from te_schemas.datafile import DataFile
 from te_schemas.error_recode import ErrorRecodePolygons
@@ -43,7 +44,7 @@ def rasterize_error_recode(
     # options can be encoded within a single tiff
 
     recode_to_trans_code = geojson.recode_to_trans_code_dict
-    error_recode_dict = ErrorRecodePolygons.Schema().dump(geojson)
+    error_recode_dict = schema_for(ErrorRecodePolygons).dump(geojson)
 
     for feat in error_recode_dict["features"]:
         feat["properties"]["error_recode"] = recode_to_trans_code[
