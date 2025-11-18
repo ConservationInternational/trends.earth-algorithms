@@ -168,7 +168,8 @@ def p_residuals(year_initial, year_final, ndvi_1yr, climate_1yr, logger):
     # Apply function to create image collection of ndvi and climate
     ndvi_1yr_coll = f_img_coll(ndvi_1yr)
 
-    # Compute linear trend function to predict ndvi based on climate (independent are followed by dependent var
+    # Compute linear trend function to predict ndvi based on climate
+    # (independent are followed by dependent var
     lf_clim_ndvi = ndvi_1yr_coll.select(["clim", "ndvi"]).reduce(ee.Reducer.linearFit())
 
     # Apply function to  predict NDVI based on climate
@@ -316,7 +317,7 @@ def productivity_performance(
     year_initial, year_final, prod_asset, all_geojsons, logger
 ):
     """
-    Calculate productivity performance using unified percentiles across all geojson areas.
+    Calculate productivity performance using unified percentiles across all areas.
 
     Args:
         year_initial: Starting year for the analysis period
@@ -421,18 +422,20 @@ def productivity_performance(
     soil_tax_usda_proj = soil_tax_usda.reproject(crs=modis_proj)
     ndvi_avg_unified_proj = ndvi_avg_unified.reproject(crs=modis_proj)
 
-    # define unit of analysis as the intersect of soil_tax_usda and land cover (globally)
-    global_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
+    # define unit of analysis as the intersect of soil_tax_usda and
+    # land cover (globally)
+    global_units_proj = soil_tax_usda_proj.multiply(100).add(lc_proj)
 
     # Use unified area for percentile calculation
     percentile_poly = unified_poly
     percentile_ndvi = ndvi_avg_unified_proj
     percentile_mask = percentile_ndvi.neq(0).And(percentile_ndvi.gt(-32768))
 
-    # create a 2 band raster to compute 90th percentile per unit (analysis restricted by mask and study area)
+    # create a 2 band raster to compute 90th percentile per unit
+    # (analysis restricted by mask and study area)
     logger.debug("Preparing data for percentile calculation...")
-    # Clip global_units to the percentile area to reduce computation
-    global_units_clipped = global_units.clip(percentile_poly)
+    # Clip the units raster early so all downstream operations avoid global evaluation
+    global_units_clipped = global_units_proj.clip(percentile_poly)
     ndvi_id = percentile_ndvi.addBands(global_units_clipped).updateMask(percentile_mask)
 
     logger.debug("Starting 90th percentile calculation by land cover/soil units")
@@ -624,7 +627,8 @@ def productivity_performance(
     try:
         if groups_size.getInfo() == 0:
             logger.warning(
-                "Percentile grouping returned no data; productivity performance will be nodata."
+                "Percentile grouping returned no data; productivity performance"
+                " will be nodata."
             )
     except Exception as info_error:  # pragma: no cover - diagnostic only
         logger.debug(f"Unable to inspect percentile group size: {info_error}")
@@ -638,8 +642,10 @@ def productivity_performance(
 
     # Apply the percentiles globally (not clipped to individual tiles)
     logger.debug("Applying percentiles to global NDVI data...")
-    global_ndvi_proj = ndvi_avg_global.reproject(crs=modis_proj)
-    global_units = soil_tax_usda_proj.multiply(100).add(lc_proj)
+    global_ndvi_proj = ndvi_avg_global.reproject(crs=modis_proj).clip(percentile_poly)
+
+    # Keep the units raster aligned with the AOI to avoid global evaluation later
+    global_units = global_units_clipped
 
     # Remap the units raster using their 90th percentile value
     # (calculated from unified area)
@@ -653,8 +659,11 @@ def productivity_performance(
         )
     )
     # Mask out missing (-32768) and zero percentiles to avoid divide-by-zero
-    raster_perc = raster_perc.updateMask(raster_perc.neq(-32768)).updateMask(
-        raster_perc.neq(0)
+    raster_perc = (
+        raster_perc.updateMask(raster_perc.neq(-32768))
+        .updateMask(raster_perc.neq(0))
+        .clip(percentile_poly)
+        .rename("Productivity_performance_percentile")
     )
 
     # Compute the ratio of observed NDVI to 90th for that class
@@ -663,9 +672,11 @@ def productivity_performance(
     # Aggregate obs_ratio to original NDVI data resolution
     # (for MODIS this step may be a no-op)
     logger.debug("Aggregating results to original NDVI resolution...")
-    obs_ratio_2 = obs_ratio.reduceResolution(
-        reducer=ee.Reducer.mean(), maxPixels=2000
-    ).reproject(crs=ndvi_1yr.projection())
+    obs_ratio_2 = (
+        obs_ratio.reduceResolution(reducer=ee.Reducer.mean(), maxPixels=2000)
+        .reproject(crs=ndvi_1yr.projection())
+        .clip(percentile_poly)
+    )
 
     prod_perf_ratio = obs_ratio_2.multiply(10000).rename(
         "Productivity_performance_ratio"
@@ -679,10 +690,14 @@ def productivity_performance(
         .where(obs_ratio_2.gte(0.5), 0)
         .where(obs_ratio_2.lte(0.5), -1)
         .where(obs_ratio_2.eq(-32768), -32768)
-    )
+    ).clip(percentile_poly)
 
     lp_perf_deg = lp_perf_deg.rename("Productivity_performance_degradation")
-    global_units = global_units.rename("Productivity_performance_units")
+    global_units = (
+        global_units.reproject(crs=ndvi_1yr.projection())
+        .clip(percentile_poly)
+        .rename("Productivity_performance_units")
+    )
 
     return TEImage(
         lp_perf_deg.addBands(prod_perf_ratio)
