@@ -227,16 +227,15 @@ class TEImage:
         self._check_validity()
 
     def _check_validity(self):
-        try:
-            band_count = ee.Number(self.image.bandNames().size()).getInfo()
-        except Exception as exc:
-            raise GEEImageError("Unable to inspect bands for image") from exc
+        expected_count = len(self.band_info)
+        if expected_count == 0:
+            return
 
-        if len(self.band_info) != band_count:
-            raise GEEImageError(
-                f"Band info length ({len(self.band_info)}) does not match "
-                f"number of bands in image ({band_count})"
-            )
+        try:
+            expected_names = [band.name for band in self.band_info]
+            self.image = self.image.rename(expected_names)
+        except ee.ee_exception.EEException as exc:
+            raise GEEImageError("Band metadata does not match image bands") from exc
 
     def merge(self, other):
         "Merge with another TEImage by adding data from other TEImage as new bands"
@@ -379,17 +378,15 @@ class GEEImage:
         self._check_validity()
 
     def _check_validity(self):
-        try:
-            band_count = ee.Number(self.image.bandNames().size()).getInfo()
-        except Exception as exc:
-            raise GEEImageError("Unable to inspect bands for image") from exc
+        expected_count = len(self.bands)
+        if expected_count == 0:
+            return
 
-        if len(self.bands) != band_count:
-            raise GEEImageError(
-                f"Band info length ({len(self.bands)}) "
-                "does not match number of bands in image "
-                f"({band_count})"
-            )
+        try:
+            expected_names = [band.name for band in self.bands]
+            self.image = self.image.rename(expected_names)
+        except ee.ee_exception.EEException as exc:
+            raise GEEImageError("Band metadata does not match image bands") from exc
 
     def merge(self, other):
         "Merge with another GEEImage object"
