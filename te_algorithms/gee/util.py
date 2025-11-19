@@ -1,4 +1,5 @@
 import random
+import re
 import threading
 import typing
 from time import time
@@ -17,6 +18,37 @@ from te_schemas.schemas import (
 from te_schemas.schemas import Url as UrlDeprecated
 
 from . import GEEImageError, GEETaskFailure
+
+_SANITIZE_PATTERN = re.compile(r"[^0-9A-Za-z_]+")
+
+
+def _generate_sanitized_band_names(bands):
+    sanitized_names = []
+    used_names = set()
+
+    for idx, band in enumerate(bands, start=1):
+        raw_name = band.name or f"band_{idx}"
+        sanitized = _SANITIZE_PATTERN.sub("_", raw_name).strip("_")
+
+        if not sanitized:
+            sanitized = f"band_{idx}"
+
+        if sanitized[0].isdigit():
+            sanitized = f"b_{sanitized}"
+
+        base_name = sanitized
+        suffix = 2
+        while sanitized in used_names:
+            sanitized = f"{base_name}_{suffix}"
+            suffix += 1
+
+        used_names.add(sanitized)
+        sanitized_names.append(sanitized)
+
+        band.metadata["gee_band_name"] = sanitized
+
+    return sanitized_names
+
 
 # Google cloud storage bucket for output
 BUCKET = "ldmt"
@@ -231,9 +263,10 @@ class TEImage:
         if expected_count == 0:
             return
 
+        sanitized_names = _generate_sanitized_band_names(self.band_info)
+
         try:
-            expected_names = [band.name for band in self.band_info]
-            self.image = self.image.rename(expected_names)
+            self.image = self.image.rename(sanitized_names)
         except ee.ee_exception.EEException as exc:
             raise GEEImageError("Band metadata does not match image bands") from exc
 
@@ -382,9 +415,10 @@ class GEEImage:
         if expected_count == 0:
             return
 
+        sanitized_names = _generate_sanitized_band_names(self.bands)
+
         try:
-            expected_names = [band.name for band in self.bands]
-            self.image = self.image.rename(expected_names)
+            self.image = self.image.rename(sanitized_names)
         except ee.ee_exception.EEException as exc:
             raise GEEImageError("Band metadata does not match image bands") from exc
 
