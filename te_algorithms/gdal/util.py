@@ -240,8 +240,8 @@ def combine_all_bands_into_vrt(
             out_gt_rounded = [round(x, 6) for x in out_gt]
             this_gt_rounded = [round(x, 6) for x in this_gt]
             assert out_gt_rounded == this_gt_rounded, (
-                f"base file ({in_files[0]}) geotransform ({out_gt_rounded}) doesn't match "
-                f"geotransform in {in_file} ({this_gt_rounded})"
+                f"base file ({in_files[0]}) geotransform ({out_gt_rounded}) doesn't "
+                f"match geotransform in {in_file} ({this_gt_rounded})"
             )
             assert out_proj == this_proj
 

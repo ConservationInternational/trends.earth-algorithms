@@ -320,8 +320,23 @@ def get_etag(key, bucket, aws_access_key_id=None, aws_secret_access_key=None):
     return results.Etag(hash=et, type=et_type)
 
 
-def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
+def write_to_cog(
+    in_file,
+    out_file,
+    nodata_value,
+    max_processing_time_hours=6,
+    src_window=None,
+    num_threads="ALL_CPUS",
+):
     logger.info(f"Converting {in_file} to COG format: {out_file}")
+    if src_window:
+        logger.info(
+            "Applying source window (x_off=%s, y_off=%s, width=%s, height=%s)",
+            src_window[0],
+            src_window[1],
+            src_window[2],
+            src_window[3],
+        )
     start_time = time.time()
     estimated_size_mb = 0  # Initialize for later use in compression selection
 
@@ -465,7 +480,7 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
 
     # Advanced GDAL settings for maximum performance
     gdal.SetConfigOption("GDAL_CACHEMAX", "2048")  # Increased to 2GB cache
-    gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
+    gdal.SetConfigOption("GDAL_NUM_THREADS", num_threads)
     gdal.SetConfigOption("VSI_CACHE", "TRUE")
     gdal.SetConfigOption("VSI_CACHE_SIZE", "100000000")  # 100MB VSI cache
 
@@ -528,7 +543,7 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
         gdal.SetConfigOption(
             "GDAL_SWATH_SIZE", str(min(max_swath_mb * 5, 500) * 1000000)
         )
-        gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
+        gdal.SetConfigOption("GDAL_NUM_THREADS", num_threads)
         # Use internal masks for efficiency
         gdal.SetConfigOption("GDAL_TIFF_INTERNAL_MASK", "YES")
         gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
@@ -589,6 +604,10 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
 
     logger.info(f"Using creation options: {creation_options}")
 
+    translate_kwargs = {}
+    if src_window:
+        translate_kwargs["srcWin"] = src_window
+
     try:
         gdal.Translate(
             out_file,
@@ -597,6 +616,7 @@ def write_to_cog(in_file, out_file, nodata_value, max_processing_time_hours=6):
             creationOptions=creation_options,
             noData=nodata_value,
             callback=progress_callback,
+            **translate_kwargs,
         )
 
         if timed_out[0]:
@@ -743,7 +763,7 @@ def write_to_cog_tiled(
 
         # Create temporary directory for tiles
         import tempfile
-        from concurrent.futures import ProcessPoolExecutor, as_completed
+        from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
         import multiprocessing
 
         # Determine optimal number of workers based on CPU count and tile count
@@ -767,12 +787,14 @@ def write_to_cog_tiled(
                 import psutil
 
                 available_memory_gb = psutil.virtual_memory().available / (1024**3)
-                # Estimate ~1GB per worker process (conservative estimate including tile data)
+                # Estimate ~1GB per worker process (conservative estimate
+                # including tile data)
                 memory_limited_workers = max(
                     1, int(available_memory_gb * 0.8)
                 )  # Use 80% of available
                 logger.info(
-                    f"Available memory: {available_memory_gb:.1f}GB, memory-limited workers: {memory_limited_workers}"
+                    f"Available memory: {available_memory_gb:.1f}GB, "
+                    f"memory-limited workers: {memory_limited_workers}"
                 )
             except ImportError:
                 # If psutil not available, use conservative defaults
@@ -792,12 +814,15 @@ def write_to_cog_tiled(
         # Additional safety check for very large datasets
         if max_workers > 4 and total_tiles > 16:
             logger.warning(
-                "Large dataset with many tiles - limiting workers to prevent memory issues"
+                "Large dataset with many tiles - limiting workers to prevent "
+                "memory issues"
             )
             max_workers = min(max_workers, 4)
 
         logger.info(
-            f"Using {max_workers} parallel workers for tile processing (CPU: {cpu_count}, memory-limited: {memory_limited_workers}, configured: {max_parallel_tiles})"
+            f"Using {max_workers} parallel workers for tile processing "
+            f"(CPU: {cpu_count}, memory-limited: {memory_limited_workers}, "
+            f"configured: {max_parallel_tiles})"
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -805,6 +830,7 @@ def write_to_cog_tiled(
 
             # Prepare tile processing arguments
             tile_args = []
+            tile_order = {}
             for y in range(tiles_y):
                 for x in range(tiles_x):
                     # Calculate tile bounds
@@ -813,20 +839,18 @@ def write_to_cog_tiled(
                     x_size = min(tile_size, width - x_off)
                     y_size = min(tile_size, height - y_off)
 
-                    tile_tif = temp_path / f"tile_{x}_{y}.tif"
                     cog_tile = temp_path / f"cog_tile_{x}_{y}.tif"
+
+                    tile_num = y * tiles_x + x + 1
+                    tile_order[tile_num] = (y, x)
 
                     tile_args.append(
                         {
                             "input_file": str(in_file),
-                            "tile_tif": str(tile_tif),
                             "cog_tile": str(cog_tile),
-                            "x_off": x_off,
-                            "y_off": y_off,
-                            "x_size": x_size,
-                            "y_size": y_size,
+                            "src_window": [x_off, y_off, x_size, y_size],
                             "nodata_value": nodata_value,
-                            "tile_num": y * tiles_x + x + 1,
+                            "tile_num": tile_num,
                             "total_tiles": total_tiles,
                             "max_time": max_processing_time_hours / total_tiles,
                         }
@@ -840,45 +864,87 @@ def write_to_cog_tiled(
                 for tile_arg in tile_args:
                     cog_path = _process_single_tile(tile_arg)
                     if cog_path:
-                        tile_files.append(cog_path)
+                        tile_files.append((tile_arg["tile_num"], Path(cog_path)))
             else:
                 # Process tiles in parallel
                 logger.info(
-                    f"Processing {total_tiles} tiles in parallel with {max_workers} workers"
+                    f"Processing {total_tiles} tiles in "
+                    f"parallel with {max_workers} workers"
                 )
-                with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                    # Submit all tile processing jobs
-                    future_to_tile = {
-                        executor.submit(_process_single_tile, tile_arg): tile_arg[
-                            "tile_num"
-                        ]
-                        for tile_arg in tile_args
-                    }
+                ctx = multiprocessing.get_context("spawn")
+                progress_poll_seconds = 300  # 5 minutes
+                with ProcessPoolExecutor(
+                    max_workers=max_workers,
+                    mp_context=ctx,
+                ) as executor:
+                    future_to_tile = {}
+                    submission_times = {}
+                    for tile_arg in tile_args:
+                        future = executor.submit(_process_single_tile, tile_arg)
+                        future_to_tile[future] = tile_arg["tile_num"]
+                        submission_times[tile_arg["tile_num"]] = time.time()
 
-                    # Collect results as they complete
-                    for future in as_completed(future_to_tile):
-                        tile_num = future_to_tile[future]
-                        try:
-                            cog_path = future.result()
-                            if cog_path:
-                                tile_files.append(cog_path)
-                                logger.debug(f"Completed tile {tile_num}/{total_tiles}")
-                        except Exception as exc:
-                            logger.error(f"Tile {tile_num} failed: {exc}")
-                            raise
+                    pending_futures = set(future_to_tile.keys())
+                    completed_tiles = 0
+                    overall_start = time.time()
 
-            # Sort tile files to ensure consistent ordering
-            tile_files.sort()
+                    while pending_futures:
+                        done, pending_futures = wait(
+                            pending_futures,
+                            timeout=progress_poll_seconds,
+                            return_when=FIRST_COMPLETED,
+                        )
+
+                        if not done:
+                            if pending_futures:
+                                now = time.time()
+                                longest_running = max(
+                                    now - submission_times[future_to_tile[f]]
+                                    for f in pending_futures
+                                )
+                                logger.info(
+                                    "Tiled COG progress: %s/%s tiles complete; "
+                                    "longest active tile running %.1f minutes "
+                                    "(elapsed %.1f minutes)",
+                                    completed_tiles,
+                                    total_tiles,
+                                    longest_running / 60,
+                                    (now - overall_start) / 60,
+                                )
+                            continue
+
+                        for future in done:
+                            tile_num = future_to_tile.pop(future)
+                            try:
+                                cog_path = future.result()
+                                if cog_path:
+                                    tile_files.append((tile_num, Path(cog_path)))
+                                    completed_tiles += 1
+                                    submission_times.pop(tile_num, None)
+                                    logger.info(
+                                        "Tile %s/%s completed (%s remaining)",
+                                        tile_num,
+                                        total_tiles,
+                                        total_tiles - completed_tiles,
+                                    )
+                            except Exception as exc:
+                                logger.error(f"Tile {tile_num} failed: {exc}")
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                raise
 
             if len(tile_files) != total_tiles:
                 raise Exception(
                     f"Expected {total_tiles} tiles, but got {len(tile_files)}"
                 )
 
+            # Sort tile files to ensure consistent ordering
+            tile_files.sort(key=lambda item: tile_order[item[0]])
+            ordered_tile_paths = [str(path) for _, path in tile_files]
+
             # Build final VRT from all tiles
             logger.info("Combining tiles into final COG")
             final_vrt = temp_path / "combined.vrt"
-            gdal.BuildVRT(str(final_vrt), tile_files)
+            gdal.BuildVRT(str(final_vrt), ordered_tile_paths)
 
             # Convert final VRT to COG
             write_to_cog(
@@ -898,41 +964,46 @@ def _process_single_tile(tile_arg):
     This function needs to be at module level for multiprocessing.
     """
     try:
-        import os
+        tile_num = tile_arg["tile_num"]
+        total_tiles = tile_arg["total_tiles"]
+        x_off, y_off, x_size, y_size = tile_arg["src_window"]
+        time_budget_hours = max(float(tile_arg.get("max_time", 0)), 1.0)
 
-        # Memory-aware GDAL settings per worker process
-        try:
-            import psutil
+        local_logger = logging.getLogger(__name__)
+        if local_logger.level > logging.INFO:
+            local_logger.setLevel(logging.INFO)
 
-            # Use conservative cache per worker (max 256MB per process)
-            worker_cache_mb = min(
-                256, max(64, int(psutil.virtual_memory().available / (1024**3) * 50))
-            )
-        except ImportError:
-            worker_cache_mb = 128  # Conservative default
-
-        os.environ["GDAL_CACHEMAX"] = str(worker_cache_mb)
-        os.environ["GDAL_NUM_THREADS"] = "1"  # One thread per process
-        os.environ["GDAL_SWATH_SIZE"] = "25000000"  # 25MB swath per worker
-
-        # Extract tile using gdal.Translate
-        gdal.Translate(
-            tile_arg["tile_tif"],
-            tile_arg["input_file"],
-            srcWin=[
-                tile_arg["x_off"],
-                tile_arg["y_off"],
-                tile_arg["x_size"],
-                tile_arg["y_size"],
-            ],
+        local_logger.info(
+            (
+                "Tile %s/%s: starting COG conversion "
+                "(offset=%s,%s size=%sx%s, budget=%.2fh)"
+            ),
+            tile_num,
+            total_tiles,
+            x_off,
+            y_off,
+            x_size,
+            y_size,
+            time_budget_hours,
         )
 
-        # Convert tile to COG with reduced timeout per tile
+        start_time = time.time()
+
         write_to_cog(
-            tile_arg["tile_tif"],
+            tile_arg["input_file"],
             tile_arg["cog_tile"],
             tile_arg["nodata_value"],
-            max(int(tile_arg["max_time"]), 1),  # Minimum 1 hour per tile
+            max_processing_time_hours=time_budget_hours,
+            src_window=[x_off, y_off, x_size, y_size],
+            num_threads="1",
+        )
+
+        duration_minutes = (time.time() - start_time) / 60
+        local_logger.info(
+            "Tile %s/%s: COG conversion finished in %.1f minutes",
+            tile_num,
+            total_tiles,
+            duration_minutes,
         )
 
         return tile_arg["cog_tile"]
