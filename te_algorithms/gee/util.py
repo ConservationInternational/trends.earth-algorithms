@@ -227,10 +227,15 @@ class TEImage:
         self._check_validity()
 
     def _check_validity(self):
-        if len(self.band_info) != len(self.image.getInfo()["bands"]):
+        try:
+            band_count = ee.Number(self.image.bandNames().size()).getInfo()
+        except Exception as exc:
+            raise GEEImageError("Unable to inspect bands for image") from exc
+
+        if len(self.band_info) != band_count:
             raise GEEImageError(
                 f"Band info length ({len(self.band_info)}) does not match "
-                f"number of bands in image ({len(self.image.getInfo()['bands'])})"
+                f"number of bands in image ({band_count})"
             )
 
     def merge(self, other):
@@ -374,11 +379,16 @@ class GEEImage:
         self._check_validity()
 
     def _check_validity(self):
-        if len(self.bands) != len(self.image.getInfo()["bands"]):
+        try:
+            band_count = ee.Number(self.image.bandNames().size()).getInfo()
+        except Exception as exc:
+            raise GEEImageError("Unable to inspect bands for image") from exc
+
+        if len(self.bands) != band_count:
             raise GEEImageError(
                 f"Band info length ({len(self.bands)}) "
                 "does not match number of bands in image "
-                f"({len(self.image.getInfo()['bands'])})"
+                f"({band_count})"
             )
 
     def merge(self, other):
