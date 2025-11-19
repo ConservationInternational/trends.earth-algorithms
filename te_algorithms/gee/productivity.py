@@ -624,19 +624,81 @@ def productivity_performance(
     groups = ee.List(perc90_results.get("groups", ee.List([])))
     groups_size = ee.Number(groups.size())
 
-    try:
-        if groups_size.getInfo() == 0:
-            logger.warning(
-                "Percentile grouping returned no data; productivity performance"
-                " will be nodata."
-            )
-    except Exception as info_error:  # pragma: no cover - diagnostic only
-        logger.debug(f"Unable to inspect percentile group size: {info_error}")
+    logger.debug("Extracting cluster IDs and percentiles from results...")
 
-    # Extract the cluster IDs and the 90th percentile (server-side only)
-    logger.debug("Extracting cluster IDs and percentiles from results (server-side)...")
-    ids = groups.map(lambda d: ee.Dictionary(d).get("code"))
-    perc = groups.map(lambda d: ee.Dictionary(d).get("p90"))
+    def _accumulate_group(item, acc):
+        item_dict = ee.Dictionary(item)
+        key = ee.Number(item_dict.get("code")).format()
+        value = ee.Number(item_dict.get("p90"))
+        return ee.Dictionary(acc).set(key, value)
+
+    percentile_dict = ee.Dictionary(
+        groups.iterate(_accumulate_group, ee.Dictionary({}))
+    )
+
+    # It is possible that p90 ius missing for some units due to the
+    # subsampling/masking - handle these cases with a fallback calculation
+    logger.debug("Checking for missing units in percentile results...")
+    unit_band_name = ee.String(global_units_clipped.bandNames().get(0))
+    units_hist = ee.Dictionary(
+        global_units_clipped.reduceRegion(
+            reducer=ee.Reducer.frequencyHistogram(),
+            geometry=percentile_poly,
+            scale=final_scale,
+            maxPixels=1e10,
+            bestEffort=True,
+            tileScale=tilescale,
+        ).get(unit_band_name, ee.Dictionary({}))
+    )
+    all_unit_keys = units_hist.keys()
+    missing_unit_keys = ee.List(all_unit_keys).removeAll(percentile_dict.keys())
+
+    def _fallback_percentile(key):
+        key = ee.String(key)
+        numeric_code = ee.Number.parse(key)
+        masked_ndvi = percentile_ndvi.updateMask(global_units_clipped.eq(numeric_code))
+
+        stats = masked_ndvi.reduceRegion(
+            reducer=ee.Reducer.percentile([90]),
+            geometry=percentile_poly,
+            scale=final_scale,
+            maxPixels=5e8,
+            bestEffort=True,
+            tileScale=tilescale,
+        )
+
+        value = ee.Number(
+            ee.Algorithms.If(
+                stats,
+                ee.Dictionary(stats).get(
+                    "ndvi_p90", ee.Dictionary(stats).get("p90", -32768)
+                ),
+                -32768,
+            )
+        )
+        return ee.Dictionary({"key": key, "value": value})
+
+    fallback_results = ee.List(
+        ee.Algorithms.If(
+            missing_unit_keys.size().gt(0),
+            missing_unit_keys.map(_fallback_percentile),
+            ee.List([]),
+        )
+    )
+
+    percentile_dict = ee.Dictionary(
+        fallback_results.iterate(
+            lambda item, acc: ee.Dictionary(acc).set(
+                ee.Dictionary(item).get("key"),
+                ee.Dictionary(item).get("value"),
+            ),
+            percentile_dict,
+        )
+    )
+
+    final_keys = percentile_dict.keys()
+    ids = final_keys.map(lambda key: ee.Number.parse(ee.String(key)))
+    perc = final_keys.map(lambda key: ee.Number(percentile_dict.get(key)))
 
     logger.debug("Processing clusters to create global performance raster...")
 
