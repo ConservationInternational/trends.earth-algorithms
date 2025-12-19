@@ -44,6 +44,7 @@ def _get_degraded_mask(band_name, masked):
         config.JRC_LPD_BAND_NAME,
         config.FAO_WOCAT_LPD_BAND_NAME,
         config.TE_LPD_BAND_NAME,
+        config.CUSTOM_LPD_BAND_NAME,
         config.PROD_DEG_COMPARISON_BAND_NAME,
     ]:
         return np.isin(masked, [1, 2])
@@ -68,6 +69,7 @@ def _get_stable_mask(band_name, masked):
         config.JRC_LPD_BAND_NAME,
         config.FAO_WOCAT_LPD_BAND_NAME,
         config.TE_LPD_BAND_NAME,
+        config.CUSTOM_LPD_BAND_NAME,
         config.PROD_DEG_COMPARISON_BAND_NAME,
     ]:
         return np.isin(masked, [3, 4])
@@ -89,6 +91,7 @@ def _get_improved_mask(band_name, masked):
         config.JRC_LPD_BAND_NAME,
         config.FAO_WOCAT_LPD_BAND_NAME,
         config.TE_LPD_BAND_NAME,
+        config.CUSTOM_LPD_BAND_NAME,
         config.PROD_DEG_COMPARISON_BAND_NAME,
     ]:
         return masked == 5
@@ -107,6 +110,7 @@ def _get_nodata_mask(band_name, masked, nodata):
         config.JRC_LPD_BAND_NAME,
         config.FAO_WOCAT_LPD_BAND_NAME,
         config.TE_LPD_BAND_NAME,
+        config.CUSTOM_LPD_BAND_NAME,
         config.PROD_DEG_COMPARISON_BAND_NAME,
     ]:
         nodata_mask = np.logical_or(nodata_mask, masked == 0)

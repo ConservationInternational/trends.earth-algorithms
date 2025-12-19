@@ -781,6 +781,8 @@ def _get_status_summary_input_vrt(df, prod_mode, periods):
             lpd_layer_name = config.JRC_LPD_BAND_NAME
         elif prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
             lpd_layer_name = config.FAO_WOCAT_LPD_BAND_NAME
+        elif prod_mode == ProductivityMode.CUSTOM_5_CLASS_LPD.value:
+            lpd_layer_name = config.CUSTOM_LPD_BAND_NAME
         else:
             raise KeyError
         prod5_indices = [

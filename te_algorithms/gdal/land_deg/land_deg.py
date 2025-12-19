@@ -196,6 +196,7 @@ def _process_single_period_with_schemas(
     elif prod_mode in (
         ProductivityMode.JRC_5_CLASS_LPD.value,
         ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
     ):
         period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
     else:
@@ -234,6 +235,7 @@ def _process_single_period_with_schemas(
     elif prod_mode in (
         ProductivityMode.JRC_5_CLASS_LPD.value,
         ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
     ):
         lpd_df = _prepare_precalculated_lpd_df(period_params)
         compute_bbs_from = lpd_df.path
@@ -367,6 +369,7 @@ def _process_single_period(
     elif prod_mode in (
         ProductivityMode.JRC_5_CLASS_LPD.value,
         ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
     ):
         period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
     else:
@@ -411,6 +414,7 @@ def _process_single_period(
     elif prod_mode in (
         ProductivityMode.JRC_5_CLASS_LPD.value,
         ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
     ):
         lpd_df = _prepare_precalculated_lpd_df(period_params)
         compute_bbs_from = lpd_df.path
@@ -507,6 +511,7 @@ def get_reference_file_for_period(period_params: Dict, prod_mode: str) -> Option
     elif prod_mode in (
         ProductivityMode.JRC_5_CLASS_LPD.value,
         ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
     ):
         return period_params.get("layer_lpd_path")
     return None
@@ -742,6 +747,7 @@ def summarise_land_degradation(
             elif prod_mode in (
                 ProductivityMode.JRC_5_CLASS_LPD.value,
                 ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+                ProductivityMode.CUSTOM_5_CLASS_LPD.value,
             ):
                 periods["productivity"] = period_params["layer_lpd_years"]
 
@@ -802,6 +808,7 @@ def summarise_land_degradation(
             elif prod_mode in (
                 ProductivityMode.JRC_5_CLASS_LPD.value,
                 ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+                ProductivityMode.CUSTOM_5_CLASS_LPD.value,
             ):
                 periods["productivity"] = period_params["layer_lpd_years"]
 
@@ -854,6 +861,7 @@ def summarise_land_degradation(
         elif prod_mode in (
             ProductivityMode.JRC_5_CLASS_LPD.value,
             ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+            ProductivityMode.CUSTOM_5_CLASS_LPD.value,
         ):
             compute_bbs_from = first_period_params["layer_lpd_path"]
         else:
@@ -1032,11 +1040,14 @@ def _process_block_summary(
     elif params.prod_mode in (
         ProductivityMode.JRC_5_CLASS_LPD.value,
         ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
     ):
         if params.prod_mode == ProductivityMode.JRC_5_CLASS_LPD.value:
             band_name = config.JRC_LPD_BAND_NAME
         elif params.prod_mode == ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value:
             band_name = config.FAO_WOCAT_LPD_BAND_NAME
+        elif params.prod_mode == ProductivityMode.CUSTOM_5_CLASS_LPD.value:
+            band_name = config.CUSTOM_LPD_BAND_NAME
 
         band_idx = params.in_df.index_for_name(band_name)
         deg_prod5 = in_array[band_idx, :, :]
