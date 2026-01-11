@@ -280,11 +280,9 @@ class TestLandDegStats(unittest.TestCase):
 
     def test_get_stats_for_geom_basic(self):
         """Test get_stats_for_geom with basic functionality."""
-        with (
-            patch.object(land_deg_stats, "gdal") as mock_gdal,
-            patch.object(land_deg_stats, "ogr") as mock_ogr,
-            patch.object(land_deg_stats, "calc_cell_area") as mock_calc_area,
-        ):
+        with patch.object(land_deg_stats, "gdal") as mock_gdal, \
+                patch.object(land_deg_stats, "ogr") as mock_ogr, \
+                patch.object(land_deg_stats, "calc_cell_area") as mock_calc_area:
             # Mock GDAL objects
             mock_rds = Mock()
             mock_rds.GetGeoTransform.return_value = (0, 1, 0, 10, 0, -1)
@@ -374,10 +372,8 @@ class TestLandDegStats(unittest.TestCase):
 
     def test_get_stats_for_geom_band_not_found(self):
         """Test get_stats_for_geom when band is not found."""
-        with (
-            patch.object(land_deg_stats, "gdal") as mock_gdal,
-            patch.object(land_deg_stats, "ogr") as mock_ogr,
-        ):
+        with patch.object(land_deg_stats, "gdal") as mock_gdal, \
+                patch.object(land_deg_stats, "ogr") as mock_ogr:
             mock_rds = Mock()
             mock_rds.GetGeoTransform.return_value = (0, 1, 0, 10, 0, -1)
             mock_rds.RasterXSize = 4
