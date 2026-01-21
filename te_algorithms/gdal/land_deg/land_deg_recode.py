@@ -759,8 +759,8 @@ def _compute_error_recode(
                 trans_code_lists=error_polygons.trans_code_lists,
                 write_reporting_sdg_tifs=write_reporting_sdg_tifs,
                 baseline_band_num=baseline_band_num,
-                reporting_1_band_num=reporting_1_band_num,
-                reporting_2_band_num=reporting_2_band_num,
+                report_1_band_num=reporting_1_band_num,
+                report_2_band_num=reporting_2_band_num,
             )
 
             if error_recode_worker_function:
