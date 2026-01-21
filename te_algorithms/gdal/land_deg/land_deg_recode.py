@@ -138,9 +138,9 @@ def _process_block(
     # Get the available bands based on parameters
     if params.baseline_band_num is not None:
         baseline_array = in_array[params.band_dict["baseline_bandnum"] - 1, :, :]
-    if params.reporting_1_band_num is not None:
+    if params.report_1_band_num is not None:
         reporting_1_array = in_array[params.band_dict["reporting_1_bandnum"] - 1, :, :]
-    if params.reporting_2_band_num is not None:
+    if params.report_2_band_num is not None:
         reporting_2_array = in_array[params.band_dict["reporting_2_bandnum"] - 1, :, :]
 
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
@@ -183,7 +183,7 @@ def _process_block(
         )
 
         # Process reporting periods if they exist
-        if params.reporting_1_band_num is not None and reporting_1_recoded is not None:
+        if params.report_1_band_num is not None and reporting_1_recoded is not None:
             # Calculate 7-class status map for reporting period 1
             reporting_1_status = sdg_status_expanded(
                 baseline_recoded, reporting_1_recoded
@@ -213,7 +213,7 @@ def _process_block(
                     }
                 )
 
-        if params.reporting_2_band_num is not None and reporting_2_recoded is not None:
+        if params.report_2_band_num is not None and reporting_2_recoded is not None:
             # Calculate 7-class status map for reporting period 2
             reporting_2_status = sdg_status_expanded(
                 baseline_recoded, reporting_2_recoded
