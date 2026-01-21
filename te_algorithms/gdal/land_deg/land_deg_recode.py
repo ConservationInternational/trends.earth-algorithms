@@ -55,7 +55,7 @@ def rasterize_error_recode(
         ]
 
         # Convert periods_affected to a bitmask for rasterization
-        # bit 1 = baseline, bit 2 = reporting_1, bit 4 = reporting_2
+        # bit 1 = baseline, bit 2 = report_1, bit 4 = report_2
         periods_affected = feat["properties"].get("periods_affected")
         if not periods_affected:
             raise ValueError(
@@ -68,9 +68,9 @@ def rasterize_error_recode(
         periods_mask = 0
         if "baseline" in periods_affected:
             periods_mask |= 1
-        if "reporting_1" in periods_affected:
+        if "report_1" in periods_affected:
             periods_mask |= 2
-        if "reporting_2" in periods_affected:
+        if "report_2" in periods_affected:
             periods_mask |= 4
         feat["properties"]["periods_mask"] = periods_mask
 
@@ -189,8 +189,8 @@ def _process_block(
                 baseline_recoded, reporting_1_recoded
             )
 
-            reporting_1_summary = zonal_total(reporting_1_status, cell_areas, mask)
-            summaries["reporting_1_summary"] = reporting_1_summary
+            report_1_summary = zonal_total(reporting_1_status, cell_areas, mask)
+            summaries["report_1_summary"] = report_1_summary
 
             # Default output: 7-class status map
             write_arrays.append(
@@ -219,8 +219,8 @@ def _process_block(
                 baseline_recoded, reporting_2_recoded
             )
 
-            reporting_2_summary = zonal_total(reporting_2_status, cell_areas, mask)
-            summaries["reporting_2_summary"] = reporting_2_summary
+            report_2_summary = zonal_total(reporting_2_status, cell_areas, mask)
+            summaries["report_2_summary"] = report_2_summary
 
             # Default output: 7-class status map
             write_arrays.append(
@@ -251,8 +251,8 @@ def _process_block(
     # Create summary table
     summary_table = SummaryTableLDErrorRecode(
         baseline_summary=summaries.get("baseline_summary", {}),
-        reporting_1_summary=summaries.get("reporting_1_summary"),
-        reporting_2_summary=summaries.get("reporting_2_summary"),
+        report_1_summary=summaries.get("report_1_summary"),
+        report_2_summary=summaries.get("report_2_summary"),
     )
 
     return summary_table, write_arrays
@@ -271,25 +271,19 @@ def _accumulate_summary_tables(
                 [out.baseline_summary, table.baseline_summary]
             )
 
-            if (
-                out.reporting_1_summary is not None
-                and table.reporting_1_summary is not None
-            ):
-                out.reporting_1_summary = accumulate_dicts(
-                    [out.reporting_1_summary, table.reporting_1_summary]
+            if out.report_1_summary is not None and table.report_1_summary is not None:
+                out.report_1_summary = accumulate_dicts(
+                    [out.report_1_summary, table.report_1_summary]
                 )
-            elif table.reporting_1_summary is not None:
-                out.reporting_1_summary = table.reporting_1_summary
+            elif table.report_1_summary is not None:
+                out.report_1_summary = table.report_1_summary
 
-            if (
-                out.reporting_2_summary is not None
-                and table.reporting_2_summary is not None
-            ):
-                out.reporting_2_summary = accumulate_dicts(
-                    [out.reporting_2_summary, table.reporting_2_summary]
+            if out.report_2_summary is not None and table.report_2_summary is not None:
+                out.report_2_summary = accumulate_dicts(
+                    [out.report_2_summary, table.report_2_summary]
                 )
-            elif table.reporting_2_summary is not None:
-                out.reporting_2_summary = table.reporting_2_summary
+            elif table.report_2_summary is not None:
+                out.report_2_summary = table.report_2_summary
 
         return out
 
@@ -445,17 +439,17 @@ def get_serialized_results(st, layer_name):
     reports = [baseline_summary]
 
     # Add reporting periods if they exist
-    if st.reporting_1_summary is not None:
-        reporting_1_summary = create_status_area_list(
-            st.reporting_1_summary, " - Reporting Period 1 Status"
+    if st.report_1_summary is not None:
+        report_1_summary = create_status_area_list(
+            st.report_1_summary, " - Reporting Period 1 Status"
         )
-        reports.append(reporting_1_summary)
+        reports.append(report_1_summary)
 
-    if st.reporting_2_summary is not None:
-        reporting_2_summary = create_status_area_list(
-            st.reporting_2_summary, " - Reporting Period 2 Status"
+    if st.report_2_summary is not None:
+        report_2_summary = create_status_area_list(
+            st.report_2_summary, " - Reporting Period 2 Status"
         )
-        reports.append(reporting_2_summary)
+        reports.append(report_2_summary)
 
     # Create the main report with the baseline summary
     sdg_report = reporting.SDG15Report(summary=baseline_summary)

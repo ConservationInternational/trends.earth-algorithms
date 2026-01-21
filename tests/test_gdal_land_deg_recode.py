@@ -31,7 +31,7 @@ class TestRasterizeErrorRecode:
                         "recode_deg_to": 1,
                         "recode_stable_to": 2,
                         "recode_imp_to": 3,
-                        "periods_affected": ["baseline", "reporting_1"],
+                        "periods_affected": ["baseline", "report_1"],
                     }
                 },
                 {
@@ -39,7 +39,7 @@ class TestRasterizeErrorRecode:
                         "recode_deg_to": 2,
                         "recode_stable_to": 1,
                         "recode_imp_to": 1,
-                        "periods_affected": ["reporting_2"],
+                        "periods_affected": ["report_2"],
                     }
                 },
             ]
@@ -110,7 +110,7 @@ class TestRasterizeErrorRecode:
                     "recode_deg_to": 2,
                     "recode_stable_to": 1,
                     "recode_imp_to": 1,
-                    "periods_affected": ["reporting_1"],  # Should result in bitmask 2
+                    "periods_affected": ["report_1"],  # Should result in bitmask 2
                 }
             },
             {
@@ -118,7 +118,7 @@ class TestRasterizeErrorRecode:
                     "recode_deg_to": 1,
                     "recode_stable_to": 1,
                     "recode_imp_to": 2,
-                    "periods_affected": ["reporting_2"],  # Should result in bitmask 4
+                    "periods_affected": ["report_2"],  # Should result in bitmask 4
                 }
             },
             {
@@ -128,8 +128,8 @@ class TestRasterizeErrorRecode:
                     "recode_imp_to": 1,
                     "periods_affected": [
                         "baseline",
-                        "reporting_1",
-                        "reporting_2",
+                        "report_1",
+                        "report_2",
                     ],  # Should result in bitmask 7 (1+2+4)
                 }
             },
@@ -167,10 +167,10 @@ class TestRasterizeErrorRecode:
         )  # baseline only
         assert (
             geojson_data_passed["features"][1]["properties"]["periods_mask"] == 2
-        )  # reporting_1 only
+        )  # report_1 only
         assert (
             geojson_data_passed["features"][2]["properties"]["periods_mask"] == 4
-        )  # reporting_2 only
+        )  # report_2 only
         assert (
             geojson_data_passed["features"][3]["properties"]["periods_mask"] == 7
         )  # all periods (1+2+4)
@@ -314,7 +314,7 @@ class TestRasterizeErrorRecode:
                     "recode_deg_to": 1,
                     "recode_stable_to": 2,
                     "recode_imp_to": 3,
-                    "periods_affected": ["baseline", "reporting_1"],
+                    "periods_affected": ["baseline", "report_1"],
                 }
             },
             {
@@ -322,7 +322,7 @@ class TestRasterizeErrorRecode:
                     "recode_deg_to": 2,
                     "recode_stable_to": 1,
                     "recode_imp_to": 1,
-                    "periods_affected": ["reporting_2"],
+                    "periods_affected": ["report_2"],
                 }
             },
         ]
