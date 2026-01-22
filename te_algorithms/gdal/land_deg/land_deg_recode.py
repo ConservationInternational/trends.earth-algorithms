@@ -551,6 +551,13 @@ def recode_errors(params) -> Job:
         # Use standard band names for styling compatibility, with period info in metadata
         out_bands = []
 
+        # Extract baseline years from the baseline band metadata
+        baseline_band_metadata = params.get("layer_baseline_band", {}).get(
+            "metadata", {}
+        )
+        baseline_year_initial = baseline_band_metadata.get("year_initial")
+        baseline_year_final = baseline_band_metadata.get("year_final")
+
         # Include baseline band only if baseline is in periods_to_output
         if "baseline" in periods_to_output:
             baseline_metadata = (
@@ -569,10 +576,17 @@ def recode_errors(params) -> Job:
 
         # Add reporting period 1 status band if it exists and is in periods_to_output
         if reporting_1_df is not None and "report_1" in periods_to_output:
-            period_1_metadata = (
-                dict(params["metadata"]) if params.get("metadata") else {}
+            # Get reporting period 1 year info from its band metadata
+            report_1_band_metadata = params.get("layer_reporting_1_band", {}).get(
+                "metadata", {}
             )
-            period_1_metadata["period"] = "Period 1"
+            period_1_metadata = {
+                "period": "Period 1",
+                "baseline_year_initial": baseline_year_initial,
+                "baseline_year_final": baseline_year_final,
+                "reporting_year_initial": report_1_band_metadata.get("year_initial"),
+                "reporting_year_final": report_1_band_metadata.get("year_final"),
+            }
             out_bands.append(
                 Band(
                     name=config.SDG_STATUS_BAND_NAME,
@@ -586,7 +600,7 @@ def recode_errors(params) -> Job:
             # Add raw reporting period 1 band if write_reporting_sdg_tifs is enabled
             if params.get("write_reporting_sdg_tifs", False):
                 period_1_raw_metadata = (
-                    dict(params["metadata"]) if params.get("metadata") else {}
+                    dict(report_1_band_metadata) if report_1_band_metadata else {}
                 )
                 period_1_raw_metadata["period"] = "Period 1"
                 period_1_raw_metadata["type"] = "raw"
@@ -602,10 +616,17 @@ def recode_errors(params) -> Job:
 
         # Add reporting period 2 status band if it exists and is in periods_to_output
         if reporting_2_df is not None and "report_2" in periods_to_output:
-            period_2_metadata = (
-                dict(params["metadata"]) if params.get("metadata") else {}
+            # Get reporting period 2 year info from its band metadata
+            report_2_band_metadata = params.get("layer_reporting_2_band", {}).get(
+                "metadata", {}
             )
-            period_2_metadata["period"] = "Period 2"
+            period_2_metadata = {
+                "period": "Period 2",
+                "baseline_year_initial": baseline_year_initial,
+                "baseline_year_final": baseline_year_final,
+                "reporting_year_initial": report_2_band_metadata.get("year_initial"),
+                "reporting_year_final": report_2_band_metadata.get("year_final"),
+            }
             out_bands.append(
                 Band(
                     name=config.SDG_STATUS_BAND_NAME,
@@ -619,7 +640,7 @@ def recode_errors(params) -> Job:
             # Add raw reporting period 2 band if write_reporting_sdg_tifs is enabled
             if params.get("write_reporting_sdg_tifs", False):
                 period_2_raw_metadata = (
-                    dict(params["metadata"]) if params.get("metadata") else {}
+                    dict(report_2_band_metadata) if report_2_band_metadata else {}
                 )
                 period_2_raw_metadata["period"] = "Period 2"
                 period_2_raw_metadata["type"] = "raw"
