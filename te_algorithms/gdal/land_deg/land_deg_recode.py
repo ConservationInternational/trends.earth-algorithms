@@ -530,15 +530,6 @@ def recode_errors(params) -> Job:
         type=error_polygons_data.get("type", "FeatureCollection"),
     )
 
-    baseline_band_data = params["layer_baseline_band"]
-    baseline_band = Band(
-        name=baseline_band_data["name"],
-        no_data_value=baseline_band_data.get("no_data_value"),
-        metadata=baseline_band_data.get("metadata", {}),
-        add_to_map=baseline_band_data.get("add_to_map", False),
-        activated=baseline_band_data.get("activated", False),
-    )
-
     # Get periods to include in output (defaults to all if not specified)
     periods_to_output = params.get(
         "periods_to_output", ["baseline", "report_1", "report_2"]
@@ -557,15 +548,20 @@ def recode_errors(params) -> Job:
 
     if params["write_tifs"]:
         # Create bands dynamically based on what was processed and what should be in output
+        # Use standard band names for styling compatibility, with period info in metadata
         out_bands = []
 
         # Include baseline band only if baseline is in periods_to_output
         if "baseline" in periods_to_output:
+            baseline_metadata = (
+                dict(params["metadata"]) if params.get("metadata") else {}
+            )
+            baseline_metadata["period"] = "Baseline"
             out_bands.append(
                 Band(
-                    name=f"{baseline_band.name} - Baseline",
+                    name=config.SDG_BAND_NAME,
                     no_data_value=int(config.NODATA_VALUE),
-                    metadata=params["metadata"],  # copy metadata from input job
+                    metadata=baseline_metadata,
                     add_to_map=True,
                     activated=True,
                 )
@@ -573,11 +569,15 @@ def recode_errors(params) -> Job:
 
         # Add reporting period 1 status band if it exists and is in periods_to_output
         if reporting_1_df is not None and "report_1" in periods_to_output:
+            period_1_metadata = (
+                dict(params["metadata"]) if params.get("metadata") else {}
+            )
+            period_1_metadata["period"] = "Period 1"
             out_bands.append(
                 Band(
-                    name=f"{baseline_band.name} - Reporting Period 1 Status",
+                    name=config.SDG_STATUS_BAND_NAME,
                     no_data_value=int(config.NODATA_VALUE),
-                    metadata=params["metadata"],
+                    metadata=period_1_metadata,
                     add_to_map=True,
                     activated=True,
                 )
@@ -585,11 +585,16 @@ def recode_errors(params) -> Job:
 
             # Add raw reporting period 1 band if write_reporting_sdg_tifs is enabled
             if params.get("write_reporting_sdg_tifs", False):
+                period_1_raw_metadata = (
+                    dict(params["metadata"]) if params.get("metadata") else {}
+                )
+                period_1_raw_metadata["period"] = "Period 1"
+                period_1_raw_metadata["type"] = "raw"
                 out_bands.append(
                     Band(
-                        name=f"{baseline_band.name} - Reporting Period 1 Raw",
+                        name=config.SDG_BAND_NAME,
                         no_data_value=int(config.NODATA_VALUE),
-                        metadata=params["metadata"],
+                        metadata=period_1_raw_metadata,
                         add_to_map=False,
                         activated=False,
                     )
@@ -597,11 +602,15 @@ def recode_errors(params) -> Job:
 
         # Add reporting period 2 status band if it exists and is in periods_to_output
         if reporting_2_df is not None and "report_2" in periods_to_output:
+            period_2_metadata = (
+                dict(params["metadata"]) if params.get("metadata") else {}
+            )
+            period_2_metadata["period"] = "Period 2"
             out_bands.append(
                 Band(
-                    name=f"{baseline_band.name} - Reporting Period 2 Status",
+                    name=config.SDG_STATUS_BAND_NAME,
                     no_data_value=int(config.NODATA_VALUE),
-                    metadata=params["metadata"],
+                    metadata=period_2_metadata,
                     add_to_map=True,
                     activated=True,
                 )
@@ -609,11 +618,16 @@ def recode_errors(params) -> Job:
 
             # Add raw reporting period 2 band if write_reporting_sdg_tifs is enabled
             if params.get("write_reporting_sdg_tifs", False):
+                period_2_raw_metadata = (
+                    dict(params["metadata"]) if params.get("metadata") else {}
+                )
+                period_2_raw_metadata["period"] = "Period 2"
+                period_2_raw_metadata["type"] = "raw"
                 out_bands.append(
                     Band(
-                        name=f"{baseline_band.name} - Reporting Period 2 Raw",
+                        name=config.SDG_BAND_NAME,
                         no_data_value=int(config.NODATA_VALUE),
-                        metadata=params["metadata"],
+                        metadata=period_2_raw_metadata,
                         add_to_map=False,
                         activated=False,
                     )
