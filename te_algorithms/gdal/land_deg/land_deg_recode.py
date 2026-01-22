@@ -390,8 +390,18 @@ def _prepare_error_recode_df(path, band_str) -> DataFile:
     return DataFile(path=Path(path), bands=bands)
 
 
-def get_serialized_results(st, layer_name):
-    """Get serialized results for all available periods."""
+def get_serialized_results(st, layer_name, periods_to_output=None):
+    """Get serialized results for specified periods.
+
+    Args:
+        st: Summary table containing baseline_summary, report_1_summary, report_2_summary
+        layer_name: Name for the output layer
+        periods_to_output: List of periods to include in output. If None, includes all.
+                          Valid values: 'baseline', 'report_1', 'report_2'
+    """
+    # Default to all periods if not specified
+    if periods_to_output is None:
+        periods_to_output = ["baseline", "report_1", "report_2"]
 
     def create_area_list(summary_dict, title_suffix=""):
         return reporting.AreaList(
@@ -434,31 +444,46 @@ def get_serialized_results(st, layer_name):
             ],
         )
 
-    # Create baseline summary
-    baseline_summary = create_area_list(st.baseline_summary, " - Baseline")
-    reports = [baseline_summary]
+    reports = []
+    baseline_summary = None
 
-    # Add reporting periods if they exist
-    if st.report_1_summary is not None:
+    # Add baseline summary only if baseline is in periods_to_output
+    if "baseline" in periods_to_output:
+        baseline_summary = create_area_list(st.baseline_summary, " - Baseline")
+        reports.append(baseline_summary)
+
+    # Add reporting periods if they exist and are in periods_to_output
+    if "report_1" in periods_to_output and st.report_1_summary is not None:
         report_1_summary = create_status_area_list(
             st.report_1_summary, " - Reporting Period 1 Status"
         )
         reports.append(report_1_summary)
 
-    if st.report_2_summary is not None:
+    if "report_2" in periods_to_output and st.report_2_summary is not None:
         report_2_summary = create_status_area_list(
             st.report_2_summary, " - Reporting Period 2 Status"
         )
         reports.append(report_2_summary)
 
-    # Create the main report with the baseline summary
-    sdg_report = reporting.SDG15Report(summary=baseline_summary)
+    # Create the main report - use baseline if available, otherwise first available summary
+    if baseline_summary is not None:
+        sdg_report = reporting.SDG15Report(summary=baseline_summary)
+        additional_reports = reports[1:] if len(reports) > 1 else []
+    elif len(reports) > 0:
+        # No baseline in output, use first available report as primary
+        sdg_report = reporting.SDG15Report(summary=reports[0])
+        additional_reports = reports[1:] if len(reports) > 1 else []
+    else:
+        # No reports at all - create empty summary
+        empty_summary = create_area_list({}, " - No Data")
+        sdg_report = reporting.SDG15Report(summary=empty_summary)
+        additional_reports = []
 
     # Add additional summaries to the serialized output
     result_dict = dataclasses.asdict(sdg_report)
-    if len(reports) > 1:
+    if len(additional_reports) > 0:
         result_dict["additional_summaries"] = [
-            dataclasses.asdict(report) for report in reports[1:]
+            dataclasses.asdict(report) for report in additional_reports
         ]
 
     return result_dict
@@ -514,6 +539,11 @@ def recode_errors(params) -> Job:
         activated=baseline_band_data.get("activated", False),
     )
 
+    # Get periods to include in output (defaults to all if not specified)
+    periods_to_output = params.get(
+        "periods_to_output", ["baseline", "report_1", "report_2"]
+    )
+
     logger.debug("Running _compute_error_recode")
     summary_table, error_recode_paths = _compute_error_recode(
         baseline_df=baseline_df,
@@ -526,22 +556,23 @@ def recode_errors(params) -> Job:
     )
 
     if params["write_tifs"]:
-        # Create bands dynamically based on what was processed
+        # Create bands dynamically based on what was processed and what should be in output
         out_bands = []
 
-        # Always include baseline band
-        out_bands.append(
-            Band(
-                name=f"{baseline_band.name} - Baseline",
-                no_data_value=int(config.NODATA_VALUE),
-                metadata=params["metadata"],  # copy metadata from input job
-                add_to_map=True,
-                activated=True,
+        # Include baseline band only if baseline is in periods_to_output
+        if "baseline" in periods_to_output:
+            out_bands.append(
+                Band(
+                    name=f"{baseline_band.name} - Baseline",
+                    no_data_value=int(config.NODATA_VALUE),
+                    metadata=params["metadata"],  # copy metadata from input job
+                    add_to_map=True,
+                    activated=True,
+                )
             )
-        )
 
-        # Add reporting period 1 status band if it exists
-        if reporting_1_df is not None:
+        # Add reporting period 1 status band if it exists and is in periods_to_output
+        if reporting_1_df is not None and "report_1" in periods_to_output:
             out_bands.append(
                 Band(
                     name=f"{baseline_band.name} - Reporting Period 1 Status",
@@ -564,8 +595,8 @@ def recode_errors(params) -> Job:
                     )
                 )
 
-        # Add reporting period 2 status band if it exists
-        if reporting_2_df is not None:
+        # Add reporting period 2 status band if it exists and is in periods_to_output
+        if reporting_2_df is not None and "report_2" in periods_to_output:
             out_bands.append(
                 Band(
                     name=f"{baseline_band.name} - Reporting Period 2 Status",
@@ -630,7 +661,9 @@ def recode_errors(params) -> Job:
             uri=main_uri,
             rasters=rasters,
             data=get_serialized_results(
-                summary_table, params["layer_baseline_band"]["name"] + " recode"
+                summary_table,
+                params["layer_baseline_band"]["name"] + " recode",
+                periods_to_output=periods_to_output,
             ),
         )
 
@@ -638,7 +671,9 @@ def recode_errors(params) -> Job:
         results = JsonResults(
             name=params["layer_baseline_band"]["name"],
             data=get_serialized_results(
-                summary_table, params["layer_baseline_band"]["name"] + " recode"
+                summary_table,
+                params["layer_baseline_band"]["name"] + " recode",
+                periods_to_output=periods_to_output,
             ),
         )
 
