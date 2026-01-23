@@ -1193,9 +1193,11 @@ def push_geojson_to_s3(
     s3_bucket: str,
     filename: str = None,
     s3_extra_args={},
+    aws_access_key_id=None,
+    aws_secret_access_key=None,
 ):
     """
-    Upload a GeoJSON file to S3 and return the vsis3 URI.
+    Upload a GeoJSON file to S3 and return a URI with etag.
 
     Args:
         local_path: Path to the local GeoJSON file
@@ -1203,9 +1205,11 @@ def push_geojson_to_s3(
         s3_bucket: S3 bucket name
         filename: Optional filename to use on S3 (defaults to local filename)
         s3_extra_args: Extra arguments to pass to S3 upload
+        aws_access_key_id: Optional AWS access key ID
+        aws_secret_access_key: Optional AWS secret access key
 
     Returns:
-        str: The vsis3 URI path to the uploaded file (e.g., /vsis3/bucket/prefix/file.geojson)
+        results.URI: URI object with vsis3 path and etag for file integrity verification
     """
     if filename is None:
         filename = local_path.name
@@ -1216,10 +1220,10 @@ def push_geojson_to_s3(
         local_path.rename(new_path)
         local_path = new_path
 
+    s3_key = f"{s3_prefix}/{filename}"
+
     try:
-        up_to_date = etag_compare(
-            local_path, get_s3_etag(key=f"{s3_prefix}/{filename}", bucket=s3_bucket)
-        )
+        up_to_date = etag_compare(local_path, get_s3_etag(key=s3_key, bucket=s3_bucket))
     except botocore.exceptions.ClientError:
         up_to_date = False
 
@@ -1230,7 +1234,15 @@ def push_geojson_to_s3(
             local_path, bucket=s3_bucket, prefix=s3_prefix, s3_extra_args=s3_extra_args
         )
 
-    return f"/vsis3/{s3_bucket}/{s3_prefix}/{filename}"
+    vsi_path = f"/vsis3/{s3_bucket}/{s3_prefix}/{filename}"
+    etag = get_etag(
+        s3_key,
+        s3_bucket,
+        aws_access_key_id,
+        aws_secret_access_key,
+    )
+
+    return results.URI(uri=vsi_path, etag=etag)
 
 
 def get_job_json_from_s3(

@@ -729,11 +729,12 @@ def recode_errors(params) -> Job:
             # Create VectorResults for the error polygons
             vector_results = VectorResults(
                 name="Error recode periods",
+                uri=URI(uri=geojson_path),
                 vector=VectorFalsePositive(
                     uri=URI(uri=geojson_path),
                     type=VectorType.ERROR_RECODE,
                 ),
-                uri=URI(uri=geojson_path),
+                vector_type=VectorType.ERROR_RECODE,
             )
 
             # Return list of both results
