@@ -243,9 +243,12 @@ def _process_block(
                     }
                 )
 
-    # Always include the recode array in output
+    # Include the periods_mask array as the error recode output
+    # This encodes which periods were affected:
+    # 0 = no change, 1 = baseline, 2 = report_1, 3 = baseline+report_1,
+    # 4 = report_2, 5 = baseline+report_2, 6 = report_1+report_2, 7 = all
     write_arrays.append(
-        {"array": recode_array, "xoff": xoff, "yoff": yoff, "band_name": "recode"}
+        {"array": periods_mask_array, "xoff": xoff, "yoff": yoff, "band_name": "recode"}
     )
 
     # Create summary table
@@ -654,10 +657,10 @@ def recode_errors(params) -> Job:
                     )
                 )
 
-        # Always include the error recode band
+        # Always include the error recode band (periods affected)
         out_bands.append(
             Band(
-                name=config.ERROR_RECODE_BAND_NAME,
+                name=config.ERROR_RECODE_POLYGONS_BAND_NAME,
                 no_data_value=int(config.NODATA_VALUE),
                 metadata=params["metadata"],  # copy metadata from input job
                 add_to_map=False,
@@ -795,7 +798,7 @@ def _compute_error_recode(
             reporting_2_band_num = band_dict.get("reporting_2_bandnum")
 
             # Calculate the number of output bands accurately
-            n_out_bands = 1  # Always include recode band
+            n_out_bands = 1  # Always include recode band (periods_mask)
 
             # Add baseline band if available
             if baseline_df is not None:
