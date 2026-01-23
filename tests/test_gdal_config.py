@@ -12,7 +12,7 @@ np = pytest.importorskip("numpy")
 
 try:
     from te_algorithms.gdal.land_deg.config import (
-        ERROR_RECODE_BAND_NAME,
+        ERROR_RECODE_INPUT_POLYS_BAND_NAME,
         FAO_WOCAT_LPD_BAND_NAME,
         JRC_LPD_BAND_NAME,
         LC_BAND_NAME,
@@ -130,8 +130,8 @@ class TestBandNames:
 
     def test_error_recode_band_name(self):
         """Test error recode band name."""
-        assert isinstance(ERROR_RECODE_BAND_NAME, str)
-        assert len(ERROR_RECODE_BAND_NAME) > 0
+        assert isinstance(ERROR_RECODE_INPUT_POLYS_BAND_NAME, str)
+        assert len(ERROR_RECODE_INPUT_POLYS_BAND_NAME) > 0
 
     def test_band_names_are_unique(self):
         """Test that band names are unique where they should be."""
@@ -141,7 +141,7 @@ class TestBandNames:
             PROD_STATUS_BAND_NAME,
             LC_STATUS_BAND_NAME,
             SOC_STATUS_BAND_NAME,
-            ERROR_RECODE_BAND_NAME,
+            ERROR_RECODE_INPUT_POLYS_BAND_NAME,
             TRAJ_BAND_NAME,
             PERF_BAND_NAME,
             STATE_BAND_NAME,

@@ -338,7 +338,7 @@ def _get_error_recode_input_vrt(
         band_vrts.append(
             save_vrt(
                 error_df.path,
-                error_df.index_for_name(config.ERROR_RECODE_BAND_NAME) + 1,
+                error_df.index_for_name(config.ERROR_RECODE_INPUT_POLYS_BAND_NAME) + 1,
             )
         )
         df_band_list.append(("recode_bandnum", band_counter))
@@ -667,7 +667,7 @@ def recode_errors(params) -> Job:
         # Always include the error recode band (periods affected)
         out_bands.append(
             Band(
-                name=config.ERROR_RECODE_POLYGONS_BAND_NAME,
+                name=config.ERROR_RECODE_PERIODS_BAND_NAME,
                 no_data_value=int(config.NODATA_VALUE),
                 metadata=params["metadata"],  # copy metadata from input job
                 add_to_map=False,
@@ -728,7 +728,7 @@ def recode_errors(params) -> Job:
 
             # Create VectorResults for the error polygons
             vector_results = VectorResults(
-                name="Error recode polygons",
+                name="Error recode periods",
                 vector=VectorFalsePositive(
                     uri=URI(uri=geojson_path),
                     type=VectorType.ERROR_RECODE,
