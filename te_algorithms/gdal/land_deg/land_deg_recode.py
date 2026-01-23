@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import logging
 import os
 import tempfile
@@ -21,6 +22,9 @@ from te_schemas.results import (
     RasterFileType,
     RasterResults,
     TiledRaster,
+    VectorFalsePositive,
+    VectorResults,
+    VectorType,
 )
 
 from .. import workers
@@ -538,6 +542,9 @@ def recode_errors(params) -> Job:
         "periods_to_output", ["baseline", "report_1", "report_2"]
     )
 
+    # Get option to include polygon GeoJSON in output (defaults to False)
+    include_polygon_geojson = params.get("include_polygon_geojson", False)
+
     logger.debug("Running _compute_error_recode")
     summary_table, error_recode_paths = _compute_error_recode(
         baseline_df=baseline_df,
@@ -694,7 +701,7 @@ def recode_errors(params) -> Job:
             }
             main_uri = URI(uri=error_recode_paths[0])
 
-        results = RasterResults(
+        raster_results = RasterResults(
             name=params["layer_baseline_band"]["name"],
             uri=main_uri,
             rasters=rasters,
@@ -705,8 +712,37 @@ def recode_errors(params) -> Job:
             ),
         )
 
+        # If include_polygon_geojson is True, save the polygons to a GeoJSON file
+        # and return both raster and vector results
+        if include_polygon_geojson:
+            # Write error polygons to GeoJSON file
+            geojson_path = (
+                job_output_path.parent
+                / f"{job_output_path.stem}_error_polygons.geojson"
+            )
+            error_polygons_dict = ErrorRecodePolygons.Schema().dump(error_polygons)
+            with open(geojson_path, "w", encoding="utf-8") as f:
+                json.dump(error_polygons_dict, f, indent=2)
+
+            logger.debug(f"Saved error recode polygons to {geojson_path}")
+
+            # Create VectorResults for the error polygons
+            vector_results = VectorResults(
+                name="Error recode polygons",
+                vector=VectorFalsePositive(
+                    uri=URI(uri=geojson_path),
+                    type=VectorType.ERROR_RECODE,
+                ),
+                uri=URI(uri=geojson_path),
+            )
+
+            # Return list of both results
+            results = [raster_results, vector_results]
+        else:
+            results = raster_results
+
     else:
-        results = JsonResults(
+        json_results = JsonResults(
             name=params["layer_baseline_band"]["name"],
             data=get_serialized_results(
                 summary_table,
@@ -714,6 +750,14 @@ def recode_errors(params) -> Job:
                 periods_to_output=periods_to_output,
             ),
         )
+
+        # If include_polygon_geojson is True for JsonResults, embed in data
+        if include_polygon_geojson:
+            json_results.data["error_recode_polygons"] = (
+                ErrorRecodePolygons.Schema().dump(error_polygons)
+            )
+
+        results = json_results
 
     return results
 
