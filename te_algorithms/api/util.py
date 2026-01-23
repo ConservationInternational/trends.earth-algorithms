@@ -1187,6 +1187,52 @@ def push_cog_to_s3(local_path, obj, s3_prefix, s3_bucket, s3_extra_args={}):
         )
 
 
+def push_geojson_to_s3(
+    local_path: Path,
+    s3_prefix: str,
+    s3_bucket: str,
+    filename: str = None,
+    s3_extra_args={},
+):
+    """
+    Upload a GeoJSON file to S3 and return the vsis3 URI.
+
+    Args:
+        local_path: Path to the local GeoJSON file
+        s3_prefix: S3 prefix/folder for the upload
+        s3_bucket: S3 bucket name
+        filename: Optional filename to use on S3 (defaults to local filename)
+        s3_extra_args: Extra arguments to pass to S3 upload
+
+    Returns:
+        str: The vsis3 URI path to the uploaded file (e.g., /vsis3/bucket/prefix/file.geojson)
+    """
+    if filename is None:
+        filename = local_path.name
+
+    # Rename the file if a different filename is specified
+    if filename != local_path.name:
+        new_path = local_path.parent / filename
+        local_path.rename(new_path)
+        local_path = new_path
+
+    try:
+        up_to_date = etag_compare(
+            local_path, get_s3_etag(key=f"{s3_prefix}/{filename}", bucket=s3_bucket)
+        )
+    except botocore.exceptions.ClientError:
+        up_to_date = False
+
+    if up_to_date:
+        logger.info(f"GeoJSON at {local_path} already up to date on S3")
+    else:
+        put_to_s3(
+            local_path, bucket=s3_bucket, prefix=s3_prefix, s3_extra_args=s3_extra_args
+        )
+
+    return f"/vsis3/{s3_bucket}/{s3_prefix}/{filename}"
+
+
 def get_job_json_from_s3(
     s3_prefix,
     s3_bucket,
