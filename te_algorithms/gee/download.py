@@ -91,7 +91,68 @@ def _get_population(year, asset, add_to_map=False):
     }
 
 
-download_functions = {"Gridded Population Count (gender breakdown)": _download_worldpop}
+def _download_gpw(asset, name, temporal_resolution, year_initial, year_final):
+    """Download GPW (Gridded Population of the World) data.
+
+    GPWv411 is an ImageCollection with images for years 2000, 2005, 2010, 2015, 2020.
+    """
+    # GPW has data for specific years only
+    gpw_years = [2000, 2005, 2010, 2015, 2020]
+
+    if year_initial is None:
+        year_initial = gpw_years[0]
+    if year_final is None:
+        year_final = gpw_years[-1]
+
+    # Filter to years within requested range
+    years_to_download = [y for y in gpw_years if year_initial <= y <= year_final]
+
+    if not years_to_download:
+        # If no exact matches, use the closest available year
+        years_to_download = [min(gpw_years, key=lambda y: abs(y - year_initial))]
+
+    out = TEImageV2(
+        {
+            DataType.FLOAT32: GEEImage(
+                **_get_gpw_population(years_to_download[0], asset, add_to_map=True)
+            )
+        }
+    )
+
+    for year in years_to_download[1:]:
+        out.add_image(**_get_gpw_population(year, asset, add_to_map=True))
+
+    return out
+
+
+def _get_gpw_population(year, asset, add_to_map=False):
+    """Return GPW population data for a given year."""
+    gpw = ee.ImageCollection(asset).filterDate(
+        f"{year}-01-01", f"{int(year) + 1}-01-01"
+    )
+
+    # GPW has a 'population_count' band - mosaic in case of multiple images
+    gpw_img = gpw.select("population_count").mosaic().rename(f"Population_{year}")
+
+    return {
+        "image": gpw_img,
+        "bands": [
+            Band(
+                "Population (number of people)",
+                metadata={
+                    "year": year,
+                },
+                add_to_map=add_to_map,
+            ),
+        ],
+        "datatype": DataType.FLOAT32,
+    }
+
+
+download_functions = {
+    "Gridded Population Count (gender breakdown)": _download_worldpop,
+    "Gridded Population of the World v411": _download_gpw,
+}
 
 
 def download(asset, name, temporal_resolution, year_initial, year_final, logger):
