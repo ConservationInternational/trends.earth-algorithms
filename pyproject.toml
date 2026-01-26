@@ -26,7 +26,7 @@ dependencies = [
     "marshmallow>=3.26.2,<4.0.0",
     "marshmallow-dataclass>=8.7.1",
     "defusedxml>=0.7.1",
-    "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@master",
+    "te_schemas @ git+https://github.com/ConservationInternational/trends.earth-schemas.git@v2.2.2",
 ]
 
 [project.license]
