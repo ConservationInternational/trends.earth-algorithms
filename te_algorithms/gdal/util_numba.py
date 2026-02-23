@@ -118,20 +118,6 @@ def zonal_total(z, d, mask):
             totals[zone_key] += d[i]
 
     return totals
-    mask = mask.ravel()
-    z[mask] = MASK_VALUE[0]  # Use explicit indexing to get int16 value
-    d[d == NODATA_VALUE[0]] = 0  # Use explicit indexing and ignore nodata values
-    # Use regular dict and let NumBA infer types from consistent usage
-    totals = dict()
-
-    for i in range(z.shape[0]):
-        zone_key = z[i]  # int32 now to avoid overflow
-        if zone_key not in totals:
-            totals[zone_key] = d[i]  # Already float64 from astype above
-        else:
-            totals[zone_key] += d[i]
-
-    return totals
 
 
 @numba.jit(nopython=True)
