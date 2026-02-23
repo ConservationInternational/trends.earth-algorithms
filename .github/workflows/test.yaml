@@ -69,7 +69,7 @@ jobs:
         run: |
           pip install -e .
           pip install "marshmallow>=4.2.2" "marshmallow-dataclass>=8.7.1"
-          python -c "import marshmallow; v=marshmallow.__version__; print(f'marshmallow {v}'); assert int(v.split('.')[0]) >= 4"
+          python -c "from importlib.metadata import version; v=version('marshmallow'); print(f'marshmallow {v}'); assert int(v.split('.')[0]) >= 4"
       - name: Run marshmallow compat tests
         run: pytest tests/test_marshmallow_compat.py -v
       - name: Run full test suite
