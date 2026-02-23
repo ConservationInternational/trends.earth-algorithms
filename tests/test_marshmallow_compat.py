@@ -3,24 +3,58 @@
 These tests verify that marshmallow-dataclass-based models defined in
 te_algorithms correctly serialize and deserialize.  They serve as a
 safety net for marshmallow version upgrades.
+
+NOTE: Other test files in this suite (e.g. test_gee_productivity_functions.py)
+unconditionally replace ``sys.modules["te_schemas"]`` with a MagicMock at
+import time.  Because pytest imports *all* test modules before running any
+tests, by the time our tests execute the real ``te_schemas`` package has
+been evicted from ``sys.modules``.  The cleanup block below detects this
+pollution and forces a fresh import of the real package.
 """
+
+import importlib
+import sys
+from unittest.mock import MagicMock
 
 import pytest
 
+# ── Guard against sys.modules pollution from other test files ───────
+# If any te_schemas entry is a Mock, remove it so the real package can
+# be re-imported.
+_te_schemas_poisoned = any(
+    isinstance(sys.modules.get(k), MagicMock)
+    for k in list(sys.modules)
+    if k == "te_schemas" or k.startswith("te_schemas.")
+)
+if _te_schemas_poisoned:
+    for _mod in list(sys.modules):
+        if _mod == "te_schemas" or _mod.startswith("te_schemas."):
+            del sys.modules[_mod]
+    # Also remove any te_algorithms modules that may have captured the mock
+    for _mod in list(sys.modules):
+        if _mod == "te_algorithms" or _mod.startswith("te_algorithms."):
+            del sys.modules[_mod]
 
-from te_schemas import SchemaBase
+from te_schemas import SchemaBase  # noqa: E402
 
 
 # ===================================================================
 # 1. ImageInfo round-trip (te_algorithms.gdal.util)
 # ===================================================================
 
+# ImageInfo lives in te_algorithms.gdal.util which imports numpy
+# transitively via util_numba.  Guard on numpy, not just osgeo.
+_skip_gdal_util = pytest.mark.skipif(
+    not importlib.util.find_spec("numpy"),
+    reason="numpy not installed (required by te_algorithms.gdal.util)",
+)
 
+
+@_skip_gdal_util
 class TestImageInfo:
     """Tests for the ImageInfo dataclass in gdal/util.py."""
 
     def test_roundtrip(self):
-        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.util import ImageInfo
 
         obj = ImageInfo(
@@ -40,7 +74,6 @@ class TestImageInfo:
         assert loaded.pixel_height == pytest.approx(-0.00027)
 
     def test_get_n_blocks(self):
-        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.util import ImageInfo
 
         obj = ImageInfo(
@@ -54,7 +87,6 @@ class TestImageInfo:
         assert obj.get_n_blocks() == 4
 
     def test_schema_is_callable(self):
-        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.util import ImageInfo
 
         schema = ImageInfo.Schema()
@@ -160,10 +192,16 @@ class TestSummaryTableLDErrorRecode:
 # ===================================================================
 
 
+# SummaryTableDrought needs numpy, openpyxl, and osgeo at import time.
+_skip_drought = pytest.mark.skipif(
+    not all(importlib.util.find_spec(m) for m in ("numpy", "openpyxl", "osgeo")),
+    reason="numpy, openpyxl, or GDAL not installed",
+)
+
+
+@_skip_drought
 class TestSummaryTableDrought:
     def test_roundtrip(self):
-        pytest.importorskip("openpyxl", reason="openpyxl not installed")
-        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.drought import SummaryTableDrought
 
         obj = SummaryTableDrought(
@@ -178,15 +216,11 @@ class TestSummaryTableDrought:
         assert isinstance(loaded, SummaryTableDrought)
 
     def test_is_schema_base(self):
-        pytest.importorskip("openpyxl", reason="openpyxl not installed")
-        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.drought import SummaryTableDrought
 
         assert issubclass(SummaryTableDrought, SchemaBase)
 
     def test_dump_method(self):
-        pytest.importorskip("openpyxl", reason="openpyxl not installed")
-        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.drought import SummaryTableDrought
 
         obj = SummaryTableDrought(
@@ -209,8 +243,8 @@ class TestSummaryTableDrought:
 class TestSchemaAttributes:
     """Every @marshmallow_dataclass.dataclass should have a callable .Schema()."""
 
+    @_skip_gdal_util
     def test_image_info_schema(self):
-        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.util import ImageInfo
 
         assert callable(ImageInfo.Schema)
@@ -237,9 +271,8 @@ class TestSchemaAttributes:
 
         assert callable(SummaryTableLDErrorRecode.Schema)
 
+    @_skip_drought
     def test_summary_table_drought_schema(self):
-        pytest.importorskip("openpyxl", reason="openpyxl not installed")
-        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.drought import SummaryTableDrought
 
         assert callable(SummaryTableDrought.Schema)
