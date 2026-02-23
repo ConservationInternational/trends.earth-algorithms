@@ -111,7 +111,7 @@ def tc(
         bgb = agb.expression("0.489 * BIO**(0.89)", {"BIO": agb})
         rs_ratio = bgb.divide(agb)
     else:
-        raise
+        raise ValueError(f"Unknown root-to-shoot ratio method: {method}")
 
     # Calculate Total biomass (t/ha) then convert to carbon equilavent (*0.5) to get Total Carbon (t ha-1) = (AGB+BGB)*0.5
     tbcarbon = agb.expression("(bgb + abg) * 0.5", {"bgb": bgb, "abg": agb})
