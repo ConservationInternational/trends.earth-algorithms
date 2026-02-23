@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 SDG_RAW_JOB_NAME = ("sdg-15-3-1-sub-indicators",)
 SDG_SUMMARY_RAW_JOB_NAME = ("sdg-15-3-1-summary",)
 
-# Set the desired multipart threshold value (5GB)
-MB = 1024
-MULTIPART_THRESHOLD = 100 * MB
+# Set the desired multipart threshold value (25MB)
+MB = 1024 * 1024
+MULTIPART_THRESHOLD = 25 * MB
 
 
 def get_s3_client(access_key_id=None, secret_access_key=None, no_sign=False):
@@ -54,7 +54,7 @@ def get_s3_client(access_key_id=None, secret_access_key=None, no_sign=False):
         logger.warning(
             "AWS credentials file not found. Credentials must be in "
             "environment variable in default AWS credentials location, "
-            "or (if on the cloude) an instance role must be attached)"
+            "or (if on the cloud) an instance role must be attached)"
         )
         client = boto3.client("s3", config=config)
 
