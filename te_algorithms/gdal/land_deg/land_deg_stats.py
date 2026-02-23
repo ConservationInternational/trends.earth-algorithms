@@ -177,66 +177,82 @@ def _get_stats_crosstab(
         # No data at all
         return {"total_area_ha": 0.0, "crosstab": {}}
 
-    # Define class names including nodata
+    # Define class names and values
     class_names = {-1: "degraded", 0: "stable", 1: "improved", band_1_nodata: "nodata"}
-
-    # Get all unique values that might appear in either band
     all_values = [-1, 0, 1, band_1_nodata]
     if band_2_nodata != band_1_nodata:
         all_values.append(band_2_nodata)
         class_names[band_2_nodata] = "nodata"
 
-    # Initialize crosstab dictionary
+    # Vectorized single-pass crosstab using np.bincount on an encoded
+    # combined key.
+    #
+    # Strategy:
+    #   1. Remap recoded values (-1,0,1,nodata) → small ints 0..N-1
+    #   2. Encode pairs as  idx = remap_1 * N + remap_2
+    #   3. Use np.bincount(idx, weights=cell_areas) for all cells in one pass
+    #   4. Reshape the 1-D counts into an N×N matrix and read off results.
+
+    # ordered class labels (stable order for indexing)
+    ordered_classes = ["degraded", "stable", "improved", "nodata"]
+    N = len(ordered_classes)
+
+    # Map raw recoded values → bin indices.  Both nodata values map to 3.
+    val_to_idx = {-1: 0, 0: 1, 1: 2, band_1_nodata: 3}
+    if band_2_nodata != band_1_nodata:
+        val_to_idx[band_2_nodata] = 3
+
+    # Build vectorised lookup via a small offset table so we can use
+    # fancy-indexing instead of a dict.  Recoded values are small integers
+    # (min = -1, max = nodata which could be large), so we use np.searchsorted
+    # on the sorted unique values to keep the lookup array tiny.
+    raw_vals = np.array(sorted(val_to_idx.keys()))
+    idx_vals = np.array([val_to_idx[v] for v in raw_vals])
+
+    r1 = recoded_1.ravel()
+    r2 = recoded_2.ravel()
+    gm = geometry_mask.ravel()
+    ca = cell_areas.ravel()
+
+    # Map each pixel's recoded value to its bin index via searchsorted
+    bin_1 = idx_vals[np.searchsorted(raw_vals, r1)]
+    bin_2 = idx_vals[np.searchsorted(raw_vals, r2)]
+
+    # Encode pair as single int and zero-weight pixels outside geometry
+    combined = bin_1 * N + bin_2
+    weights = np.where(gm, ca, 0.0)
+
+    counts = np.bincount(combined, weights=weights, minlength=N * N)
+    matrix = counts[: N * N].reshape(N, N)
+
+    band_1_sums = matrix.sum(axis=1)  # sum over band-2 axis
+    band_2_sums = matrix.sum(axis=0)  # sum over band-1 axis
+
+    # Build output dictionaries
     crosstab = {}
-    for val_1 in all_values:
-        class_1 = class_names[val_1]
-        if class_1 not in crosstab:
-            crosstab[class_1] = {}
-        for val_2 in all_values:
-            class_2 = class_names[val_2]
-            if class_2 not in crosstab[class_1]:
-                # Calculate area for this combination within the geometry
-                mask_combo = np.logical_and(
-                    np.logical_and(recoded_1 == val_1, recoded_2 == val_2),
-                    geometry_mask,
-                )
-                area_ha = np.sum(mask_combo * cell_areas)
-                area_pct = (area_ha / total_area_ha * 100) if total_area_ha > 0 else 0.0
+    for i, c1 in enumerate(ordered_classes):
+        crosstab[c1] = {}
+        for j, c2 in enumerate(ordered_classes):
+            area_ha = float(matrix[i, j])
+            crosstab[c1][c2] = {
+                "area_ha": area_ha,
+                "area_pct": (
+                    float(area_ha / total_area_ha * 100) if total_area_ha > 0 else 0.0
+                ),
+            }
 
-                crosstab[class_1][class_2] = {
-                    "area_ha": float(area_ha),
-                    "area_pct": float(area_pct),
-                }
-
-    # Calculate totals for each band including nodata
     band_1_totals = {}
     band_2_totals = {}
-
-    for val in all_values:
-        class_name = class_names[val]
-
-        # Skip duplicate nodata entries if both bands have same nodata value
-        if class_name in band_1_totals:
-            continue
-
-        # Band 1 totals (include all classes including nodata)
-        mask_1 = np.logical_and(recoded_1 == val, geometry_mask)
-        area_1 = np.sum(mask_1 * cell_areas)
-        band_1_totals[class_name] = {
-            "area_ha": float(area_1),
-            "area_pct": float(
-                (area_1 / total_area_ha * 100) if total_area_ha > 0 else 0.0
-            ),
+    for k, c in enumerate(ordered_classes):
+        a1 = float(band_1_sums[k])
+        a2 = float(band_2_sums[k])
+        band_1_totals[c] = {
+            "area_ha": a1,
+            "area_pct": float(a1 / total_area_ha * 100) if total_area_ha > 0 else 0.0,
         }
-
-        # Band 2 totals (include all classes including nodata)
-        mask_2 = np.logical_and(recoded_2 == val, geometry_mask)
-        area_2 = np.sum(mask_2 * cell_areas)
-        band_2_totals[class_name] = {
-            "area_ha": float(area_2),
-            "area_pct": float(
-                (area_2 / total_area_ha * 100) if total_area_ha > 0 else 0.0
-            ),
+        band_2_totals[c] = {
+            "area_ha": a2,
+            "area_pct": float(a2 / total_area_ha * 100) if total_area_ha > 0 else 0.0,
         }
 
     return {
