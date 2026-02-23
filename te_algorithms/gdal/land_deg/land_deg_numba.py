@@ -511,9 +511,16 @@ def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
     lc_tg = lc_tg.ravel()
     out = np.zeros(lc_bl.shape, dtype=np.int16)
 
-    for code, meaning in zip(trans_code, trans_meaning):
-        out[trans == code] = meaning
-    out[np.logical_or(lc_bl == NODATA_VALUE, lc_tg == NODATA_VALUE)] = NODATA_VALUE
+    # Build lookup dict for O(1) access instead of O(m) linear scan per pixel
+    lookup = dict()
+    for i in range(len(trans_code)):
+        lookup[trans_code[i]] = trans_meaning[i]
+
+    for i in range(trans.shape[0]):
+        if lc_bl[i] == NODATA_VALUE or lc_tg[i] == NODATA_VALUE:
+            out[i] = NODATA_VALUE
+        elif trans[i] in lookup:
+            out[i] = lookup[trans[i]]
 
     return np.reshape(out, shp)
 

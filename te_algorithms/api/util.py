@@ -504,7 +504,6 @@ def write_to_cog(
     gdal.SetConfigOption(
         "GDAL_FORCE_CACHING", "NO"
     )  # Disable caching for very large files
-    gdal.SetConfigOption("GDAL_ONE_BIG_READ", "YES")  # Read entire blocks at once
 
     # Optimize for specific data types and sizes with memory awareness
     try:

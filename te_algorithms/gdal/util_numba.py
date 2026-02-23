@@ -101,8 +101,8 @@ def zonal_total(z, d, mask):
         {-1: total_degraded_area, 0: total_stable_area, 1: total_improved_area}
     """
     # Use int32 to avoid overflow issues with int16
-    z = z.copy().ravel().astype(np.int32)  # Use int32 instead of int16
-    d = d.copy().ravel().astype(np.float64)  # Ensure float64 type
+    z = z.ravel().astype(np.int32)  # astype already creates a new array
+    d = d.ravel().astype(np.float64)  # astype already creates a new array
     mask = mask.ravel()
     # Convert int16 constants to int32 for mask operations
     z[mask] = np.int32(MASK_VALUE[0])  # Convert to int32 for assignment
@@ -125,8 +125,8 @@ def zonal_total(z, d, mask):
     "zonal_total_weighted", "DictType(i4, f8)(i4[:,:], i4[:,:], f8[:,:], b1[:,:])"
 )
 def zonal_total_weighted(z, d, weights, mask):
-    z = z.copy().ravel().astype(np.int32)  # Use int32 instead of int16
-    d = d.copy().ravel().astype(np.float64)  # Ensure float64 type
+    z = z.ravel().astype(np.int32)  # astype already creates a new array
+    d = d.ravel().astype(np.float64)  # astype already creates a new array
     weights = weights.ravel().astype(np.float64)  # Ensure float64 type
     mask = mask.ravel()
     z[mask] = np.int32(MASK_VALUE[0])  # Convert int16 to int32 for assignment
@@ -151,8 +151,8 @@ def zonal_total_weighted(z, d, weights, mask):
     "bizonal_total", "DictType(UniTuple(i4, 2), f8)(i4[:,:], i4[:,:], f8[:,:], b1[:,:])"
 )
 def bizonal_total(z1, z2, d, mask):
-    z1 = z1.copy().ravel().astype(np.int32)  # Use int32 instead of int16
-    z2 = z2.copy().ravel().astype(np.int32)  # Use int32 instead of int16
+    z1 = z1.ravel().astype(np.int32)  # astype already creates a new array
+    z2 = z2.ravel().astype(np.int32)  # astype already creates a new array
     d = d.ravel().astype(np.float64)  # Ensure float64 type
     mask = mask.ravel()
     z1[mask] = np.int32(MASK_VALUE[0])  # Convert int16 to int32 for assignment
