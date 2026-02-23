@@ -444,7 +444,7 @@ def recode_deg_soc(soc, water):
 
 
 @numba.jit(nopython=True)
-@cc.export("calc_soc_pch", "i2[:,:](i2[:,:], i2[:,:])")
+@cc.export("calc_soc_pch", "f8[:,:](i2[:,:], i2[:,:])")
 def calc_soc_pch(soc_bl, soc_tg):
     """calculate percent change in SOC from initial and final SOC"""
     # Degradation in terms of SOC is defined as a decline of more
@@ -501,7 +501,7 @@ def calc_deg_soc(soc_bl, soc_tg, water):
 
 
 @numba.jit(nopython=True)
-@cc.export("calc_deg_lc", "i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i4, i2[:], i2[:])")
+@cc.export("calc_deg_lc", "i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i4)")
 def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
     """calculate land cover degradation"""
     shp = lc_bl.shape
