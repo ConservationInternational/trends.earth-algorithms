@@ -8,7 +8,6 @@ from typing import List
 import marshmallow_dataclass
 from defusedxml.ElementTree import parse
 from osgeo import gdal, ogr, osr
-from te_schemas.datafile import DataFile
 
 from .util_numba import _accumulate_dicts
 
@@ -270,7 +269,7 @@ def combine_all_bands_into_vrt(
                     out_srs.ImportFromWkt(out_proj)
                     out_ds.SetProjection(out_srs.ExportToWkt())
 
-            if file_num > 1:
+            if file_num > 0:
                 assert this_Xsize == out_Xsize
                 assert this_Ysize == out_Ysize
 
@@ -320,36 +319,6 @@ def save_vrt2(source_path: pathlib.Path, source_band_indices: List[int]) -> str:
     gdal.BuildVRT(temporary_file.name, str(source_path), bandList=source_band_indices)
 
     return temporary_file.name
-
-
-def rm_duplicates(self) -> DataFile:
-    """
-    Remove duplicate bands from the DataFile and return a new Datafile
-    """
-
-    # TODO: Need to add tests for this function
-
-    duplicates = []
-    for outer_index in range(len(self.bands) - 1):
-        if outer_index in duplicates:
-            continue
-        outer_band = self.bands[outer_index]
-        for inner_index in range(outer_index + 1, len(self.bands)):
-            if inner_index in duplicates:
-                continue
-            inner_band = self.bands[inner_index]
-
-            if all(
-                [
-                    outer_band.name == inner_band.name,
-                    outer_band.metadata == inner_band.metadata,
-                ]
-            ):
-                duplicates.append(inner_index)
-
-    bands = [band.copy() for band, i in enumerate(self.bands) if i not in duplicates]
-    band_indices = [i for i in range(len(self.bands)) if i not in duplicates]
-    return DataFile(path=save_vrt2(self.path, band_indices), bands=bands)
 
 
 def wkt_geom_to_geojson_file_string(wkt):
