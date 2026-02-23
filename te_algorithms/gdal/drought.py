@@ -208,7 +208,7 @@ def _process_block(
             pop_row_female = pop_rows_female[row_num]
 
             a_pop_male = in_array[pop_row_male, :, :]
-            a_pop_male_recoded = a_pop_male.copy().astype(np.float64)
+            a_pop_male_recoded = a_pop_male.astype(np.float64)
             a_pop_male_recoded[a_pop_male == NODATA_VALUE] = 0
 
             if mask_water:
@@ -218,7 +218,7 @@ def _process_block(
             )
 
             a_pop_female = in_array[pop_row_female, :, :]
-            a_pop_female_recoded = a_pop_female.copy().astype(np.float64)
+            a_pop_female_recoded = a_pop_female.astype(np.float64)
             a_pop_female_recoded[a_pop_female == NODATA_VALUE] = 0
 
             if mask_water:
@@ -232,7 +232,7 @@ def _process_block(
         else:
             pop_row_total = pop_rows_total[row_num]
             a_pop_total = in_array[pop_row_total, :, :]
-            a_pop_total_recoded = a_pop_total.copy().astype(np.float64)
+            a_pop_total_recoded = a_pop_total.astype(np.float64)
             a_pop_total_recoded[a_pop_total == NODATA_VALUE] = 0
 
             if mask_water:
@@ -262,22 +262,16 @@ def _process_block(
         max_drought = np.take_along_axis(spis, min_indices, axis=0).squeeze()
 
         if pop_by_sex:
-            pop_male = (
-                in_array[pop_rows_male[first_row:last_row], :, :]
-                .copy()
-                .astype(np.float64)
+            pop_male = in_array[pop_rows_male[first_row:last_row], :, :].astype(
+                np.float64
             )
-            pop_female = (
-                in_array[pop_rows_female[first_row:last_row], :, :]
-                .copy()
-                .astype(np.float64)
+            pop_female = in_array[pop_rows_female[first_row:last_row], :, :].astype(
+                np.float64
             )
             pop_total = pop_male + pop_female
         else:
-            pop_total = (
-                in_array[pop_rows_total[first_row:last_row], :, :]
-                .copy()
-                .astype(np.float64)
+            pop_total = in_array[pop_rows_total[first_row:last_row], :, :].astype(
+                np.float64
             )
         pop_total_max_drought = np.take_along_axis(
             pop_total, min_indices, axis=0
