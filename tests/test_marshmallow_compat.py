@@ -34,11 +34,10 @@ if _te_schemas_poisoned:
     # Doing so invalidates module references held by other test files
     # (e.g. test_gee_productivity_functions.py) which causes their
     # @patch decorators to target a re-imported copy instead of the
-    # original module object.  The te_algorithms modules that captured
-    # mock te_schemas refs are only used by the GEE tests which already
-    # operate with mocked te_schemas — purging them breaks test isolation.
-
-from te_schemas import SchemaBase  # noqa: E402
+    # original module object.  The te_algorithms.gdal modules that were
+    # already imported keep a reference to the OLD SchemaBase object,
+    # so issubclass checks in tests below use MRO name comparison
+    # instead of identity to tolerate this.
 
 
 # ===================================================================
@@ -136,7 +135,11 @@ class TestSummaryTableLD:
     def test_is_schema_base(self):
         from te_algorithms.gdal.land_deg.models import SummaryTableLD
 
-        assert issubclass(SummaryTableLD, SchemaBase)
+        # Use MRO name check instead of issubclass() because module
+        # reimports (after sys.modules cleanup of mocked te_schemas)
+        # can produce a different SchemaBase class object.
+        mro_names = [cls.__name__ for cls in SummaryTableLD.__mro__]
+        assert "SchemaBase" in mro_names
 
     def test_dump_method(self):
         obj = self._make_summary()
@@ -221,7 +224,8 @@ class TestSummaryTableDrought:
     def test_is_schema_base(self):
         from te_algorithms.gdal.drought import SummaryTableDrought
 
-        assert issubclass(SummaryTableDrought, SchemaBase)
+        mro_names = [cls.__name__ for cls in SummaryTableDrought.__mro__]
+        assert "SchemaBase" in mro_names
 
     def test_dump_method(self):
         from te_algorithms.gdal.drought import SummaryTableDrought
