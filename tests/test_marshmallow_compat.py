@@ -20,6 +20,7 @@ class TestImageInfo:
     """Tests for the ImageInfo dataclass in gdal/util.py."""
 
     def test_roundtrip(self):
+        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.util import ImageInfo
 
         obj = ImageInfo(
@@ -39,6 +40,7 @@ class TestImageInfo:
         assert loaded.pixel_height == pytest.approx(-0.00027)
 
     def test_get_n_blocks(self):
+        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.util import ImageInfo
 
         obj = ImageInfo(
@@ -52,6 +54,7 @@ class TestImageInfo:
         assert obj.get_n_blocks() == 4
 
     def test_schema_is_callable(self):
+        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.util import ImageInfo
 
         schema = ImageInfo.Schema()
@@ -159,6 +162,8 @@ class TestSummaryTableLDErrorRecode:
 
 class TestSummaryTableDrought:
     def test_roundtrip(self):
+        pytest.importorskip("openpyxl", reason="openpyxl not installed")
+        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.drought import SummaryTableDrought
 
         obj = SummaryTableDrought(
@@ -173,11 +178,15 @@ class TestSummaryTableDrought:
         assert isinstance(loaded, SummaryTableDrought)
 
     def test_is_schema_base(self):
+        pytest.importorskip("openpyxl", reason="openpyxl not installed")
+        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.drought import SummaryTableDrought
 
         assert issubclass(SummaryTableDrought, SchemaBase)
 
     def test_dump_method(self):
+        pytest.importorskip("openpyxl", reason="openpyxl not installed")
+        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.drought import SummaryTableDrought
 
         obj = SummaryTableDrought(
@@ -201,6 +210,7 @@ class TestSchemaAttributes:
     """Every @marshmallow_dataclass.dataclass should have a callable .Schema()."""
 
     def test_image_info_schema(self):
+        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.util import ImageInfo
 
         assert callable(ImageInfo.Schema)
@@ -228,6 +238,8 @@ class TestSchemaAttributes:
         assert callable(SummaryTableLDErrorRecode.Schema)
 
     def test_summary_table_drought_schema(self):
+        pytest.importorskip("openpyxl", reason="openpyxl not installed")
+        pytest.importorskip("osgeo", reason="GDAL not installed")
         from te_algorithms.gdal.drought import SummaryTableDrought
 
         assert callable(SummaryTableDrought.Schema)
