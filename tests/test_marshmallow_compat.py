@@ -30,10 +30,13 @@ if _te_schemas_poisoned:
     for _mod in list(sys.modules):
         if _mod == "te_schemas" or _mod.startswith("te_schemas."):
             del sys.modules[_mod]
-    # Also remove any te_algorithms modules that may have captured the mock
-    for _mod in list(sys.modules):
-        if _mod == "te_algorithms" or _mod.startswith("te_algorithms."):
-            del sys.modules[_mod]
+    # NOTE: We intentionally do NOT remove te_algorithms.* modules here.
+    # Doing so invalidates module references held by other test files
+    # (e.g. test_gee_productivity_functions.py) which causes their
+    # @patch decorators to target a re-imported copy instead of the
+    # original module object.  The te_algorithms modules that captured
+    # mock te_schemas refs are only used by the GEE tests which already
+    # operate with mocked te_schemas — purging them breaks test isolation.
 
 from te_schemas import SchemaBase  # noqa: E402
 
@@ -42,11 +45,11 @@ from te_schemas import SchemaBase  # noqa: E402
 # 1. ImageInfo round-trip (te_algorithms.gdal.util)
 # ===================================================================
 
-# ImageInfo lives in te_algorithms.gdal.util which imports numpy
-# transitively via util_numba.  Guard on numpy, not just osgeo.
+# ImageInfo lives in te_algorithms.gdal.util which imports osgeo (GDAL)
+# and numpy transitively via util_numba.  Guard on both.
 _skip_gdal_util = pytest.mark.skipif(
-    not importlib.util.find_spec("numpy"),
-    reason="numpy not installed (required by te_algorithms.gdal.util)",
+    not importlib.util.find_spec("numpy") or not importlib.util.find_spec("osgeo"),
+    reason="numpy and osgeo (GDAL) required by te_algorithms.gdal.util",
 )
 
 

@@ -298,8 +298,11 @@ class TestEdgeCases:
 
         result = zonal_total(zones, data, mask)
 
-        # Basic sanity checks
-        assert isinstance(result, dict)
+        # Basic sanity checks - zonal_total may return a numba.typed.Dict
+        # which is not a subclass of dict, so check for Mapping interface
+        from collections.abc import Mapping
+
+        assert isinstance(result, Mapping)
         assert len(result) > 0
         assert all(isinstance(k, (int, np.integer)) for k in result.keys())
         assert all(isinstance(v, (float, np.floating)) for v in result.values())

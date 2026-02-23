@@ -157,8 +157,8 @@ class TestWorkflowIntegration:
 
         # Verify transition codes
         assert transitions.shape == lc_baseline.shape
-        # Function may return int16 for smaller values
-        assert transitions.dtype in [np.int16, np.int32]
+        # Function may return int16, int32, or int64 depending on numba version
+        assert transitions.dtype in [np.int16, np.int32, np.int64]
 
         # Check specific transitions
         assert transitions[0, 0] == 101  # 1->1 = stable
@@ -465,7 +465,8 @@ class TestDataTypeConsistency:
         # With multiplier 100, this should create values > 32767 (int16 max)
         result = calc_lc_trans(lc_bl, lc_tg, 100)
 
-        assert result.dtype == np.int32
+        # At least int32 to handle large values (numba JIT may use int64)
+        assert result.dtype in [np.int32, np.int64]
         assert result[0, 0] == 9999  # 99*100 + 99
 
     def test_float64_for_areas(self):

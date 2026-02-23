@@ -1512,16 +1512,17 @@ class TestErrorRecodingFunctions:
         # Create periods mask - 1 indicates baseline period is affected
         periods_mask_simple = np.ones_like(recode_simple, dtype=np.int16)
 
+        empty = np.array([], dtype=np.int16)
         result = recode_indicator_errors(
             x_simple.copy(),
             None,
             None,
             recode_simple,
             periods_mask_simple,
-            [],
-            [],
-            [],
-            [],
+            empty,
+            empty,
+            empty,
+            empty,
         )
 
         # result is a tuple, take the baseline (first element)
