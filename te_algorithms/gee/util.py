@@ -122,19 +122,24 @@ class gee_task(threading.Thread):
         # for Trends.Earth
         self.metadata = metadata
         self.state = self.task.status().get("state")
+        self.exc = None  # Stores any exception from the thread for the caller
         self.start()
 
     def cancel_hdlr(self, details):
-        self.logger.debug(
-            "GEE task {} timed out after {} hours".format(
-                self.task.status().get("id"), (time() - self.start_time) / (60 * 60)
+        try:
+            status = self.task.status()
+            self.logger.debug(
+                "GEE task {} timed out after {} hours".format(
+                    status.get("id"), (time() - self.start_time) / (60 * 60)
+                )
             )
-        )
-        ee.data.cancelTask(self.task.status().get("id"))
+            ee.data.cancelTask(status.get("id"))
+        except Exception:
+            pass
 
     def on_backoff_hdlr(self, details):
         try:
-            details.update({"task_id": self.task.status().get("id")})
+            details.update({"task_id": self._last_task_id or "unknown"})
             # Fire-and-forget: the debug message goes to the API logger in
             # the background so it never blocks the polling loop.
             msg = (
@@ -158,50 +163,68 @@ class gee_task(threading.Thread):
             max_value=600,
         )
         def get_status(self):
+            # Single status() call per iteration – avoids redundant HTTP
+            # round-trips and halves the chances of hitting a network hang.
+            status = self.task.status()
+            self.state = status.get("state")
+            self._last_task_id = status.get("id")
+
             # Fire-and-forget: send_progress may call patch_execution which
             # retries on failure for minutes.  Running it in the background
             # keeps the polling loop responsive.
             try:
-                progress = self.task.status().get("progress", 0.0)
+                progress = status.get("progress", 0.0)
                 _fire_and_forget(self.logger.send_progress, progress)
             except Exception:
                 pass
-            self.state = self.task.status().get("state")
 
             return self.state
 
         return get_status(self)
 
     def run(self):
-        self.task.start()
-        self.start_time = time()
-        self.logger.debug("Starting GEE task {}.".format(self.task.status().get("id")))
-        self.poll_for_completion()
+        try:
+            self.task.start()
+            self.start_time = time()
+            self._last_task_id = None
+            status = self.task.status()
+            self._last_task_id = status.get("id")
+            self.logger.debug("Starting GEE task {}.".format(status.get("id")))
+            self.poll_for_completion()
 
-        if not self.state:
-            raise GEETaskFailure(self.task)
+            if not self.state:
+                raise GEETaskFailure(self.task)
 
-        if self.state == "COMPLETED":
-            self.logger.debug(
-                "GEE task {} completed.".format(self.task.status().get("id"))
-            )
-        elif self.state == "FAILED":
-            self.logger.debug(
-                "GEE task {} failed: {}".format(
-                    self.task.status().get("id"),
-                    self.task.status().get("error_message"),
+            if self.state == "COMPLETED":
+                self.logger.debug("GEE task {} completed.".format(self._last_task_id))
+            elif self.state == "FAILED":
+                status = self.task.status()
+                self.logger.debug(
+                    "GEE task {} failed: {}".format(
+                        status.get("id"),
+                        status.get("error_message"),
+                    )
                 )
-            )
-            raise GEETaskFailure(self.task)
-        else:
-            self.logger.debug(
-                "GEE task {} returned status {}: {}".format(
-                    self.task.status().get("id"),
-                    self.state,
-                    self.task.status().get("error_message"),
+                raise GEETaskFailure(self.task)
+            else:
+                status = self.task.status()
+                self.logger.debug(
+                    "GEE task {} returned status {}: {}".format(
+                        status.get("id"),
+                        self.state,
+                        status.get("error_message"),
+                    )
                 )
-            )
-            raise GEETaskFailure(self.task)
+                raise GEETaskFailure(self.task)
+        except Exception as exc:
+            # Capture the exception so the joining thread can re-raise it.
+            # Thread exceptions do NOT propagate to the parent; without this
+            # the caller would never know that polling failed.
+            self.exc = exc
+            try:
+                self.logger.debug("GEE task thread failed: {}".format(exc))
+            except Exception:
+                print(f"[gee_task] thread failed: {exc}", file=sys.stderr)
 
     def get_urls(self):
         @backoff.on_exception(
@@ -418,7 +441,14 @@ class TEImage:
         urls = []
 
         for task in tasks:
-            task.join()
+            task.join(timeout=TASK_TIMEOUT_MINUTES * 60 + 60)
+
+            if task.is_alive():
+                raise GEETaskFailure(task.task)
+
+            if task.exc is not None:
+                raise task.exc
+
             urls.extend(task.get_urls())
 
         gee_results = CloudResults(task_name, self.band_info, urls)
@@ -742,7 +772,21 @@ class TEImageV2:
         output = {}
 
         for task in tasks:
-            task.join()
+            # Use a generous timeout so we don't block forever if a thread
+            # hangs on a network call.  The per-task polling already has its
+            # own 48-hour max_time; the extra 60 s here is just buffer for
+            # shutdown and result fetching.
+            task.join(timeout=TASK_TIMEOUT_MINUTES * 60 + 60)
+
+            # If the thread is still alive after the timeout, something is
+            # seriously wrong (e.g. HTTP call with no timeout hanging).
+            if task.is_alive():
+                raise GEETaskFailure(task.task)
+
+            # Re-raise any exception captured inside the thread so the
+            # caller (and ultimately Rollbar) can see it.
+            if task.exc is not None:
+                raise task.exc
 
             if task.metadata["datatype"] in output:
                 output[task.metadata["datatype"]]["uris"].extend(task.get_uris())
