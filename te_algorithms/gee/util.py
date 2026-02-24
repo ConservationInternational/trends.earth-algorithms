@@ -116,11 +116,15 @@ class gee_task(threading.Thread):
         ee.data.cancelTask(self.task.status().get("id"))
 
     def on_backoff_hdlr(self, details):
-        details.update({"task_id": self.task.status().get("id")})
-        self.logger.debug(
-            "Backing off {wait:0.1f} seconds after {tries} tries "
-            "calling function {target} for task {task_id}".format(**details)
-        )
+        try:
+            details.update({"task_id": self.task.status().get("id")})
+            self.logger.debug(
+                "Backing off {wait:0.1f} seconds after {tries} tries "
+                "calling function {target} for task {task_id}".format(**details)
+            )
+        except Exception:
+            # Never let a logging failure interfere with the polling loop
+            pass
 
     def poll_for_completion(self):
         @backoff.on_predicate(
@@ -134,7 +138,13 @@ class gee_task(threading.Thread):
             max_value=600,
         )
         def get_status(self):
-            self.logger.send_progress(self.task.status().get("progress", 0.0))
+            try:
+                self.logger.send_progress(self.task.status().get("progress", 0.0))
+            except Exception:
+                # send_progress failures must not kill the polling loop.
+                # The Environment's GEFLogger.send_progress already guards
+                # against this, but older versions or subclasses may not.
+                pass
             self.state = self.task.status().get("state")
 
             return self.state
