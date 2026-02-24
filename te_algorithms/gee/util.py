@@ -152,6 +152,8 @@ class gee_task(threading.Thread):
             pass
 
     def poll_for_completion(self):
+        self._poll_count = 0
+
         @backoff.on_predicate(
             backoff.expo,
             lambda x: x in ["READY", "RUNNING"],
@@ -163,11 +165,34 @@ class gee_task(threading.Thread):
             max_value=600,
         )
         def get_status(self):
+            self._poll_count += 1
+
             # Single status() call per iteration – avoids redundant HTTP
             # round-trips and halves the chances of hitting a network hang.
             status = self.task.status()
             self.state = status.get("state")
             self._last_task_id = status.get("id")
+
+            # Periodic *direct* log so that container stderr always shows
+            # the polling loop is alive, even when API logging fails.
+            if self._poll_count == 1 or self._poll_count % 10 == 0:
+                elapsed = (time() - self.start_time) / 60.0
+                msg = (
+                    "Poll #{} for task {}: state={}, "
+                    "progress={:.0f}%, elapsed={:.1f} min".format(
+                        self._poll_count,
+                        self._last_task_id,
+                        self.state,
+                        status.get("progress", 0) * 100,
+                        elapsed,
+                    )
+                )
+                # Direct call — goes to both API logger *and* stderr
+                # (if the logger has a StreamHandler, which it now does).
+                try:
+                    self.logger.debug(msg)
+                except Exception:
+                    print(f"[gee_task] {msg}", file=sys.stderr)
 
             # Fire-and-forget: send_progress may call patch_execution which
             # retries on failure for minutes.  Running it in the background
@@ -190,7 +215,17 @@ class gee_task(threading.Thread):
             status = self.task.status()
             self._last_task_id = status.get("id")
             self.logger.debug("Starting GEE task {}.".format(status.get("id")))
+            self.logger.debug(
+                "Entering poll loop for task {} (state={}).".format(
+                    self._last_task_id, status.get("state")
+                )
+            )
             self.poll_for_completion()
+            self.logger.debug(
+                "Poll loop exited for task {} (final state={}, polls={}).".format(
+                    self._last_task_id, self.state, self._poll_count
+                )
+            )
 
             if not self.state:
                 raise GEETaskFailure(self.task)
@@ -238,7 +273,8 @@ class gee_task(threading.Thread):
         )
         def request_urls(self):
             return requests.get(
-                f"https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}"
+                f"https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}",
+                timeout=120,
             )
 
         resp = request_urls(self)
@@ -272,7 +308,8 @@ class gee_task(threading.Thread):
         )
         def request_uris(self):
             return requests.get(
-                f"https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}"
+                f"https://www.googleapis.com/storage/v1/b/{BUCKET}/o?prefix={self.prefix}",
+                timeout=120,
             )
 
         resp = request_uris(self)
