@@ -101,6 +101,8 @@ def get_type(geojson):
 class gee_task(threading.Thread):
     """Run earth engine task against the trends.earth API"""
 
+    _ee_api_lock = threading.RLock()
+
     def __init__(self, task, prefix, logger, metadata=None):
         threading.Thread.__init__(self)
         self.task = task
@@ -114,21 +116,22 @@ class gee_task(threading.Thread):
         self.start()
 
     def _get_task_status(self):
-        try:
-            ee.data.setDeadline(EE_REQUEST_TIMEOUT_SECONDS * 1000)
-        except Exception:
-            # Best effort: if unavailable in this EE client version, continue.
-            pass
+        with self._ee_api_lock:
+            try:
+                ee.data.setDeadline(EE_REQUEST_TIMEOUT_SECONDS * 1000)
+            except Exception:
+                # Best effort: if unavailable in this EE client version, continue.
+                pass
 
-        try:
-            state = ee.data._get_state()
-            if state.requests_session is not None:
-                state.requests_session.headers["Connection"] = "close"
-        except Exception:
-            # Best effort: when EE internals differ, continue with defaults.
-            pass
+            try:
+                state = ee.data._get_state()
+                if state.requests_session is not None:
+                    state.requests_session.headers["Connection"] = "close"
+            except Exception:
+                # Best effort: when EE internals differ, continue with defaults.
+                pass
 
-        return self.task.status()
+            return self.task.status()
 
     def cancel_hdlr(self, details):
         try:
@@ -138,7 +141,8 @@ class gee_task(threading.Thread):
                     status.get("id"), (time() - self.start_time) / (60 * 60)
                 )
             )
-            ee.data.cancelTask(status.get("id"))
+            with self._ee_api_lock:
+                ee.data.cancelTask(status.get("id"))
         except Exception:
             pass
 
@@ -209,7 +213,8 @@ class gee_task(threading.Thread):
 
     def run(self):
         try:
-            self.task.start()
+            with self._ee_api_lock:
+                self.task.start()
             self.start_time = time()
             self._last_task_id = None
             status = self._get_task_status()
