@@ -68,6 +68,9 @@ EE_REQUEST_TIMEOUT_SECONDS = 120
 # Diagnostic interval for long-running EE calls.
 EE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 
+# Threshold for diagnosing a potentially blocked logger.debug() call.
+LOGGER_CALL_DIAGNOSTIC_SECONDS = 10
+
 
 def get_region(geom):
     """Return ee.Geometry from supplied GeoJSON object."""
@@ -132,11 +135,60 @@ class gee_task(threading.Thread):
     def _with_correlation(self, msg):
         return f"[gee_task:{self._correlation_id}] {msg}"
 
+    def _raw_stderr(self, msg):
+        print(self._with_correlation(msg), file=sys.stderr, flush=True)
+
     def _log_debug(self, msg):
+        payload = self._with_correlation(msg)
+        started = time()
+        done = threading.Event()
+        caller_thread_id = threading.get_ident()
+        caller_thread_name = threading.current_thread().name
+
+        def logger_watchdog():
+            while not done.wait(LOGGER_CALL_DIAGNOSTIC_SECONDS):
+                elapsed = time() - started
+                self._raw_stderr(
+                    "GEE diagnostics: logger.debug appears blocked for {:.1f}s "
+                    "(thread_id={}, thread_name={}) while emitting: {}".format(
+                        elapsed,
+                        caller_thread_id,
+                        caller_thread_name,
+                        msg,
+                    )
+                )
+                frame = sys._current_frames().get(caller_thread_id)
+                if frame is not None:
+                    stack = "".join(traceback.format_stack(frame))
+                    self._raw_stderr(
+                        "GEE diagnostics: blocked logger caller stack:\n{}".format(
+                            stack
+                        )
+                    )
+
+        watchdog_thread = threading.Thread(
+            target=logger_watchdog,
+            name="gee-logger-watchdog",
+            daemon=True,
+        )
+        watchdog_thread.start()
+
         try:
-            self.logger.debug(self._with_correlation(msg))
+            self.logger.debug(payload)
         except Exception:
-            print(self._with_correlation(msg), file=sys.stderr)
+            self._raw_stderr(msg)
+        finally:
+            done.set()
+            watchdog_thread.join(timeout=0.2)
+
+        elapsed = time() - started
+        if elapsed >= 1:
+            self._raw_stderr(
+                "GEE diagnostics: logger.debug took {:.2f}s for message: {}".format(
+                    elapsed,
+                    msg,
+                )
+            )
 
     def _log_current_stack(self, label, thread_id):
         frame = sys._current_frames().get(thread_id)
