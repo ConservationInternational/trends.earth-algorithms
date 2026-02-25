@@ -58,6 +58,10 @@ BUCKET = "ldmt"
 # cancelled
 TASK_TIMEOUT_MINUTES = 48 * 60
 
+# Timeout for individual Earth Engine API requests (seconds). This prevents
+# task.status() from blocking forever on a hung network call.
+EE_REQUEST_TIMEOUT_SECONDS = 120
+
 
 def get_region(geom):
     """Return ee.Geometry from supplied GeoJSON object."""
@@ -105,13 +109,30 @@ class gee_task(threading.Thread):
         # self.metadata is used only to facilitate saving the final JSON output
         # for Trends.Earth
         self.metadata = metadata
-        self.state = self.task.status().get("state")
+        self.state = None
         self.exc = None  # Stores any exception from the thread for the caller
         self.start()
 
+    def _get_task_status(self):
+        try:
+            ee.data.setDeadline(EE_REQUEST_TIMEOUT_SECONDS * 1000)
+        except Exception:
+            # Best effort: if unavailable in this EE client version, continue.
+            pass
+
+        try:
+            state = ee.data._get_state()
+            if state.requests_session is not None:
+                state.requests_session.headers["Connection"] = "close"
+        except Exception:
+            # Best effort: when EE internals differ, continue with defaults.
+            pass
+
+        return self.task.status()
+
     def cancel_hdlr(self, details):
         try:
-            status = self.task.status()
+            status = self._get_task_status()
             self.logger.debug(
                 "GEE task {} timed out after {} hours".format(
                     status.get("id"), (time() - self.start_time) / (60 * 60)
@@ -151,7 +172,7 @@ class gee_task(threading.Thread):
 
             # Single status() call per iteration – avoids redundant HTTP
             # round-trips and halves the chances of hitting a network hang.
-            status = self.task.status()
+            status = self._get_task_status()
             self.state = status.get("state")
             self._last_task_id = status.get("id")
 
@@ -191,7 +212,7 @@ class gee_task(threading.Thread):
             self.task.start()
             self.start_time = time()
             self._last_task_id = None
-            status = self.task.status()
+            status = self._get_task_status()
             self._last_task_id = status.get("id")
             self.logger.debug("Starting GEE task {}.".format(status.get("id")))
             self.logger.debug(
@@ -212,7 +233,7 @@ class gee_task(threading.Thread):
             if self.state == "COMPLETED":
                 self.logger.debug("GEE task {} completed.".format(self._last_task_id))
             elif self.state == "FAILED":
-                status = self.task.status()
+                status = self._get_task_status()
                 self.logger.debug(
                     "GEE task {} failed: {}".format(
                         status.get("id"),
@@ -221,7 +242,7 @@ class gee_task(threading.Thread):
                 )
                 raise GEETaskFailure(self.task)
             else:
-                status = self.task.status()
+                status = self._get_task_status()
                 self.logger.debug(
                     "GEE task {} returned status {}: {}".format(
                         status.get("id"),
