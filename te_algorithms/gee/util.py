@@ -5,6 +5,7 @@ import threading
 import traceback
 import typing
 import uuid
+from contextlib import contextmanager
 from time import time
 from typing import Union
 
@@ -150,6 +151,56 @@ class gee_task(threading.Thread):
             f"GEE diagnostics: {label} stack for thread {thread_id}:\n{stack}"
         )
 
+    def _log_all_thread_stacks(self, label):
+        current_frames = sys._current_frames()
+        thread_names = {thread.ident: thread.name for thread in threading.enumerate()}
+
+        lines = [f"GEE diagnostics: {label} - dumping all thread stacks."]
+        for thread_id, frame in current_frames.items():
+            thread_name = thread_names.get(thread_id, "unknown")
+            lines.append(f"--- Thread {thread_name} ({thread_id}) ---")
+            lines.append("".join(traceback.format_stack(frame)))
+
+        self._log_debug("\n".join(lines))
+
+    @contextmanager
+    def _acquire_ee_lock(self, label):
+        self._log_debug(f"GEE diagnostics: requesting EE API lock for {label}.")
+        started = time()
+        wait_ticks = 0
+
+        while True:
+            acquired = self._ee_api_lock.acquire(timeout=EE_DIAGNOSTIC_INTERVAL_SECONDS)
+            if acquired:
+                waited = time() - started
+                if waited >= 1:
+                    self._log_debug(
+                        "GEE diagnostics: acquired EE API lock for {} after {:.2f}s "
+                        "(wait_ticks={}).".format(
+                            label,
+                            waited,
+                            wait_ticks,
+                        )
+                    )
+                break
+
+            wait_ticks += 1
+            waited = time() - started
+            self._log_debug(
+                "GEE diagnostics: waiting for EE API lock for {} for {:.1f}s "
+                "(wait_ticks={}).".format(
+                    label,
+                    waited,
+                    wait_ticks,
+                )
+            )
+            self._log_all_thread_stacks(f"EE lock wait for {label}")
+
+        try:
+            yield
+        finally:
+            self._ee_api_lock.release()
+
     def _call_with_diagnostics(self, label, fn):
         call_thread_id = threading.get_ident()
         call_thread_name = threading.current_thread().name
@@ -212,16 +263,7 @@ class gee_task(threading.Thread):
             watchdog_thread.join(timeout=0.2)
 
     def _get_task_status(self):
-        lock_wait_started = time()
-        self._log_debug("GEE diagnostics: requesting EE API lock for task.status().")
-        with self._ee_api_lock:
-            lock_wait_seconds = time() - lock_wait_started
-            if lock_wait_seconds >= 1:
-                self._log_debug(
-                    "GEE diagnostics: acquired EE API lock for task.status() "
-                    "after {:.2f}s.".format(lock_wait_seconds)
-                )
-
+        with self._acquire_ee_lock("task.status()"):
             self._status_call_count += 1
             self._log_debug(
                 "GEE diagnostics: status call #{} starting.".format(
@@ -264,7 +306,7 @@ class gee_task(threading.Thread):
                     status.get("id"), (time() - self.start_time) / (60 * 60)
                 )
             )
-            with self._ee_api_lock:
+            with self._acquire_ee_lock("ee.data.cancelTask()"):
                 self._call_with_diagnostics(
                     "ee.data.cancelTask()",
                     lambda: ee.data.cancelTask(status.get("id")),
@@ -334,15 +376,7 @@ class gee_task(threading.Thread):
 
     def run(self):
         try:
-            lock_wait_started = time()
-            self._log_debug("GEE diagnostics: requesting EE API lock for task.start().")
-            with self._ee_api_lock:
-                lock_wait_seconds = time() - lock_wait_started
-                if lock_wait_seconds >= 1:
-                    self._log_debug(
-                        "GEE diagnostics: acquired EE API lock for task.start() "
-                        "after {:.2f}s.".format(lock_wait_seconds)
-                    )
+            with self._acquire_ee_lock("task.start()"):
                 self._call_with_diagnostics("task.start()", self.task.start)
             self.start_time = time()
             self._last_task_id = None
