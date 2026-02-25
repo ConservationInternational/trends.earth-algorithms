@@ -94,22 +94,6 @@ def get_type(geojson):
         return geojson.get("type")
 
 
-def _fire_and_forget(fn, *args, **kwargs):
-    """Run *fn* on a daemon thread so it never blocks the caller.
-
-    Any exception raised by *fn* is logged to stderr and swallowed.
-    """
-
-    def _wrapper():
-        try:
-            fn(*args, **kwargs)
-        except Exception as exc:
-            print(f"[gee_task] background call failed: {exc}", file=sys.stderr)
-
-    t = threading.Thread(target=_wrapper, daemon=True)
-    t.start()
-
-
 class gee_task(threading.Thread):
     """Run earth engine task against the trends.earth API"""
 
@@ -140,13 +124,11 @@ class gee_task(threading.Thread):
     def on_backoff_hdlr(self, details):
         try:
             details.update({"task_id": self._last_task_id or "unknown"})
-            # Fire-and-forget: the debug message goes to the API logger in
-            # the background so it never blocks the polling loop.
             msg = (
                 "Backing off {wait:0.1f} seconds after {tries} tries "
                 "calling function {target} for task {task_id}".format(**details)
             )
-            _fire_and_forget(self.logger.debug, msg)
+            self.logger.debug(msg)
         except Exception:
             # Never let a logging failure interfere with the polling loop
             pass
@@ -194,12 +176,9 @@ class gee_task(threading.Thread):
                 except Exception:
                     print(f"[gee_task] {msg}", file=sys.stderr)
 
-            # Fire-and-forget: send_progress may call patch_execution which
-            # retries on failure for minutes.  Running it in the background
-            # keeps the polling loop responsive.
             try:
                 progress = status.get("progress", 0.0)
-                _fire_and_forget(self.logger.send_progress, progress)
+                self.logger.send_progress(progress)
             except Exception:
                 pass
 

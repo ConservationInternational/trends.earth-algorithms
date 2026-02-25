@@ -245,12 +245,15 @@ def productivity_trajectory(
 ):
     logger.debug("Entering productivity_trajectory function.")
 
-    climate_1yr = ee.Image(climate_asset)
-    climate_1yr = climate_1yr.where(climate_1yr.eq(9999), -32768)
-    climate_1yr = climate_1yr.updateMask(climate_1yr.neq(-32768))
-
     if climate_asset is None and method != "ndvi_trend":
         raise GEEIOError("Must specify a climate dataset")
+
+    if climate_asset is not None:
+        climate_1yr = ee.Image(climate_asset)
+        climate_1yr = climate_1yr.where(climate_1yr.eq(9999), -32768)
+        climate_1yr = climate_1yr.updateMask(climate_1yr.neq(-32768))
+    else:
+        climate_1yr = None
 
     ndvi_dataset = ee.Image(prod_asset)
     ndvi_dataset = ndvi_dataset.where(ndvi_dataset.eq(9999), -32768)
