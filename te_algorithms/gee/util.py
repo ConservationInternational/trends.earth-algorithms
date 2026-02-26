@@ -2,7 +2,6 @@ import random
 import re
 import sys
 import threading
-import traceback
 import typing
 import uuid
 from contextlib import contextmanager
@@ -65,12 +64,6 @@ TASK_TIMEOUT_MINUTES = 48 * 60
 # task.status() from blocking forever on a hung network call.
 EE_REQUEST_TIMEOUT_SECONDS = 120
 
-# Diagnostic interval for long-running EE calls.
-EE_DIAGNOSTIC_INTERVAL_SECONDS = 30
-
-# Threshold for diagnosing a potentially blocked logger.debug() call.
-LOGGER_CALL_DIAGNOSTIC_SECONDS = 10
-
 
 def get_region(geom):
     """Return ee.Geometry from supplied GeoJSON object."""
@@ -122,7 +115,6 @@ class gee_task(threading.Thread):
         self.metadata = metadata
         self.state = None
         self.exc = None  # Stores any exception from the thread for the caller
-        self._status_call_count = 0
         self._correlation_id = uuid.uuid4().hex[:12]
         self._log_debug(
             "Initialized gee_task (prefix={}, thread_name={}).".format(
@@ -135,194 +127,19 @@ class gee_task(threading.Thread):
     def _with_correlation(self, msg):
         return f"[gee_task:{self._correlation_id}] {msg}"
 
-    def _raw_stderr(self, msg):
-        print(self._with_correlation(msg), file=sys.stderr, flush=True)
-
     def _log_debug(self, msg):
-        payload = self._with_correlation(msg)
-        started = time()
-        done = threading.Event()
-        caller_thread_id = threading.get_ident()
-        caller_thread_name = threading.current_thread().name
-
-        def logger_watchdog():
-            while not done.wait(LOGGER_CALL_DIAGNOSTIC_SECONDS):
-                elapsed = time() - started
-                self._raw_stderr(
-                    "GEE diagnostics: logger.debug appears blocked for {:.1f}s "
-                    "(thread_id={}, thread_name={}) while emitting: {}".format(
-                        elapsed,
-                        caller_thread_id,
-                        caller_thread_name,
-                        msg,
-                    )
-                )
-                frame = sys._current_frames().get(caller_thread_id)
-                if frame is not None:
-                    stack = "".join(traceback.format_stack(frame))
-                    self._raw_stderr(
-                        "GEE diagnostics: blocked logger caller stack:\n{}".format(
-                            stack
-                        )
-                    )
-
-        watchdog_thread = threading.Thread(
-            target=logger_watchdog,
-            name="gee-logger-watchdog",
-            daemon=True,
-        )
-        watchdog_thread.start()
-
         try:
-            self.logger.debug(payload)
+            self.logger.debug(self._with_correlation(msg))
         except Exception:
-            self._raw_stderr(msg)
-        finally:
-            done.set()
-            watchdog_thread.join(timeout=0.2)
-
-        elapsed = time() - started
-        if elapsed >= 1:
-            self._raw_stderr(
-                "GEE diagnostics: logger.debug took {:.2f}s for message: {}".format(
-                    elapsed,
-                    msg,
-                )
-            )
-
-    def _log_current_stack(self, label, thread_id):
-        frame = sys._current_frames().get(thread_id)
-        if frame is None:
-            self._log_debug(
-                f"GEE diagnostics: {label} stack unavailable for thread {thread_id}."
-            )
-            return
-
-        stack = "".join(traceback.format_stack(frame))
-        self._log_debug(
-            f"GEE diagnostics: {label} stack for thread {thread_id}:\n{stack}"
-        )
-
-    def _log_all_thread_stacks(self, label):
-        current_frames = sys._current_frames()
-        thread_names = {thread.ident: thread.name for thread in threading.enumerate()}
-
-        lines = [f"GEE diagnostics: {label} - dumping all thread stacks."]
-        for thread_id, frame in current_frames.items():
-            thread_name = thread_names.get(thread_id, "unknown")
-            lines.append(f"--- Thread {thread_name} ({thread_id}) ---")
-            lines.append("".join(traceback.format_stack(frame)))
-
-        self._log_debug("\n".join(lines))
+            print(self._with_correlation(msg), file=sys.stderr)
 
     @contextmanager
     def _acquire_ee_lock(self, label):
-        self._log_debug(f"GEE diagnostics: requesting EE API lock for {label}.")
-        started = time()
-        wait_ticks = 0
-
-        while True:
-            acquired = self._ee_api_lock.acquire(timeout=EE_DIAGNOSTIC_INTERVAL_SECONDS)
-            if acquired:
-                waited = time() - started
-                if waited >= 1:
-                    self._log_debug(
-                        "GEE diagnostics: acquired EE API lock for {} after {:.2f}s "
-                        "(wait_ticks={}).".format(
-                            label,
-                            waited,
-                            wait_ticks,
-                        )
-                    )
-                break
-
-            wait_ticks += 1
-            waited = time() - started
-            self._log_debug(
-                "GEE diagnostics: waiting for EE API lock for {} for {:.1f}s "
-                "(wait_ticks={}).".format(
-                    label,
-                    waited,
-                    wait_ticks,
-                )
-            )
-            self._log_all_thread_stacks(f"EE lock wait for {label}")
-
-        try:
+        with self._ee_api_lock:
             yield
-        finally:
-            self._ee_api_lock.release()
-
-    def _call_with_diagnostics(self, label, fn):
-        call_thread_id = threading.get_ident()
-        call_thread_name = threading.current_thread().name
-        started = time()
-        done = threading.Event()
-
-        def watchdog():
-            ticks = 0
-            while not done.wait(EE_DIAGNOSTIC_INTERVAL_SECONDS):
-                ticks += 1
-                elapsed = time() - started
-                self._log_debug(
-                    "GEE diagnostics: still waiting in {} after {:.1f}s "
-                    "(tick={}, thread_id={}, thread_name={}).".format(
-                        label,
-                        elapsed,
-                        ticks,
-                        call_thread_id,
-                        call_thread_name,
-                    )
-                )
-                self._log_current_stack(label, call_thread_id)
-
-        watchdog_thread = threading.Thread(
-            target=watchdog,
-            name=f"gee-watchdog-{label}",
-            daemon=True,
-        )
-        watchdog_thread.start()
-
-        self._log_debug(
-            "GEE diagnostics: entering {} (thread_id={}, thread_name={}).".format(
-                label,
-                call_thread_id,
-                call_thread_name,
-            )
-        )
-
-        try:
-            result = fn()
-            elapsed = time() - started
-            self._log_debug(
-                "GEE diagnostics: completed {} in {:.2f}s.".format(label, elapsed)
-            )
-            return result
-        except Exception as exc:
-            elapsed = time() - started
-            self._log_debug(
-                "GEE diagnostics: {} failed after {:.2f}s with {}: {}".format(
-                    label,
-                    elapsed,
-                    type(exc).__name__,
-                    exc,
-                )
-            )
-            self._log_current_stack(f"{label} (exception path)", call_thread_id)
-            raise
-        finally:
-            done.set()
-            watchdog_thread.join(timeout=0.2)
 
     def _get_task_status(self):
         with self._acquire_ee_lock("task.status()"):
-            self._status_call_count += 1
-            self._log_debug(
-                "GEE diagnostics: status call #{} starting.".format(
-                    self._status_call_count
-                )
-            )
-
             try:
                 ee.data.setDeadline(EE_REQUEST_TIMEOUT_SECONDS * 1000)
             except Exception:
@@ -337,18 +154,7 @@ class gee_task(threading.Thread):
                 # Best effort: when EE internals differ, continue with defaults.
                 pass
 
-            status = self._call_with_diagnostics("task.status()", self.task.status)
-            if isinstance(status, dict):
-                self._log_debug(
-                    "GEE diagnostics: status call #{} result id={} state={} "
-                    "error={}".format(
-                        self._status_call_count,
-                        status.get("id"),
-                        status.get("state"),
-                        status.get("error_message"),
-                    )
-                )
-            return status
+            return self.task.status()
 
     def cancel_hdlr(self, details):
         try:
@@ -359,10 +165,7 @@ class gee_task(threading.Thread):
                 )
             )
             with self._acquire_ee_lock("ee.data.cancelTask()"):
-                self._call_with_diagnostics(
-                    "ee.data.cancelTask()",
-                    lambda: ee.data.cancelTask(status.get("id")),
-                )
+                ee.data.cancelTask(status.get("id"))
         except Exception:
             pass
 
@@ -429,7 +232,7 @@ class gee_task(threading.Thread):
     def run(self):
         try:
             with self._acquire_ee_lock("task.start()"):
-                self._call_with_diagnostics("task.start()", self.task.start)
+                self.task.start()
             self.start_time = time()
             self._last_task_id = None
             status = self._get_task_status()
