@@ -1,10 +1,7 @@
 import random
 import re
-import sys
 import threading
 import typing
-import uuid
-from contextlib import contextmanager
 from time import time
 from typing import Union
 
@@ -60,10 +57,6 @@ BUCKET = "ldmt"
 # cancelled
 TASK_TIMEOUT_MINUTES = 48 * 60
 
-# Timeout for individual Earth Engine API requests (seconds). This prevents
-# task.status() from blocking forever on a hung network call.
-EE_REQUEST_TIMEOUT_SECONDS = 120
-
 
 def get_region(geom):
     """Return ee.Geometry from supplied GeoJSON object."""
@@ -103,8 +96,6 @@ def get_type(geojson):
 class gee_task(threading.Thread):
     """Run earth engine task against the trends.earth API"""
 
-    _ee_api_lock = threading.RLock()
-
     def __init__(self, task, prefix, logger, metadata=None):
         threading.Thread.__init__(self)
         self.task = task
@@ -113,77 +104,27 @@ class gee_task(threading.Thread):
         # self.metadata is used only to facilitate saving the final JSON output
         # for Trends.Earth
         self.metadata = metadata
-        self.state = None
+        self.state = self.task.status().get("state")
         self.exc = None  # Stores any exception from the thread for the caller
-        self._correlation_id = uuid.uuid4().hex[:12]
-        self._log_debug(
-            "Initialized gee_task (prefix={}, thread_name={}).".format(
-                self.prefix,
-                self.name,
-            )
-        )
         self.start()
 
-    def _with_correlation(self, msg):
-        return f"[gee_task:{self._correlation_id}] {msg}"
-
-    def _log_debug(self, msg):
-        try:
-            self.logger.debug(self._with_correlation(msg))
-        except Exception:
-            print(self._with_correlation(msg), file=sys.stderr)
-
-    @contextmanager
-    def _acquire_ee_lock(self, label):
-        with self._ee_api_lock:
-            yield
-
-    def _get_task_status(self):
-        with self._acquire_ee_lock("task.status()"):
-            try:
-                ee.data.setDeadline(EE_REQUEST_TIMEOUT_SECONDS * 1000)
-            except Exception:
-                # Best effort: if unavailable in this EE client version, continue.
-                pass
-
-            try:
-                state = ee.data._get_state()
-                if state.requests_session is not None:
-                    state.requests_session.headers["Connection"] = "close"
-            except Exception:
-                # Best effort: when EE internals differ, continue with defaults.
-                pass
-
-            return self.task.status()
-
     def cancel_hdlr(self, details):
-        try:
-            status = self._get_task_status()
-            self._log_debug(
-                "GEE task {} timed out after {} hours".format(
-                    status.get("id"), (time() - self.start_time) / (60 * 60)
-                )
+        self.logger.debug(
+            "GEE task {} timed out after {} hours".format(
+                self.task.status().get("id"),
+                (time() - self.start_time) / (60 * 60),
             )
-            with self._acquire_ee_lock("ee.data.cancelTask()"):
-                ee.data.cancelTask(status.get("id"))
-        except Exception:
-            pass
+        )
+        ee.data.cancelTask(self.task.status().get("id"))
 
     def on_backoff_hdlr(self, details):
-        try:
-            details.update({"task_id": self._last_task_id or "unknown"})
-            msg = (
-                "Backing off {wait:0.1f} seconds after {tries} tries "
-                "calling function {target} for task {task_id}".format(**details)
-            )
-            self._log_debug(msg)
-        except Exception:
-            # Never let a logging failure interfere with the polling loop
-            pass
+        details.update({"task_id": self.task.status().get("id")})
+        self.logger.debug(
+            "Backing off {wait:0.1f} seconds after {tries} tries "
+            "calling function {target} for task {task_id}".format(**details)
+        )
 
     def poll_for_completion(self):
-        self._poll_count = 0
-
         @backoff.on_predicate(
             backoff.expo,
             lambda x: x in ["READY", "RUNNING"],
@@ -195,35 +136,8 @@ class gee_task(threading.Thread):
             max_value=600,
         )
         def get_status(self):
-            self._poll_count += 1
-
-            # Single status() call per iteration – avoids redundant HTTP
-            # round-trips and halves the chances of hitting a network hang.
-            status = self._get_task_status()
-            self.state = status.get("state")
-            self._last_task_id = status.get("id")
-
-            # Periodic *direct* log so that container stderr always shows
-            # the polling loop is alive, even when API logging fails.
-            if self._poll_count == 1 or self._poll_count % 10 == 0:
-                elapsed = (time() - self.start_time) / 60.0
-                msg = (
-                    "Poll #{} for task {}: state={}, "
-                    "progress={:.0f}%, elapsed={:.1f} min".format(
-                        self._poll_count,
-                        self._last_task_id,
-                        self.state,
-                        status.get("progress", 0) * 100,
-                        elapsed,
-                    )
-                )
-                self._log_debug(msg)
-
-            try:
-                progress = status.get("progress", 0.0)
-                self.logger.send_progress(progress)
-            except Exception:
-                pass
+            self.logger.send_progress(self.task.status().get("progress", 0.0))
+            self.state = self.task.status().get("state")
 
             return self.state
 
@@ -231,58 +145,40 @@ class gee_task(threading.Thread):
 
     def run(self):
         try:
-            with self._acquire_ee_lock("task.start()"):
-                self.task.start()
+            self.task.start()
             self.start_time = time()
-            self._last_task_id = None
-            status = self._get_task_status()
-            self._last_task_id = status.get("id")
-            self._log_debug("Starting GEE task {}.".format(status.get("id")))
-            self._log_debug(
-                "Entering poll loop for task {} (state={}).".format(
-                    self._last_task_id, status.get("state")
-                )
+            self.logger.debug(
+                "Starting GEE task {}.".format(self.task.status().get("id"))
             )
             self.poll_for_completion()
-            self._log_debug(
-                "Poll loop exited for task {} (final state={}, polls={}).".format(
-                    self._last_task_id, self.state, self._poll_count
-                )
-            )
 
             if not self.state:
                 raise GEETaskFailure(self.task)
 
             if self.state == "COMPLETED":
-                self._log_debug("GEE task {} completed.".format(self._last_task_id))
+                self.logger.debug(
+                    "GEE task {} completed.".format(self.task.status().get("id"))
+                )
             elif self.state == "FAILED":
-                status = self._get_task_status()
-                self._log_debug(
+                self.logger.debug(
                     "GEE task {} failed: {}".format(
-                        status.get("id"),
-                        status.get("error_message"),
+                        self.task.status().get("id"),
+                        self.task.status().get("error_message"),
                     )
                 )
                 raise GEETaskFailure(self.task)
             else:
-                status = self._get_task_status()
-                self._log_debug(
+                self.logger.debug(
                     "GEE task {} returned status {}: {}".format(
-                        status.get("id"),
+                        self.task.status().get("id"),
                         self.state,
-                        status.get("error_message"),
+                        self.task.status().get("error_message"),
                     )
                 )
                 raise GEETaskFailure(self.task)
         except Exception as exc:
             # Capture the exception so the joining thread can re-raise it.
-            # Thread exceptions do NOT propagate to the parent; without this
-            # the caller would never know that polling failed.
             self.exc = exc
-            try:
-                self._log_debug("GEE task thread failed: {}".format(exc))
-            except Exception:
-                print(self._with_correlation(f"thread failed: {exc}"), file=sys.stderr)
 
     def get_urls(self):
         @backoff.on_exception(
@@ -303,13 +199,13 @@ class gee_task(threading.Thread):
         resp = request_urls(self)
 
         if not resp or resp.status_code != 200:
-            self._log_debug(f"Failed to list urls for results from {self.task}")
+            self.logger.debug(f"Failed to list urls for results from {self.task}")
             raise GEETaskFailure(self.task)
 
         items = resp.json()["items"]
 
         if len(items) < 1:
-            self._log_debug("No urls were found for {}".format(self.task))
+            self.logger.debug("No urls were found for {}".format(self.task))
             raise GEETaskFailure(self.task)
         else:
             urls = []
@@ -338,13 +234,13 @@ class gee_task(threading.Thread):
         resp = request_uris(self)
 
         if not resp or not resp.json().get("items"):
-            self._log_debug(f"Failed to list uris for results from {self.task}")
+            self.logger.debug(f"Failed to list uris for results from {self.task}")
             raise GEETaskFailure(self.task)
 
         items = resp.json()["items"]
 
         if len(items) < 1:
-            self._log_debug("No uris were found for {}".format(self.task))
+            self.logger.debug("No uris were found for {}".format(self.task))
             raise GEETaskFailure(self.task)
         else:
             uris = []
