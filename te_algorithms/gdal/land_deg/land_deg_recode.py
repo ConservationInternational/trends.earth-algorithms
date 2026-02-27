@@ -29,7 +29,7 @@ from te_schemas.results import (
 
 from .. import workers
 from ..util import accumulate_dicts, save_vrt, wkt_geom_to_geojson_file_string
-from ..util_numba import zonal_total
+from ..util_numba import bizonal_total, zonal_total
 from . import config
 from .land_deg_numba import recode_indicator_errors, sdg_status_expanded
 from .models import DegradationErrorRecodeSummaryParams, SummaryTableLDErrorRecode
@@ -247,6 +247,21 @@ def _process_block(
                     }
                 )
 
+        # Compute crosstabs between recoded baseline and each recoded
+        # reporting period. This uses the raw recoded SDG values (3-class)
+        # which are available in this block but not stored in the output
+        # raster, ensuring the crosstab correctly reflects post-recode
+        # transitions.
+        if baseline_array is not None:
+            if params.report_1_band_num is not None and reporting_1_recoded is not None:
+                summaries["crosstab_baseline_report_1"] = bizonal_total(
+                    baseline_recoded, reporting_1_recoded, cell_areas, mask
+                )
+            if params.report_2_band_num is not None and reporting_2_recoded is not None:
+                summaries["crosstab_baseline_report_2"] = bizonal_total(
+                    baseline_recoded, reporting_2_recoded, cell_areas, mask
+                )
+
     # Include the periods_mask array as the error recode output
     # This encodes which periods were affected:
     # 0 = no change, 1 = baseline, 2 = report_1, 3 = baseline+report_1,
@@ -260,6 +275,8 @@ def _process_block(
         baseline_summary=summaries.get("baseline_summary", {}),
         report_1_summary=summaries.get("report_1_summary"),
         report_2_summary=summaries.get("report_2_summary"),
+        crosstab_baseline_report_1=summaries.get("crosstab_baseline_report_1"),
+        crosstab_baseline_report_2=summaries.get("crosstab_baseline_report_2"),
     )
 
     return summary_table, write_arrays
@@ -291,6 +308,26 @@ def _accumulate_summary_tables(
                 )
             elif table.report_2_summary is not None:
                 out.report_2_summary = table.report_2_summary
+
+            if (
+                out.crosstab_baseline_report_1 is not None
+                and table.crosstab_baseline_report_1 is not None
+            ):
+                out.crosstab_baseline_report_1 = accumulate_dicts(
+                    [out.crosstab_baseline_report_1, table.crosstab_baseline_report_1]
+                )
+            elif table.crosstab_baseline_report_1 is not None:
+                out.crosstab_baseline_report_1 = table.crosstab_baseline_report_1
+
+            if (
+                out.crosstab_baseline_report_2 is not None
+                and table.crosstab_baseline_report_2 is not None
+            ):
+                out.crosstab_baseline_report_2 = accumulate_dicts(
+                    [out.crosstab_baseline_report_2, table.crosstab_baseline_report_2]
+                )
+            elif table.crosstab_baseline_report_2 is not None:
+                out.crosstab_baseline_report_2 = table.crosstab_baseline_report_2
 
         return out
 
@@ -397,6 +434,53 @@ def _prepare_error_recode_df(path, band_str) -> DataFile:
     return DataFile(path=Path(path), bands=bands)
 
 
+def _format_crosstab(crosstab_dict, from_period, to_period):
+    """Convert a bizonal_total dict to the crosstab output format.
+
+    Args:
+        crosstab_dict: Dict mapping (baseline_class, reporting_class) tuples to areas
+            in sq km. Classes are -1 (degraded), 0 (stable), 1 (improved),
+            -32768 (nodata). Entries involving the mask value (-32767, pixels
+            outside the country boundary) are excluded.
+        from_period: Name of the from period (e.g., 'baseline')
+        to_period: Name of the to period (e.g., 'report_1')
+
+    Returns:
+        Dict with from_period, to_period, total_area_km2, and transitions
+        matrix in the standard output format.
+    """
+    nodata_val = int(config.NODATA_VALUE)
+    mask_val = int(config.MASK_VALUE)
+    class_names = {-1: "degraded", 0: "stable", 1: "improved", nodata_val: "nodata"}
+    all_classes = [-1, 0, 1, nodata_val]
+
+    # Compute total area excluding mask pixels
+    total_area = sum(
+        v for (k1, k2), v in crosstab_dict.items() if k1 != mask_val and k2 != mask_val
+    )
+
+    transitions = {}
+    for from_cls in all_classes:
+        from_name = class_names[from_cls]
+        transitions[from_name] = {}
+        for to_cls in all_classes:
+            to_name = class_names[to_cls]
+            area = crosstab_dict.get((from_cls, to_cls), 0.0)
+            transitions[from_name][to_name] = {
+                "area_km2": round(area, 3),
+                "area_pct": round(area / total_area * 100, 2)
+                if total_area > 0
+                else 0.0,
+            }
+
+    return {
+        "from_period": from_period,
+        "to_period": to_period,
+        "total_area_km2": round(total_area, 3),
+        "transitions": transitions,
+    }
+
+
 def get_serialized_results(st, layer_name, periods_to_output=None):
     """Get serialized results for specified periods.
 
@@ -492,6 +576,21 @@ def get_serialized_results(st, layer_name, periods_to_output=None):
         result_dict["additional_summaries"] = [
             dataclasses.asdict(report) for report in additional_reports
         ]
+
+    # Add crosstab data if available
+    crosstabs = []
+    if "report_1" in periods_to_output and st.crosstab_baseline_report_1 is not None:
+        crosstabs.append(
+            _format_crosstab(st.crosstab_baseline_report_1, "baseline", "report_1")
+        )
+    if "report_2" in periods_to_output and st.crosstab_baseline_report_2 is not None:
+        crosstabs.append(
+            _format_crosstab(st.crosstab_baseline_report_2, "baseline", "report_2")
+        )
+    if crosstabs:
+        if "report" not in result_dict:
+            result_dict["report"] = {}
+        result_dict["report"]["crosstabs"] = crosstabs
 
     return result_dict
 

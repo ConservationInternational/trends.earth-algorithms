@@ -73,6 +73,8 @@ class SummaryTableLDErrorRecode(SchemaBase):
     baseline_summary: Dict[int, float]
     report_1_summary: Optional[Dict[int, float]] = None
     report_2_summary: Optional[Dict[int, float]] = None
+    crosstab_baseline_report_1: Optional[Dict[Tuple[int, int], float]] = None
+    crosstab_baseline_report_2: Optional[Dict[Tuple[int, int], float]] = None
 
 
 @dataclasses.dataclass()
