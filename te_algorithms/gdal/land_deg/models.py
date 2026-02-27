@@ -71,10 +71,8 @@ class SummaryTableLDChange(SchemaBase):
 @marshmallow_dataclass.dataclass
 class SummaryTableLDErrorRecode(SchemaBase):
     baseline_summary: Dict[int, float]
-    report_1_summary: Optional[Dict[int, float]] = None
-    report_2_summary: Optional[Dict[int, float]] = None
-    crosstab_baseline_report_1: Optional[Dict[Tuple[int, int], float]] = None
-    crosstab_baseline_report_2: Optional[Dict[Tuple[int, int], float]] = None
+    report_summaries: Optional[List[Dict[int, float]]] = None
+    crosstabs: Optional[List] = None  # List of numpy float64[4,4] arrays
 
 
 @dataclasses.dataclass()
@@ -119,8 +117,7 @@ class DegradationErrorRecodeSummaryParams(SchemaBase):
         False  # Whether to write out the reporting period layers
     )
     baseline_band_num: Optional[int] = None  # Band number for baseline SDG
-    report_1_band_num: Optional[int] = None  # Band number for report period 1 SDG
-    report_2_band_num: Optional[int] = None  # Band number for report period 2 SDG
+    report_band_nums: Optional[List[int]] = None  # Band numbers for reporting periods
 
 
 def accumulate_summarytableld(

@@ -557,3 +557,71 @@ def calc_deg_sdg(deg_prod3, deg_lc, deg_soc):
     out[nodata_mask] = NODATA_VALUE[0]
 
     return out.reshape(original_shape)
+
+
+@numba.jit(nopython=True)
+@cc.export(
+    "recode_block_stats",
+    "Tuple((f8[:], f8[:,:,:]))(i2[:,:], i2[:,:,:], f8[:,:], b1[:,:])",
+)
+def recode_block_stats(baseline, reports, cell_areas, mask):
+    """Compute baseline summary and crosstabs in a single fused pass.
+
+    Replaces separate calls to zonal_total (for baseline) and bizonal_total
+    (for each crosstab), eliminating redundant array copies and replacing
+    typed-dict hashing with direct array indexing.
+
+    Uses fixed-size arrays indexed by SDG 3-class value:
+        Index 0: degraded  (-1)
+        Index 1: stable    ( 0)
+        Index 2: improved  ( 1)
+        Index 3: nodata    (-32768)
+
+    Masked pixels (outside AOI) are skipped entirely.
+
+    Args:
+        baseline:   2D int16 array (rows, cols) of recoded baseline SDG values.
+        reports:    3D int16 array (n_reports, rows, cols) of recoded reporting
+                    period values.  If there are no reporting periods, pass an
+                    array with shape (0, rows, cols).
+        cell_areas: 2D float64 array of pixel areas in sq km.
+        mask:       2D boolean mask (True = outside AOI, skip).
+
+    Returns:
+        (baseline_totals, crosstabs):
+        - baseline_totals: float64[4]                -- area per baseline class.
+        - crosstabs:       float64[n_reports, 4, 4]  -- baseline x report crosstab
+                           for each reporting period.
+    """
+    n_reports = reports.shape[0]
+    rows = baseline.shape[0]
+    cols = baseline.shape[1]
+
+    baseline_totals = np.zeros(4, dtype=np.float64)
+    crosstabs = np.zeros((n_reports, 4, 4), dtype=np.float64)
+
+    for r in range(rows):
+        for c in range(cols):
+            if mask[r, c]:
+                continue
+
+            area = cell_areas[r, c]
+
+            # Map SDG class -> index: -1->0, 0->1, 1->2, else(nodata)->3
+            bv = baseline[r, c]
+            if bv >= np.int16(-1) and bv <= np.int16(1):
+                bi = bv + np.int16(1)
+            else:
+                bi = 3
+
+            baseline_totals[bi] += area
+
+            for k in range(n_reports):
+                rv = reports[k, r, c]
+                if rv >= np.int16(-1) and rv <= np.int16(1):
+                    ri = rv + np.int16(1)
+                else:
+                    ri = 3
+                crosstabs[k, bi, ri] += area
+
+    return baseline_totals, crosstabs

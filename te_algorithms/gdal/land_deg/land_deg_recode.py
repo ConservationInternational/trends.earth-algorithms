@@ -29,11 +29,19 @@ from te_schemas.results import (
 
 from .. import workers
 from ..util import accumulate_dicts, save_vrt, wkt_geom_to_geojson_file_string
-from ..util_numba import bizonal_total, zonal_total
+from ..util_numba import zonal_total
 from . import config
-from .land_deg_numba import recode_indicator_errors, sdg_status_expanded
+from .land_deg_numba import (
+    recode_block_stats,
+    recode_indicator_errors,
+    sdg_status_expanded,
+)
 from .models import DegradationErrorRecodeSummaryParams, SummaryTableLDErrorRecode
 from .worker import DegradationSummary
+
+# Index mapping for the 4x4 crosstab arrays produced by recode_block_stats.
+# Index 0: degraded (-1), 1: stable (0), 2: improved (1), 3: nodata (-32768)
+_CROSSTAB_IDX_TO_CLASS = [-1, 0, 1, int(config.NODATA_VALUE)]
 
 logger = logging.getLogger(__name__)
 
@@ -134,18 +142,18 @@ def _process_block(
     """
     # Extract band arrays
     baseline_array = None
-    reporting_1_array = None
-    reporting_2_array = None
     recode_array = in_array[params.band_dict["recode_bandnum"] - 1, :, :]
     periods_mask_array = in_array[params.band_dict["periods_mask_bandnum"] - 1, :, :]
 
-    # Get the available bands based on parameters
+    # Get baseline band
     if params.baseline_band_num is not None:
         baseline_array = in_array[params.band_dict["baseline_bandnum"] - 1, :, :]
-    if params.report_1_band_num is not None:
-        reporting_1_array = in_array[params.band_dict["reporting_1_bandnum"] - 1, :, :]
-    if params.report_2_band_num is not None:
-        reporting_2_array = in_array[params.band_dict["reporting_2_bandnum"] - 1, :, :]
+
+    # Collect reporting period input arrays
+    reporting_arrays = []
+    for i, _band_num in enumerate(params.report_band_nums or []):
+        key = f"reporting_{i + 1}_bandnum"
+        reporting_arrays.append(in_array[params.band_dict[key] - 1, :, :])
 
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1)
 
@@ -157,12 +165,15 @@ def _process_block(
 
     # Process each band that exists
     if baseline_array is not None:
-        # Call the error recoding function with actual or None arrays
+        # recode_indicator_errors currently supports up to 2 reporting periods
+        reporting_1_input = reporting_arrays[0] if len(reporting_arrays) > 0 else None
+        reporting_2_input = reporting_arrays[1] if len(reporting_arrays) > 1 else None
+
         baseline_recoded, reporting_1_recoded, reporting_2_recoded = (
             recode_indicator_errors(
                 baseline_array,
-                reporting_1_array,  # Can be None
-                reporting_2_array,  # Can be None
+                reporting_1_input,
+                reporting_2_input,
                 recode_array,
                 periods_mask_array,
                 np.array(codes, dtype=np.int16),
@@ -172,9 +183,45 @@ def _process_block(
             )
         )
 
-        # Compute zonal statistics for baseline
-        baseline_summary = zonal_total(baseline_recoded, cell_areas, mask)
-        summaries["baseline_summary"] = baseline_summary
+        # Collect non-None recoded reporting arrays into a list
+        recoded_reports = []
+        for idx in range(len(reporting_arrays)):
+            recoded = (
+                reporting_1_recoded
+                if idx == 0
+                else reporting_2_recoded
+                if idx == 1
+                else None
+            )
+            if recoded is not None:
+                recoded_reports.append(recoded)
+
+        # Compute baseline summary and all crosstabs in a single fused pass.
+        # Stack recoded reports into a 3D array (n_reports, rows, cols).
+        if recoded_reports:
+            reports_3d = np.stack(recoded_reports, axis=0)
+        else:
+            reports_3d = np.empty(
+                (0, baseline_recoded.shape[0], baseline_recoded.shape[1]),
+                dtype=np.int16,
+            )
+
+        baseline_totals, crosstabs_3d = recode_block_stats(
+            baseline_recoded, reports_3d, cell_areas, mask
+        )
+
+        # Convert baseline totals array to dict for existing summary pipeline
+        summaries["baseline_summary"] = {
+            cls: float(baseline_totals[i])
+            for i, cls in enumerate(_CROSSTAB_IDX_TO_CLASS)
+            if baseline_totals[i] > 0
+        }
+
+        # Store crosstab 4x4 arrays as a list (one per reporting period)
+        if len(recoded_reports) > 0:
+            summaries["crosstabs"] = [
+                crosstabs_3d[k] for k in range(crosstabs_3d.shape[0])
+            ]
 
         # Add baseline to write arrays
         write_arrays.append(
@@ -186,81 +233,34 @@ def _process_block(
             }
         )
 
-        # Process reporting periods if they exist
-        if params.report_1_band_num is not None and reporting_1_recoded is not None:
-            # Calculate 7-class status map for reporting period 1
-            reporting_1_status = sdg_status_expanded(
-                baseline_recoded, reporting_1_recoded
-            )
+        # Process each reporting period for status maps and summaries
+        report_summaries = []
+        for i, recoded in enumerate(recoded_reports):
+            # Calculate 7-class status map
+            status = sdg_status_expanded(baseline_recoded, recoded)
+            report_summaries.append(zonal_total(status, cell_areas, mask))
 
-            report_1_summary = zonal_total(reporting_1_status, cell_areas, mask)
-            summaries["report_1_summary"] = report_1_summary
-
-            # Default output: 7-class status map
             write_arrays.append(
                 {
-                    "array": reporting_1_status,
+                    "array": status,
                     "xoff": xoff,
                     "yoff": yoff,
-                    "band_name": "reporting_1_status",
+                    "band_name": f"reporting_{i + 1}_status",
                 }
             )
 
-            # Optionally write out the raw reporting period layer
             if params.write_reporting_sdg_tifs:
                 write_arrays.append(
                     {
-                        "array": reporting_1_recoded,
+                        "array": recoded,
                         "xoff": xoff,
                         "yoff": yoff,
-                        "band_name": "reporting_1_raw",
+                        "band_name": f"reporting_{i + 1}_raw",
                     }
                 )
 
-        if params.report_2_band_num is not None and reporting_2_recoded is not None:
-            # Calculate 7-class status map for reporting period 2
-            reporting_2_status = sdg_status_expanded(
-                baseline_recoded, reporting_2_recoded
-            )
-
-            report_2_summary = zonal_total(reporting_2_status, cell_areas, mask)
-            summaries["report_2_summary"] = report_2_summary
-
-            # Default output: 7-class status map
-            write_arrays.append(
-                {
-                    "array": reporting_2_status,
-                    "xoff": xoff,
-                    "yoff": yoff,
-                    "band_name": "reporting_2_status",
-                }
-            )
-
-            # Optionally write out the raw reporting period layer
-            if params.write_reporting_sdg_tifs:
-                write_arrays.append(
-                    {
-                        "array": reporting_2_recoded,
-                        "xoff": xoff,
-                        "yoff": yoff,
-                        "band_name": "reporting_2_raw",
-                    }
-                )
-
-        # Compute crosstabs between recoded baseline and each recoded
-        # reporting period. This uses the raw recoded SDG values (3-class)
-        # which are available in this block but not stored in the output
-        # raster, ensuring the crosstab correctly reflects post-recode
-        # transitions.
-        if baseline_array is not None:
-            if params.report_1_band_num is not None and reporting_1_recoded is not None:
-                summaries["crosstab_baseline_report_1"] = bizonal_total(
-                    baseline_recoded, reporting_1_recoded, cell_areas, mask
-                )
-            if params.report_2_band_num is not None and reporting_2_recoded is not None:
-                summaries["crosstab_baseline_report_2"] = bizonal_total(
-                    baseline_recoded, reporting_2_recoded, cell_areas, mask
-                )
+        if report_summaries:
+            summaries["report_summaries"] = report_summaries
 
     # Include the periods_mask array as the error recode output
     # This encodes which periods were affected:
@@ -273,10 +273,8 @@ def _process_block(
     # Create summary table
     summary_table = SummaryTableLDErrorRecode(
         baseline_summary=summaries.get("baseline_summary", {}),
-        report_1_summary=summaries.get("report_1_summary"),
-        report_2_summary=summaries.get("report_2_summary"),
-        crosstab_baseline_report_1=summaries.get("crosstab_baseline_report_1"),
-        crosstab_baseline_report_2=summaries.get("crosstab_baseline_report_2"),
+        report_summaries=summaries.get("report_summaries"),
+        crosstabs=summaries.get("crosstabs"),
     )
 
     return summary_table, write_arrays
@@ -295,53 +293,31 @@ def _accumulate_summary_tables(
                 [out.baseline_summary, table.baseline_summary]
             )
 
-            if out.report_1_summary is not None and table.report_1_summary is not None:
-                out.report_1_summary = accumulate_dicts(
-                    [out.report_1_summary, table.report_1_summary]
-                )
-            elif table.report_1_summary is not None:
-                out.report_1_summary = table.report_1_summary
+            # Accumulate report summaries (list of dicts)
+            if out.report_summaries is not None and table.report_summaries is not None:
+                out.report_summaries = [
+                    accumulate_dicts([a, b])
+                    for a, b in zip(out.report_summaries, table.report_summaries)
+                ]
+            elif table.report_summaries is not None:
+                out.report_summaries = table.report_summaries
 
-            if out.report_2_summary is not None and table.report_2_summary is not None:
-                out.report_2_summary = accumulate_dicts(
-                    [out.report_2_summary, table.report_2_summary]
-                )
-            elif table.report_2_summary is not None:
-                out.report_2_summary = table.report_2_summary
-
-            if (
-                out.crosstab_baseline_report_1 is not None
-                and table.crosstab_baseline_report_1 is not None
-            ):
-                out.crosstab_baseline_report_1 = accumulate_dicts(
-                    [out.crosstab_baseline_report_1, table.crosstab_baseline_report_1]
-                )
-            elif table.crosstab_baseline_report_1 is not None:
-                out.crosstab_baseline_report_1 = table.crosstab_baseline_report_1
-
-            if (
-                out.crosstab_baseline_report_2 is not None
-                and table.crosstab_baseline_report_2 is not None
-            ):
-                out.crosstab_baseline_report_2 = accumulate_dicts(
-                    [out.crosstab_baseline_report_2, table.crosstab_baseline_report_2]
-                )
-            elif table.crosstab_baseline_report_2 is not None:
-                out.crosstab_baseline_report_2 = table.crosstab_baseline_report_2
+            # Accumulate crosstab arrays with numpy addition
+            if out.crosstabs is not None and table.crosstabs is not None:
+                out.crosstabs = [a + b for a, b in zip(out.crosstabs, table.crosstabs)]
+            elif table.crosstabs is not None:
+                out.crosstabs = [ct.copy() for ct in table.crosstabs]
 
         return out
 
 
-def _get_error_recode_input_vrt(
-    baseline_df=None, reporting_1_df=None, reporting_2_df=None, error_df=None
-):
+def _get_error_recode_input_vrt(baseline_df=None, reporting_dfs=None, error_df=None):
     """
     Create a VRT with multiple input bands for error recoding.
 
     Parameters:
     - baseline_df: DataFile for baseline SDG layer (optional)
-    - reporting_1_df: DataFile for reporting period 1 SDG layer (optional)
-    - reporting_2_df: DataFile for reporting period 2 SDG layer (optional)
+    - reporting_dfs: List of DataFiles for reporting period SDG layers (optional)
     - error_df: DataFile containing error recode and periods_affected bands (required)
 
     Returns:
@@ -358,16 +334,10 @@ def _get_error_recode_input_vrt(
         df_band_list.append(("baseline_bandnum", band_counter))
         band_counter += 1
 
-    # Add reporting period 1 if available
-    if reporting_1_df is not None:
-        band_vrts.append(save_vrt(reporting_1_df.path, 1))
-        df_band_list.append(("reporting_1_bandnum", band_counter))
-        band_counter += 1
-
-    # Add reporting period 2 if available
-    if reporting_2_df is not None:
-        band_vrts.append(save_vrt(reporting_2_df.path, 1))
-        df_band_list.append(("reporting_2_bandnum", band_counter))
+    # Add reporting periods
+    for i, rdf in enumerate(reporting_dfs or []):
+        band_vrts.append(save_vrt(rdf.path, 1))
+        df_band_list.append((f"reporting_{i + 1}_bandnum", band_counter))
         band_counter += 1
 
     # Add error recode band (required)
@@ -434,38 +404,34 @@ def _prepare_error_recode_df(path, band_str) -> DataFile:
     return DataFile(path=Path(path), bands=bands)
 
 
-def _format_crosstab(crosstab_dict, from_period, to_period):
-    """Convert a bizonal_total dict to the crosstab output format.
+def _format_crosstab(crosstab_array, from_period, to_period):
+    """Convert a 4x4 numpy crosstab array to the output format.
+
+    The array is produced by ``recode_block_stats`` and indexed by SDG class:
+        Index 0: degraded (-1), 1: stable (0), 2: improved (1), 3: nodata.
+
+    Masked pixels are never counted (they are skipped in the numba loop),
+    so no mask-value filtering is needed here.
 
     Args:
-        crosstab_dict: Dict mapping (baseline_class, reporting_class) tuples to areas
-            in sq km. Classes are -1 (degraded), 0 (stable), 1 (improved),
-            -32768 (nodata). Entries involving the mask value (-32767, pixels
-            outside the country boundary) are excluded.
-        from_period: Name of the from period (e.g., 'baseline')
-        to_period: Name of the to period (e.g., 'report_1')
+        crosstab_array: numpy float64 array of shape (4, 4) with areas in
+            sq km.
+        from_period: Name of the from period (e.g., 'baseline').
+        to_period: Name of the to period (e.g., 'report_1').
 
     Returns:
         Dict with from_period, to_period, total_area_km2, and transitions
         matrix in the standard output format.
     """
-    nodata_val = int(config.NODATA_VALUE)
-    mask_val = int(config.MASK_VALUE)
-    class_names = {-1: "degraded", 0: "stable", 1: "improved", nodata_val: "nodata"}
-    all_classes = [-1, 0, 1, nodata_val]
+    class_names = ["degraded", "stable", "improved", "nodata"]
 
-    # Compute total area excluding mask pixels
-    total_area = sum(
-        v for (k1, k2), v in crosstab_dict.items() if k1 != mask_val and k2 != mask_val
-    )
+    total_area = float(crosstab_array.sum())
 
     transitions = {}
-    for from_cls in all_classes:
-        from_name = class_names[from_cls]
+    for from_idx, from_name in enumerate(class_names):
         transitions[from_name] = {}
-        for to_cls in all_classes:
-            to_name = class_names[to_cls]
-            area = crosstab_dict.get((from_cls, to_cls), 0.0)
+        for to_idx, to_name in enumerate(class_names):
+            area = float(crosstab_array[from_idx, to_idx])
             transitions[from_name][to_name] = {
                 "area_km2": round(area, 3),
                 "area_pct": round(area / total_area * 100, 2)
@@ -485,14 +451,15 @@ def get_serialized_results(st, layer_name, periods_to_output=None):
     """Get serialized results for specified periods.
 
     Args:
-        st: Summary table containing baseline_summary, report_1_summary, report_2_summary
+        st: Summary table containing baseline_summary, report_summaries, crosstabs
         layer_name: Name for the output layer
         periods_to_output: List of periods to include in output. If None, includes all.
-                          Valid values: 'baseline', 'report_1', 'report_2'
+                          Valid values: 'baseline', 'report_1', 'report_2', ...
     """
     # Default to all periods if not specified
     if periods_to_output is None:
-        periods_to_output = ["baseline", "report_1", "report_2"]
+        n_reports = len(st.report_summaries) if st.report_summaries else 0
+        periods_to_output = ["baseline"] + [f"report_{i + 1}" for i in range(n_reports)]
 
     def create_area_list(summary_dict, title_suffix=""):
         return reporting.AreaList(
@@ -543,18 +510,20 @@ def get_serialized_results(st, layer_name, periods_to_output=None):
         baseline_summary = create_area_list(st.baseline_summary, " - Baseline")
         reports.append(baseline_summary)
 
-    # Add reporting periods if they exist and are in periods_to_output
-    if "report_1" in periods_to_output and st.report_1_summary is not None:
-        report_1_summary = create_status_area_list(
-            st.report_1_summary, " - Reporting Period 1 Status"
-        )
-        reports.append(report_1_summary)
-
-    if "report_2" in periods_to_output and st.report_2_summary is not None:
-        report_2_summary = create_status_area_list(
-            st.report_2_summary, " - Reporting Period 2 Status"
-        )
-        reports.append(report_2_summary)
+    # Add reporting period summaries dynamically
+    report_periods = [p for p in periods_to_output if p.startswith("report_")]
+    for period_name in report_periods:
+        # Extract 0-based index from period name (e.g. "report_1" -> 0)
+        try:
+            period_idx = int(period_name.split("_")[1]) - 1
+        except (IndexError, ValueError):
+            continue
+        if st.report_summaries is not None and period_idx < len(st.report_summaries):
+            report_summary = create_status_area_list(
+                st.report_summaries[period_idx],
+                f" - Reporting Period {period_idx + 1} Status",
+            )
+            reports.append(report_summary)
 
     # Create the main report - use baseline if available, otherwise first available summary
     if baseline_summary is not None:
@@ -578,19 +547,20 @@ def get_serialized_results(st, layer_name, periods_to_output=None):
         ]
 
     # Add crosstab data if available
-    crosstabs = []
-    if "report_1" in periods_to_output and st.crosstab_baseline_report_1 is not None:
-        crosstabs.append(
-            _format_crosstab(st.crosstab_baseline_report_1, "baseline", "report_1")
-        )
-    if "report_2" in periods_to_output and st.crosstab_baseline_report_2 is not None:
-        crosstabs.append(
-            _format_crosstab(st.crosstab_baseline_report_2, "baseline", "report_2")
-        )
-    if crosstabs:
+    crosstab_results = []
+    for period_name in report_periods:
+        try:
+            period_idx = int(period_name.split("_")[1]) - 1
+        except (IndexError, ValueError):
+            continue
+        if st.crosstabs is not None and period_idx < len(st.crosstabs):
+            crosstab_results.append(
+                _format_crosstab(st.crosstabs[period_idx], "baseline", period_name)
+            )
+    if crosstab_results:
         if "report" not in result_dict:
             result_dict["report"] = {}
-        result_dict["report"]["crosstabs"] = crosstabs
+        result_dict["report"]["crosstabs"] = crosstab_results
 
     return result_dict
 
@@ -605,23 +575,19 @@ def recode_errors(params) -> Job:
         params["layer_baseline_band_index"],
     )
 
-    # Prepare reporting period 1 data if provided
-    reporting_1_df = None
-    if "layer_reporting_1_band_path" in params:
-        reporting_1_df = _prepare_df(
-            params["layer_reporting_1_band_path"],
-            params["layer_reporting_1_band"],
-            params["layer_reporting_1_band_index"],
+    # Collect reporting period datafiles dynamically
+    reporting_dfs = []
+    i = 1
+    while True:
+        key_path = f"layer_reporting_{i}_band_path"
+        key_band = f"layer_reporting_{i}_band"
+        key_index = f"layer_reporting_{i}_band_index"
+        if key_path not in params:
+            break
+        reporting_dfs.append(
+            _prepare_df(params[key_path], params[key_band], params[key_index])
         )
-
-    # Prepare reporting period 2 data if provided
-    reporting_2_df = None
-    if "layer_reporting_2_band_path" in params:
-        reporting_2_df = _prepare_df(
-            params["layer_reporting_2_band_path"],
-            params["layer_reporting_2_band"],
-            params["layer_reporting_2_band_index"],
-        )
+        i += 1
 
     error_recode_df = _prepare_error_recode_df(
         params["layer_error_recode_path"],
@@ -638,7 +604,8 @@ def recode_errors(params) -> Job:
 
     # Get periods to include in output (defaults to all if not specified)
     periods_to_output = params.get(
-        "periods_to_output", ["baseline", "report_1", "report_2"]
+        "periods_to_output",
+        ["baseline"] + [f"report_{i + 1}" for i in range(len(reporting_dfs))],
     )
 
     # Get option to include polygon GeoJSON in output (defaults to False)
@@ -647,8 +614,7 @@ def recode_errors(params) -> Job:
     logger.debug("Running _compute_error_recode")
     summary_table, error_recode_paths = _compute_error_recode(
         baseline_df=baseline_df,
-        reporting_1_df=reporting_1_df,
-        reporting_2_df=reporting_2_df,
+        reporting_dfs=reporting_dfs,
         error_recode_df=error_recode_df,
         error_polygons=error_polygons,
         job_output_path=job_output_path.parent / f"{job_output_path.stem}.json",
@@ -683,81 +649,44 @@ def recode_errors(params) -> Job:
                 )
             )
 
-        # Add reporting period 1 status band if it exists and is in periods_to_output
-        if reporting_1_df is not None and "report_1" in periods_to_output:
-            # Get reporting period 1 year info from its band metadata
-            report_1_band_metadata = params.get("layer_reporting_1_band", {}).get(
+        # Add reporting period bands dynamically
+        for i, rdf in enumerate(reporting_dfs):
+            period_name = f"report_{i + 1}"
+            if period_name not in periods_to_output:
+                continue
+            # Get reporting period year info from its band metadata
+            report_band_metadata = params.get(f"layer_reporting_{i + 1}_band", {}).get(
                 "metadata", {}
             )
-            period_1_metadata = {
-                "period": "Period 1",
+            period_metadata = {
+                "period": f"Period {i + 1}",
                 "baseline_year_initial": baseline_year_initial,
                 "baseline_year_final": baseline_year_final,
-                "reporting_year_initial": report_1_band_metadata.get("year_initial"),
-                "reporting_year_final": report_1_band_metadata.get("year_final"),
+                "reporting_year_initial": report_band_metadata.get("year_initial"),
+                "reporting_year_final": report_band_metadata.get("year_final"),
             }
             out_bands.append(
                 Band(
                     name=config.SDG_STATUS_BAND_NAME,
                     no_data_value=int(config.NODATA_VALUE),
-                    metadata=period_1_metadata,
+                    metadata=period_metadata,
                     add_to_map=True,
                     activated=True,
                 )
             )
 
-            # Add raw reporting period 1 band if write_reporting_sdg_tifs is enabled
+            # Add raw reporting period band if write_reporting_sdg_tifs is enabled
             if params.get("write_reporting_sdg_tifs", False):
-                period_1_raw_metadata = (
-                    dict(report_1_band_metadata) if report_1_band_metadata else {}
+                period_raw_metadata = (
+                    dict(report_band_metadata) if report_band_metadata else {}
                 )
-                period_1_raw_metadata["period"] = "Period 1"
-                period_1_raw_metadata["type"] = "raw"
+                period_raw_metadata["period"] = f"Period {i + 1}"
+                period_raw_metadata["type"] = "raw"
                 out_bands.append(
                     Band(
                         name=config.SDG_BAND_NAME,
                         no_data_value=int(config.NODATA_VALUE),
-                        metadata=period_1_raw_metadata,
-                        add_to_map=False,
-                        activated=False,
-                    )
-                )
-
-        # Add reporting period 2 status band if it exists and is in periods_to_output
-        if reporting_2_df is not None and "report_2" in periods_to_output:
-            # Get reporting period 2 year info from its band metadata
-            report_2_band_metadata = params.get("layer_reporting_2_band", {}).get(
-                "metadata", {}
-            )
-            period_2_metadata = {
-                "period": "Period 2",
-                "baseline_year_initial": baseline_year_initial,
-                "baseline_year_final": baseline_year_final,
-                "reporting_year_initial": report_2_band_metadata.get("year_initial"),
-                "reporting_year_final": report_2_band_metadata.get("year_final"),
-            }
-            out_bands.append(
-                Band(
-                    name=config.SDG_STATUS_BAND_NAME,
-                    no_data_value=int(config.NODATA_VALUE),
-                    metadata=period_2_metadata,
-                    add_to_map=True,
-                    activated=True,
-                )
-            )
-
-            # Add raw reporting period 2 band if write_reporting_sdg_tifs is enabled
-            if params.get("write_reporting_sdg_tifs", False):
-                period_2_raw_metadata = (
-                    dict(report_2_band_metadata) if report_2_band_metadata else {}
-                )
-                period_2_raw_metadata["period"] = "Period 2"
-                period_2_raw_metadata["type"] = "raw"
-                out_bands.append(
-                    Band(
-                        name=config.SDG_BAND_NAME,
-                        no_data_value=int(config.NODATA_VALUE),
-                        metadata=period_2_raw_metadata,
+                        metadata=period_raw_metadata,
                         add_to_map=False,
                         activated=False,
                     )
@@ -862,8 +791,7 @@ def recode_errors(params) -> Job:
 
 def _compute_error_recode(
     baseline_df=None,
-    reporting_1_df=None,
-    reporting_2_df=None,
+    reporting_dfs=None,
     error_recode_df=None,
     error_polygons=None,
     job_output_path=None,
@@ -874,13 +802,17 @@ def _compute_error_recode(
     error_recode_worker_function: Optional[Callable] = None,
     error_recode_worker_params: Optional[dict] = None,
 ):
+    reporting_dfs = reporting_dfs or []
+
     in_vrt, band_dict = _get_error_recode_input_vrt(
-        baseline_df, reporting_1_df, reporting_2_df, error_recode_df
+        baseline_df, reporting_dfs, error_recode_df
     )
 
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     # Use the first available datafile for getting bounds
-    model_df = baseline_df or reporting_1_df or reporting_2_df or error_recode_df
+    model_df = (
+        baseline_df or (reporting_dfs[0] if reporting_dfs else None) or error_recode_df
+    )
     bbs = aoi.get_aligned_output_bounds(model_df.path)
 
     error_recode_name_pattern = {
@@ -936,8 +868,11 @@ def _compute_error_recode(
 
             # Determine which band numbers are available
             baseline_band_num = band_dict.get("baseline_bandnum")
-            reporting_1_band_num = band_dict.get("reporting_1_bandnum")
-            reporting_2_band_num = band_dict.get("reporting_2_bandnum")
+            report_band_nums = [
+                band_dict[f"reporting_{i + 1}_bandnum"]
+                for i in range(len(reporting_dfs))
+                if f"reporting_{i + 1}_bandnum" in band_dict
+            ]
 
             # Calculate the number of output bands accurately
             n_out_bands = 1  # Always include recode band (periods_mask)
@@ -946,14 +881,8 @@ def _compute_error_recode(
             if baseline_df is not None:
                 n_out_bands += 1
 
-            # Add reporting period 1 bands if available
-            if reporting_1_df is not None:
-                n_out_bands += 1  # Status map
-                if write_reporting_sdg_tifs:
-                    n_out_bands += 1  # Raw recoded band
-
-            # Add reporting period 2 bands if available
-            if reporting_2_df is not None:
+            # Add reporting period bands
+            for _rdf in reporting_dfs:
                 n_out_bands += 1  # Status map
                 if write_reporting_sdg_tifs:
                     n_out_bands += 1  # Raw recoded band
@@ -968,8 +897,7 @@ def _compute_error_recode(
                 trans_code_lists=error_polygons.trans_code_lists,
                 write_reporting_sdg_tifs=write_reporting_sdg_tifs,
                 baseline_band_num=baseline_band_num,
-                report_1_band_num=reporting_1_band_num,
-                report_2_band_num=reporting_2_band_num,
+                report_band_nums=report_band_nums if report_band_nums else None,
             )
 
             if error_recode_worker_function:
