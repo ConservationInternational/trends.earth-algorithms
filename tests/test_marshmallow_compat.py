@@ -184,13 +184,24 @@ class TestSummaryTableLDErrorRecode:
 
         obj = SummaryTableLDErrorRecode(
             baseline_summary={1: 0.5, -1: 0.3, 0: 0.2},
-            report_1_summary={1: 0.4},
-            report_2_summary=None,
+            report_summaries=[{1: 0.4}],
         )
         data = SummaryTableLDErrorRecode.Schema().dump(obj)
         loaded = SummaryTableLDErrorRecode.Schema().load(data)
         assert isinstance(loaded, SummaryTableLDErrorRecode)
-        assert loaded.report_2_summary is None
+        assert loaded.report_summaries == [{1: 0.4}]
+
+    def test_roundtrip_none(self):
+        from te_algorithms.gdal.land_deg.models import SummaryTableLDErrorRecode
+
+        obj = SummaryTableLDErrorRecode(
+            baseline_summary={1: 0.5, -1: 0.3, 0: 0.2},
+            report_summaries=None,
+        )
+        data = SummaryTableLDErrorRecode.Schema().dump(obj)
+        loaded = SummaryTableLDErrorRecode.Schema().load(data)
+        assert isinstance(loaded, SummaryTableLDErrorRecode)
+        assert loaded.report_summaries is None
 
 
 # ===================================================================
