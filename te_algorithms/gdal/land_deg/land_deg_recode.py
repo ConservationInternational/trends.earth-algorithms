@@ -576,13 +576,28 @@ def recode_errors(params) -> Job:
     )
 
     # Collect reporting period datafiles dynamically
+    # NOTE: This loop expects SEQUENTIAL keys (layer_reporting_1_*, layer_reporting_2_*,
+    # etc.) and breaks at the first gap. Callers MUST provide all intermediate
+    # reporting period keys up to the highest one needed. If only report_2 is
+    # needed, report_1 keys must also be present.
     reporting_dfs = []
     i = 1
+    MAX_REPORTING_PERIODS_LOOKAHEAD = 5
     while True:
         key_path = f"layer_reporting_{i}_band_path"
         key_band = f"layer_reporting_{i}_band"
         key_index = f"layer_reporting_{i}_band_index"
         if key_path not in params:
+            # Check if there are any higher-numbered reporting periods that
+            # would be silently skipped (indicates a caller bug)
+            for j in range(i + 1, i + MAX_REPORTING_PERIODS_LOOKAHEAD):
+                if f"layer_reporting_{j}_band_path" in params:
+                    logger.warning(
+                        f"Gap in reporting period keys: layer_reporting_{i}_band_path "
+                        f"missing but layer_reporting_{j}_band_path exists. "
+                        f"Reporting periods after the gap will be ignored."
+                    )
+                    break
             break
         reporting_dfs.append(
             _prepare_df(params[key_path], params[key_band], params[key_index])
