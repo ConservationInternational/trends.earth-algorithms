@@ -961,7 +961,7 @@ def _process_block_status(
         sdg_status_3_class = sdg_status_expanded_to_simple(sdg_status)
         sdg_summaries.append(zonal_total(sdg_status_3_class, cell_areas, mask))
         sdg_crosstabs.append(
-            bizonal_total(sdg_baseline, sdg_status_3_class, cell_areas, mask)
+            bizonal_total(sdg_baseline, sdg_reporting, cell_areas, mask)
         )
 
         # Calculate productivity status
@@ -983,7 +983,7 @@ def _process_block_status(
             }
         )
         prod_crosstabs.append(
-            bizonal_total(prod3_baseline, prod_status_3_class, cell_areas, mask)
+            bizonal_total(prod3_baseline, prod3_reporting, cell_areas, mask)
         )
 
         # Calculate LC status
@@ -992,7 +992,7 @@ def _process_block_status(
         lc_status_3_class = sdg_status_expanded_to_simple(lc_status)
         lc_summaries.append(zonal_total(lc_status_3_class, cell_areas, mask))
         lc_crosstabs.append(
-            bizonal_total(lc_deg_baseline, lc_status_3_class, cell_areas, mask)
+            bizonal_total(lc_deg_baseline, lc_deg_reporting, cell_areas, mask)
         )
 
         # Calculate SOC status
@@ -1013,7 +1013,7 @@ def _process_block_status(
             }
         )
         soc_crosstabs.append(
-            bizonal_total(soc_deg_baseline, soc_status_3_class, cell_areas, mask)
+            bizonal_total(soc_deg_baseline, soc_deg_reporting, cell_areas, mask)
         )
 
     ##########################################################################

@@ -414,7 +414,7 @@ def save_reporting_json(
 
             change_assessment = reporting.LandConditionChange(
                 sdg=reporting.CrossTab(
-                    name="Land area by change in degradation status (one-out all-out layer)",
+                    name="Land area by baseline vs reporting period assessment (one-out all-out layer)",
                     unit="sq km",
                     initial_year=period_params["periods"]["productivity"][
                         "year_initial"
@@ -433,7 +433,7 @@ def save_reporting_json(
                     ],
                 ),
                 productivity=reporting.CrossTab(
-                    name="Land area by change in land productivity degradation status",
+                    name="Land area by baseline vs reporting period land productivity assessment",
                     unit="sq km",
                     initial_year=period_params["periods"]["productivity"][
                         "year_initial"
@@ -452,7 +452,7 @@ def save_reporting_json(
                     ],
                 ),
                 land_cover=reporting.CrossTab(
-                    name="Land area by change in land cover degradation status",
+                    name="Land area by baseline vs reporting period land cover assessment",
                     unit="sq km",
                     initial_year=period_params["periods"]["land_cover"]["year_initial"],
                     final_year=period_params["periods"]["land_cover"]["year_final"],
@@ -469,7 +469,7 @@ def save_reporting_json(
                     ],
                 ),
                 soil_organic_carbon=reporting.CrossTab(
-                    name="Land area by change in soil organic carbon degradation status",
+                    name="Land area by baseline vs reporting period soil organic carbon assessment",
                     unit="sq km",
                     initial_year=period_params["periods"]["soc"]["year_initial"],
                     final_year=period_params["periods"]["soc"]["year_final"],
