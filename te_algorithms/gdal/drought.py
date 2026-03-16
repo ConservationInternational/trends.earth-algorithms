@@ -36,6 +36,8 @@ MASK_VALUE = -32767
 
 POPULATION_BAND_NAME = "Population (number of people)"
 SPI_BAND_NAME = "Standardized Precipitation Index (SPI)"
+SPEI_BAND_NAME = "Standardized Precipitation Evapotranspiration Index (SPEI)"
+SPI_SPEI_BAND_NAMES = [SPI_BAND_NAME, SPEI_BAND_NAME]
 JRC_BAND_NAME = "Drought Vulnerability (JRC)"
 WATER_MASK_BAND_NAME = "Water mask"
 SPI_MIN_OVER_PERIOD_BAND_NAME = "Minimum SPI over period"
@@ -158,7 +160,7 @@ def _process_block(
     # given row - cell areas only vary among rows)
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1).astype(np.float64)
 
-    spi_rows = params.in_df.indices_for_name(SPI_BAND_NAME)
+    spi_rows = params.in_df.indices_for_name(SPI_SPEI_BAND_NAMES)
     pop_rows_total = params.in_df.indices_for_name(
         POPULATION_BAND_NAME, field="type", field_filter="total"
     )
@@ -465,7 +467,7 @@ def _get_n_spi_bands(dfs):
     n_bands = 0
 
     for df in dfs:
-        n_bands += len(df.indices_for_name(SPI_BAND_NAME))
+        n_bands += len(df.indices_for_name(SPI_SPEI_BAND_NAMES))
 
     return n_bands
 
@@ -569,7 +571,7 @@ class DroughtSummary:
         n_out_bands = int(
             2
             * math.ceil(
-                len(self.params.in_df.indices_for_name(SPI_BAND_NAME))
+                len(self.params.in_df.indices_for_name(SPI_SPEI_BAND_NAMES))
                 / self.params.drought_period
             )
         )
