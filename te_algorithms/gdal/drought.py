@@ -41,7 +41,8 @@ SPI_SPEI_BAND_NAMES = (SPI_BAND_NAME, SPEI_BAND_NAME)
 JRC_BAND_NAME = "Drought Vulnerability (JRC)"
 WATER_MASK_BAND_NAME = "Water mask"
 SPI_MIN_OVER_PERIOD_BAND_NAME = "Minimum SPI over period"
-POP_AT_SPI_MIN_OVER_PERIOD_BAND_NAME = "Population at minimum SPI over period"
+SPEI_MIN_OVER_PERIOD_BAND_NAME = "Minimum SPEI over period"
+POP_AT_MAX_DROUGHT_BAND_NAME = "Population at maximum drought"
 
 logger = logging.getLogger(__name__)
 
@@ -592,7 +593,7 @@ class DroughtSummary:
 
 def _get_population_band_instance(population_type, year_initial, year_final):
     return Band(
-        name=POP_AT_SPI_MIN_OVER_PERIOD_BAND_NAME,
+        name=POP_AT_MAX_DROUGHT_BAND_NAME,
         no_data_value=NODATA_VALUE,
         metadata={
             "year_initial": year_initial,
@@ -664,6 +665,13 @@ def summarise_drought_vulnerability(
     else:
         water_df = []
 
+    # Determine whether input is SPI or SPEI based on input band names
+    first_band = Band(**params["layer_spi_bands"][0])
+    if first_band.name == SPEI_BAND_NAME:
+        min_over_period_band_name = SPEI_MIN_OVER_PERIOD_BAND_NAME
+    else:
+        min_over_period_band_name = SPI_MIN_OVER_PERIOD_BAND_NAME
+
     summary_table, out_path = _compute_drought_summary_table(
         aoi=aoi,
         compute_bbs_from=params["layer_spi_path"],
@@ -695,7 +703,7 @@ def summarise_drought_vulnerability(
 
         out_bands.append(
             Band(
-                name=SPI_MIN_OVER_PERIOD_BAND_NAME,
+                name=min_over_period_band_name,
                 no_data_value=NODATA_VALUE,
                 metadata={
                     "year_initial": year_initial,
