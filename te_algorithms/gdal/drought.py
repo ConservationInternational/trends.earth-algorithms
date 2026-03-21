@@ -609,7 +609,9 @@ def summarise_drought_vulnerability(
     aoi: AOI,
     job_output_path: Path,
     n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
+    killed_callback=None,
 ) -> Job:
+    logger.info("Starting drought vulnerability summary")
     logger.debug("at top of summarise_drought_vulnerability")
 
     try:
@@ -636,6 +638,7 @@ def summarise_drought_vulnerability(
 
     drought_period = 4
 
+    logger.info("Preparing input data for drought vulnerability analysis")
     spi_dfs = _prepare_dfs(
         params["layer_spi_path"],
         params["layer_spi_bands"],
@@ -665,6 +668,8 @@ def summarise_drought_vulnerability(
     else:
         water_df = []
 
+    logger.info("Input data preparation complete")
+
     # Determine whether input is SPI or SPEI based on input band names
     first_band = Band(**params["layer_spi_bands"][0])
     if first_band.name == SPEI_BAND_NAME:
@@ -672,6 +677,7 @@ def summarise_drought_vulnerability(
     else:
         min_over_period_band_name = SPI_MIN_OVER_PERIOD_BAND_NAME
 
+    logger.info("Computing drought summary table")
     summary_table, out_path = _compute_drought_summary_table(
         aoi=aoi,
         compute_bbs_from=params["layer_spi_path"],
@@ -679,8 +685,15 @@ def summarise_drought_vulnerability(
         in_dfs=spi_dfs + population_dfs + jrc_df + water_df,
         drought_period=drought_period,
         n_cpus=effective_n_cpus,
+        killed_callback=killed_callback,
     )
 
+    logger.info("Drought summary table complete")
+
+    if killed_callback is not None and killed_callback():
+        raise RuntimeError("Cancelled by user.")
+
+    logger.info("Assembling output bands")
     out_bands = []
     logger.info(
         f"Processing for years {params['layer_spi_years'][0]} - "
@@ -730,6 +743,7 @@ def summarise_drought_vulnerability(
 
     out_df = DataFile(out_path.name, out_bands)
 
+    logger.info("Saving report JSON, band key, and summary Excel")
     # Also save bands to a key file for ease of use in PRAIS
     key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
     with open(key_json, "w") as f:
@@ -755,6 +769,7 @@ def summarise_drought_vulnerability(
         years=[int(y) for y in params["layer_spi_years"]],
     )
 
+    logger.info("Drought vulnerability summary complete")
     results = RasterResults(
         name="drought_vulnerability_summary",
         uri=URI(uri=out_path),
@@ -813,12 +828,15 @@ def _aoi_process_multiprocess(inputs, n_cpus):
     return results
 
 
-def _aoi_process_sequential(inputs):
+def _aoi_process_sequential(inputs, killed_callback=None):
     results = []
     total_tiles = len(inputs)
     logger.info(f"Processing {total_tiles} tiles sequentially")
 
     for n, item in enumerate(inputs):
+        if killed_callback is not None and killed_callback():
+            raise RuntimeError("Cancelled by user.")
+
         tile_num = n + 1
         logger.info(f"Starting tile {tile_num}/{total_tiles}: {item.tile.name}")
         output = _summarize_tile(item)
@@ -848,6 +866,7 @@ def _summarize_over_aoi(
     drought_worker_process_name,
     drought_period: int,
     n_cpus: int,
+    killed_callback=None,
     translate_worker_function: Callable = None,
     translate_worker_params: dict = None,
     mask_worker_function: Callable = None,
@@ -944,7 +963,7 @@ def _summarize_over_aoi(
         if n_cpus > 1:
             results = _aoi_process_multiprocess(inputs, n_cpus)
         else:
-            results = _aoi_process_sequential(inputs)
+            results = _aoi_process_sequential(inputs, killed_callback)
 
         results = _accumulate_drought_summary_tables(results)
     else:
@@ -1055,6 +1074,7 @@ def _compute_drought_summary_table(
     output_job_path: Path,
     drought_period: int,
     n_cpus: int,
+    killed_callback=None,
 ) -> Tuple[SummaryTableDrought, Path]:
     """Computes summary table and the output tif file(s)"""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
@@ -1078,6 +1098,9 @@ def _compute_drought_summary_table(
     out_paths = []
 
     for index, (wkt_aoi, pixel_aligned_bbox) in enumerate(zip(wkt_aois, bbs), start=1):
+        if killed_callback is not None and killed_callback():
+            raise RuntimeError("Cancelled by user.")
+
         logger.info(f"Calculating summary table {index} of {len(wkt_aois)}")
         out_path = output_job_path.parent / output_name_pattern.format(
             index=index
@@ -1091,6 +1114,7 @@ def _compute_drought_summary_table(
             in_dfs=deepcopy(in_dfs),
             drought_period=drought_period,
             n_cpus=n_cpus,
+            killed_callback=killed_callback,
         )
         out_paths.extend(out_files)
 

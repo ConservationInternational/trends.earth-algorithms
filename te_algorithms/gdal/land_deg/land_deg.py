@@ -165,6 +165,7 @@ def _process_single_period_with_schemas(
     n_cpus,
     prepared_schemas,
     target_resolution=None,
+    killed_callback=None,
 ):
     """Process a single period with pre-loaded schemas - for parallel processing
 
@@ -173,11 +174,12 @@ def _process_single_period_with_schemas(
     """
     period_name = period["name"]
     period_params = period["params"]
-    logger.debug("preparing land cover dfs")
+    logger.info("Preparing input data for period '%s'", period_name)
+    logger.info("Preparing land cover data")
     lc_dfs = _prepare_land_cover_dfs(period_params)
-    logger.debug("preparing soil organic carbon dfs")
+    logger.info("Preparing soil organic carbon data")
     soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
-    logger.debug("preparing population dfs")
+    logger.info("Preparing population data")
     population_dfs = _prepare_population_dfs(period_params)
     logger.debug("len(population_dfs) %s", len(population_dfs))
     logger.debug("population_dfs %s", population_dfs)
@@ -211,6 +213,7 @@ def _process_single_period_with_schemas(
         }
 
     # Use pre-loaded schemas instead of loading them here
+    logger.info("Computing land degradation summary table for period '%s'", period_name)
     summary_table_stable_kwargs = {
         "aoi": aoi,
         "lc_legend_nesting": prepared_schemas["nesting"],
@@ -220,6 +223,7 @@ def _process_single_period_with_schemas(
         "periods": period_params["periods"],
         "n_cpus": n_cpus,
         "target_resolution": target_resolution,
+        "killed_callback": killed_callback,
     }
 
     if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -314,6 +318,7 @@ def _process_single_period_with_schemas(
         period_name,
     )
 
+    logger.info("Period '%s' processing complete", period_name)
     return period_df, period_vrt, summary_table, period_name
 
 
@@ -325,6 +330,7 @@ def _process_single_period(
     n_cpus,
     target_resolution=None,
     prepared_schemas=None,
+    killed_callback=None,
 ):
     """Process a single period - updated to accept pre-loaded schemas for thread safety
 
@@ -341,16 +347,18 @@ def _process_single_period(
             n_cpus,
             prepared_schemas,
             target_resolution,
+            killed_callback=killed_callback,
         )
 
     # Original non-threaded execution path (load schemas here)
     period_name = period["name"]
     period_params = period["params"]
-    logger.debug("preparing land cover dfs")
+    logger.info("Preparing input data for period '%s'", period_name)
+    logger.info("Preparing land cover data")
     lc_dfs = _prepare_land_cover_dfs(period_params)
-    logger.debug("preparing soil organic carbon dfs")
+    logger.info("Preparing soil organic carbon data")
     soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
-    logger.debug("preparing population dfs")
+    logger.info("Preparing population data")
     population_dfs = _prepare_population_dfs(period_params)
     logger.debug("len(population_dfs) %s", len(population_dfs))
     logger.debug("population_dfs %s", population_dfs)
@@ -399,8 +407,10 @@ def _process_single_period(
         "periods": period_params["periods"],
         "n_cpus": n_cpus,
         "target_resolution": target_resolution,
+        "killed_callback": killed_callback,
     }
 
+    logger.info("Computing land degradation summary table for period '%s'", period_name)
     if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
         traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
         compute_bbs_from = traj.path
@@ -493,6 +503,7 @@ def _process_single_period(
         period_name,
     )
 
+    logger.info("Period '%s' processing complete", period_name)
     return period_df, period_vrt, summary_table, period_name
 
 
@@ -616,8 +627,10 @@ def summarise_land_degradation(
     aoi: "AOI",
     job_output_path: Path,
     n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
+    killed_callback=None,
 ) -> "Job":
     """Calculate final SDG 15.3.1 indicator and save to disk"""
+    logger.info("Starting SDG 15.3.1 land degradation summary")
     logger.debug("at top of compute_ldn")
 
     try:
@@ -647,6 +660,9 @@ def summarise_land_degradation(
 
     # Determine highest resolution across all periods to ensure consistency
     target_resolution = determine_target_resolution(ldn_job.params["periods"])
+
+    if killed_callback is not None and killed_callback():
+        raise RuntimeError("Cancelled by user.")
 
     # Process periods in parallel when there are multiple periods
     if len(ldn_job.params["periods"]) > 1 and effective_n_cpus > 2:
@@ -719,6 +735,9 @@ def summarise_land_degradation(
                 executor.map(process_period_wrapper_with_thread_marker, period_data)
             )
 
+        if killed_callback is not None and killed_callback():
+            raise RuntimeError("Cancelled by user.")
+
         for result, period, prepared_schemas in zip(
             period_results, ldn_job.params["periods"], prepared_schemas_list
         ):
@@ -762,7 +781,14 @@ def summarise_land_degradation(
             }
     else:
         # Sequential processing for single period or when CPU count is low
-        for period in ldn_job.params["periods"]:
+        for period_idx, period in enumerate(ldn_job.params["periods"]):
+            if killed_callback is not None and killed_callback():
+                raise RuntimeError("Cancelled by user.")
+            logger.info(
+                "Processing period %d of %d",
+                period_idx + 1,
+                len(ldn_job.params["periods"]),
+            )
             result = _process_single_period(
                 period,
                 ldn_job,
@@ -770,6 +796,7 @@ def summarise_land_degradation(
                 job_output_path,
                 effective_n_cpus,
                 target_resolution,
+                killed_callback=killed_callback,
             )
             if result is None:
                 raise RuntimeError("Error processing period")
@@ -822,7 +849,12 @@ def summarise_land_degradation(
                 "n_cpus": effective_n_cpus,
             }
 
+    logger.info(
+        "All %d period(s) processed successfully", len(ldn_job.params["periods"])
+    )
+
     if len(ldn_job.params["periods"]) > 1:
+        logger.info("Computing reporting period summary for multi-period analysis")
         # Make temporary combined VRT and DataFile just for this reporting period
         # calculations. Don't save these in the output folder as at end of this
         # process all the DFs will be combined and referenced to a VRT in that
@@ -885,6 +917,9 @@ def summarise_land_degradation(
         summary_table_status = None
         summary_table_change = None
 
+    if killed_callback is not None and killed_callback():
+        raise RuntimeError("Cancelled by user.")
+
     logger.info("Finalizing layers")
 
     finalization_start_time = time.time()
@@ -912,6 +947,7 @@ def summarise_land_degradation(
         with open(key_json, "w") as f:
             json.dump(DataFile.Schema().dump(out_df), f, indent=4)
 
+        logger.info("Saving report JSON and band key")
         summary_json_output_path = (
             job_output_path.parent / f"{job_output_path.stem}_summary.json"
         )
@@ -1678,13 +1714,16 @@ def _aoi_process_multiprocess(inputs, n_cpus):
     return summary_table, out_files
 
 
-def _aoi_process_sequential(inputs):
+def _aoi_process_sequential(inputs, killed_callback=None):
     summary_tables = []
     out_files = []
     total_tiles = len(inputs)
     logger.info(f"Processing {total_tiles} tiles sequentially")
 
     for n, item in enumerate(inputs):
+        if killed_callback is not None and killed_callback():
+            raise RuntimeError("Cancelled by user.")
+
         tile_num = n + 1
         logger.info(f"Starting tile {tile_num}/{total_tiles}: {item.in_file.name}")
         output = _summarize_tile(item)
@@ -1720,6 +1759,7 @@ def _process_region(
     periods: dict,
     n_cpus: int,
     target_resolution=None,
+    killed_callback=None,
     translate_worker_function: Callable = None,
     translate_worker_params: dict = None,
     mask_worker_function: Callable = None,
@@ -1829,7 +1869,9 @@ def _process_region(
         if n_cpus > 1:
             summary_table, output_paths = _aoi_process_multiprocess(inputs, n_cpus)
         else:
-            summary_table, output_paths = _aoi_process_sequential(inputs)
+            summary_table, output_paths = _aoi_process_sequential(
+                inputs, killed_callback
+            )
     else:
         error_message = "Error reprojecting layers."
         summary_table = None
@@ -1851,6 +1893,7 @@ def _compute_ld_summary_table(
     periods: dict,
     n_cpus: int,
     target_resolution=None,
+    killed_callback=None,
 ) -> Tuple[models.SummaryTableLD, Path, Path]:
     """Computes summary table and the output tif file(s)
 
@@ -1876,6 +1919,7 @@ def _compute_ld_summary_table(
         "periods": periods,
         "n_cpus": n_cpus,
         "target_resolution": target_resolution,
+        "killed_callback": killed_callback,
     }
 
     summary_tables = []
@@ -1883,6 +1927,10 @@ def _compute_ld_summary_table(
     output_paths = []
 
     for index, (wkt_aoi, pixel_aligned_bbox) in enumerate(zip(wkt_aois, bbs), start=1):
+        if killed_callback is not None and killed_callback():
+            raise RuntimeError("Cancelled by user.")
+
+        logger.info("Processing AOI region %d of %d", index, len(wkt_aois))
         base_output_path = output_job_path.parent / output_name_pattern.format(
             index=index
         )
