@@ -610,6 +610,8 @@ def summarise_drought_vulnerability(
     job_output_path: Path,
     n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
     killed_callback=None,
+    parallel_backend: str = "process",
+    progress_callback=None,
 ) -> Job:
     logger.info("Starting drought vulnerability summary")
     logger.debug("at top of summarise_drought_vulnerability")
@@ -678,6 +680,10 @@ def summarise_drought_vulnerability(
         min_over_period_band_name = SPI_MIN_OVER_PERIOD_BAND_NAME
 
     logger.info("Computing drought summary table")
+
+    if progress_callback is not None:
+        progress_callback(5)
+
     summary_table, out_path = _compute_drought_summary_table(
         aoi=aoi,
         compute_bbs_from=params["layer_spi_path"],
@@ -686,9 +692,13 @@ def summarise_drought_vulnerability(
         drought_period=drought_period,
         n_cpus=effective_n_cpus,
         killed_callback=killed_callback,
+        parallel_backend=parallel_backend,
     )
 
     logger.info("Drought summary table complete")
+
+    if progress_callback is not None:
+        progress_callback(90)
 
     if killed_callback is not None and killed_callback():
         raise RuntimeError("Cancelled by user.")
@@ -770,6 +780,10 @@ def summarise_drought_vulnerability(
     )
 
     logger.info("Drought vulnerability summary complete")
+
+    if progress_callback is not None:
+        progress_callback(95)
+
     results = RasterResults(
         name="drought_vulnerability_summary",
         uri=URI(uri=out_path),
@@ -797,12 +811,41 @@ def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
     return dfs
 
 
-def _aoi_process_multiprocess(inputs, n_cpus):
+def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
+    if parallel_backend == "thread":
+        from concurrent.futures import ThreadPoolExecutor
+
+        n = 0
+        total_tiles = len(inputs)
+        logger.info(f"Processing {total_tiles} tiles in parallel with {n_cpus} threads")
+
+        results = []
+
+        with ThreadPoolExecutor(max_workers=n_cpus) as executor:
+            for output in executor.map(_summarize_tile, inputs):
+                completed_tiles = n + 1
+                progress_percent = (completed_tiles / total_tiles) * 100
+                util.log_progress(
+                    completed_tiles / total_tiles,
+                    message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
+                )
+                error_message = output[1]
+
+                if error_message is not None:
+                    logger.error("Error %s", error_message)
+                    break
+
+                results.append(output[0])
+                n += 1
+
+        return results
+
     with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
         n = 0
         total_tiles = len(inputs)
         logger.info(
             f"Processing {total_tiles} tiles in parallel with {n_cpus} processes"
+            " (multiprocessing.Pool)"
         )
 
         results = []
@@ -873,6 +916,7 @@ def _summarize_over_aoi(
     mask_worker_params: dict = None,
     drought_worker_function: Callable = None,
     drought_worker_params: dict = None,
+    parallel_backend: str = "process",
 ) -> Tuple[Optional[SummaryTableDrought], List[Path], str]:
     # Combine all raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(
@@ -929,7 +973,11 @@ def _summarize_over_aoi(
             effective_cpus = n_cpus
 
         translate_worker = workers.CutTiles(
-            indic_vrt, effective_cpus, indic_reproj, gdal.GDT_Int32
+            indic_vrt,
+            effective_cpus,
+            indic_reproj,
+            gdal.GDT_Int32,
+            parallel_backend=parallel_backend,
         )
         tiles = translate_worker.work()
         logger.debug("Tiles are %s", tiles)
@@ -961,7 +1009,7 @@ def _summarize_over_aoi(
         ]
 
         if n_cpus > 1:
-            results = _aoi_process_multiprocess(inputs, n_cpus)
+            results = _aoi_process_multiprocess(inputs, n_cpus, parallel_backend)
         else:
             results = _aoi_process_sequential(inputs, killed_callback)
 
@@ -1075,6 +1123,7 @@ def _compute_drought_summary_table(
     drought_period: int,
     n_cpus: int,
     killed_callback=None,
+    parallel_backend: str = "process",
 ) -> Tuple[SummaryTableDrought, Path]:
     """Computes summary table and the output tif file(s)"""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
@@ -1115,6 +1164,7 @@ def _compute_drought_summary_table(
             drought_period=drought_period,
             n_cpus=n_cpus,
             killed_callback=killed_callback,
+            parallel_backend=parallel_backend,
         )
         out_paths.extend(out_files)
 

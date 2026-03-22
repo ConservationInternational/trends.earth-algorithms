@@ -172,7 +172,7 @@ def _summarize_counterbalancing_tile(
     gdal.UseExceptions()
     error_message = None
     tile_name = inputs.in_file.name
-    logger.debug("Processing counterbalancing tile: %s", tile_name)
+    logger.info("Processing counterbalancing tile: %s", tile_name)
 
     tile_ds = gdal.Open(str(inputs.in_file))
     if tile_ds is None:
@@ -249,11 +249,13 @@ def _summarize_counterbalancing_tile(
     )
     summary_table.cast_to_cpython()  # needed for multiprocessing pickling
 
-    logger.debug("Completed counterbalancing tile: %s", tile_name)
+    logger.info("Completed counterbalancing tile: %s", tile_name)
     return summary_table, out_file, error_message
 
 
-def _cb_process_multiprocess(inputs, n_cpus):
+def _cb_process_multiprocess(
+    inputs, n_cpus, parallel_backend="process", progress_callback=None
+):
     """Dispatch counterbalancing tiles to a multiprocessing pool."""
     current_thread = threading.current_thread()
     is_in_thread_pool = getattr(
@@ -262,10 +264,45 @@ def _cb_process_multiprocess(inputs, n_cpus):
 
     chunksize = max(1, len(inputs) // (n_cpus * 2))
     total_tiles = len(inputs)
+    worker_type = "threads" if parallel_backend == "thread" else "processes"
 
     logger.info(
-        f"Processing {total_tiles} counterbalancing tiles with {n_cpus} processes"
+        f"Processing {total_tiles} counterbalancing tiles with {n_cpus} {worker_type}"
     )
+
+    if parallel_backend == "thread":
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=n_cpus) as executor:
+            summary_tables = []
+            out_files = []
+
+            for n, output in enumerate(
+                executor.map(_summarize_counterbalancing_tile, inputs)
+            ):
+                summary_tbl, out_file, error_msg = output
+                if error_msg is not None:
+                    logger.error("Error %s", error_msg)
+                    return None
+                summary_tables.append(summary_tbl)
+                out_files.append(out_file)
+
+                completed = n + 1
+                if (
+                    completed % max(5, total_tiles // 20) == 0
+                ) or completed == total_tiles:
+                    util.log_progress(
+                        completed / total_tiles,
+                        message=(
+                            f"Counterbalancing: {completed}/{total_tiles} "
+                            f"tiles ({100 * completed / total_tiles:.1f}%)"
+                        ),
+                    )
+                    if progress_callback is not None:
+                        progress_callback(10 + int(80 * completed / total_tiles))
+
+        summary_table = models.accumulate_summary_table_counterbalancing(summary_tables)
+        return summary_table, out_files
 
     with multiprocessing.get_context("spawn").Pool(n_cpus) as pool:
         summary_tables = []
@@ -306,6 +343,8 @@ def _cb_process_multiprocess(inputs, n_cpus):
                             f"tiles ({100 * completed / total_tiles:.1f}%)"
                         ),
                     )
+                    if progress_callback is not None:
+                        progress_callback(10 + int(80 * completed / total_tiles))
 
         except multiprocessing.TimeoutError:
             logger.error(
@@ -372,6 +411,7 @@ def compute_counterbalancing(
     n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
     progress_callback=None,
     killed_callback=None,
+    parallel_backend: str = "process",
 ) -> Tuple[
     models.SummaryTableCounterbalancing,
     List[models.CounterbalancingLandTypeResult],
@@ -479,6 +519,7 @@ def compute_counterbalancing(
         n_cpus=effective_n_cpus,
         out_file=tile_base,
         datatype=gdal.GDT_Int32,
+        parallel_backend=parallel_backend,
     )
     tiles = cutter.work()
 
@@ -496,7 +537,9 @@ def compute_counterbalancing(
         raise RuntimeError("Cancelled by user.")
 
     if effective_n_cpus > 1 and len(tiles) > 1:
-        result = _cb_process_multiprocess(inputs, effective_n_cpus)
+        result = _cb_process_multiprocess(
+            inputs, effective_n_cpus, parallel_backend, progress_callback
+        )
     else:
         result = _cb_process_sequential(inputs, progress_callback, killed_callback)
 

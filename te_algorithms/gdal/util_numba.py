@@ -39,7 +39,7 @@ MASK_VALUE = np.array([-32767], dtype=np.int16)
 # Calculate the area of a slice of the globe from the equator to the parallel
 # at latitude f (on WGS84 ellipsoid). Based on:
 # https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("slice_area", "f8(f8)")
 def slice_area(f):
     a = 6378137.0  # in meters
@@ -57,7 +57,7 @@ def slice_area(f):
 
 # Formula to calculate area of a raster cell on WGS84 ellipsoid, following
 # https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("calc_cell_area", "f8(f8, f8, f8)")
 def calc_cell_area(ymin, ymax, x_width):
     if ymin > ymax:
@@ -74,7 +74,7 @@ def calc_cell_area(ymin, ymax, x_width):
     )
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("zonal_total", "DictType(i4, f8)(i4[:,:], f8[:,:], b1[:,:])")
 def zonal_total(z, d, mask):
     """
@@ -120,7 +120,7 @@ def zonal_total(z, d, mask):
     return totals
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export(
     "zonal_total_weighted", "DictType(i4, f8)(i4[:,:], i4[:,:], f8[:,:], b1[:,:])"
 )
@@ -146,7 +146,7 @@ def zonal_total_weighted(z, d, weights, mask):
     return totals
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export(
     "bizonal_total", "DictType(UniTuple(i4, 2), f8)(i4[:,:], i4[:,:], f8[:,:], b1[:,:])"
 )

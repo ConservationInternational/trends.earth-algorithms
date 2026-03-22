@@ -32,7 +32,7 @@ NODATA_VALUE = np.array([-32768], dtype=np.int16)
 MASK_VALUE = np.array([-32767], dtype=np.int16)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("drought_class", "i2[:,:](i2[:,:])")
 def drought_class(spi):
     # 0 - -1: mild drought (code as 1)
@@ -55,7 +55,7 @@ def drought_class(spi):
     return np.reshape(out, shp)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("jrc_sum_and_count", "Tuple((f8, i8))(f8[:,:], i2[:,:])")
 def jrc_sum_and_count(jrc, mask):
     temp = jrc.copy().ravel()

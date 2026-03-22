@@ -53,7 +53,7 @@ LOSS_CODE = np.int16(-1)
 NEUTRAL_CODE = np.int16(0)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("classify_gains_losses", "i2[:,:](i2[:,:], b1[:,:])")
 def classify_gains_losses(status_7class, mask):
     """Classify each pixel as gain, loss, or neutral from 7-class status.
@@ -88,7 +88,7 @@ def classify_gains_losses(status_7class, mask):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export(
     "zonal_gains_losses",
     "Tuple((DictType(i4, f8), DictType(i4, f8)))(i2[:,:], i4[:,:], f8[:,:], b1[:,:])",
@@ -145,7 +145,7 @@ def zonal_gains_losses(status_7class, land_type, cell_area, mask):
     return gains, losses
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export(
     "zonal_status_breakdown",
     "DictType(UniTuple(i4, 2), f8)(i2[:,:], i4[:,:], f8[:,:], b1[:,:])",

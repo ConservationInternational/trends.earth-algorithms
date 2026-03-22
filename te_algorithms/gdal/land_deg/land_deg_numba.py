@@ -32,7 +32,7 @@ NODATA_VALUE = np.array([-32768], dtype=np.int16)
 MASK_VALUE = np.array([-32767], dtype=np.int16)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export(
     "recode_indicator_errors",
     "Tuple((i2[:,:], optional(i2[:,:]), optional(i2[:,:])))(i2[:,:], optional(i2[:,:]), optional(i2[:,:]), i2[:,:], i2[:,:], i2[:], i2[:], i2[:], i2[:])",
@@ -153,7 +153,7 @@ def recode_indicator_errors(
     return (baseline_reshaped, reporting_1_reshaped, reporting_2_reshaped)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("recode_traj", "i2[:,:](i2[:,:])")
 def recode_traj(x):
     # Recode trajectory into deg, stable, imp. Capture trends that are at least
@@ -189,7 +189,7 @@ def recode_traj(x):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("recode_state", "i2[:,:](i2[:,:])")
 def recode_state(x):
     # Recode state into deg, stable, imp. Note the >= -10 is so no data
@@ -221,7 +221,7 @@ def recode_state(x):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("calc_progress_lc_deg", "i2[:,:](i2[:,:], i2[:,:])")
 def calc_progress_lc_deg(initial, final):
     # First need to calculate transitions, then recode them as deg, stable,
@@ -243,7 +243,7 @@ def calc_progress_lc_deg(initial, final):
     return np.reshape(out, shp)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("calc_prod5", "i2[:,:](i2[:,:], i2[:,:], i2[:,:])")
 def calc_prod5(traj, state, perf):
     # Coding of LPD (prod5)
@@ -302,7 +302,7 @@ def calc_prod5(traj, state, perf):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("sdg_status_expanded", "i2[:,:](i2[:,:], i2[:,:])")
 def sdg_status_expanded(sdg_bl, sdg_tg):
     """
@@ -335,7 +335,7 @@ def sdg_status_expanded(sdg_bl, sdg_tg):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("sdg_status_expanded_to_simple", "i2[:,:](i2[:,:])")
 def sdg_status_expanded_to_simple(sdg_status):
     """
@@ -366,7 +366,7 @@ def sdg_status_expanded_to_simple(sdg_status):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("prod5_to_prod3", "i2[:,:](i2[:,:])")
 def prod5_to_prod3(prod5):
     """Optimized conversion from 5-class to 3-class productivity"""
@@ -390,7 +390,7 @@ def prod5_to_prod3(prod5):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export(
     "calc_lc_trans", "i4[:,:](i2[:,:], i2[:,:], i4, optional(i2[:]), optional(i2[:]))"
 )
@@ -425,7 +425,7 @@ def calc_lc_trans(lc_bl, lc_tg, multiplier, recode_from=None, recode_to=None):
     return a_trans_bl_tg.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("recode_deg_soc", "i2[:,:](i2[:,:], i2[:,:])")
 def recode_deg_soc(soc, water):
     """recode SOC change layer from percent change into a categorical map"""
@@ -443,7 +443,7 @@ def recode_deg_soc(soc, water):
     return np.reshape(out, shp)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("calc_soc_pch", "f8[:,:](i2[:,:], i2[:,:])")
 def calc_soc_pch(soc_bl, soc_tg):
     """calculate percent change in SOC from initial and final SOC"""
@@ -458,7 +458,7 @@ def calc_soc_pch(soc_bl, soc_tg):
     return np.reshape(soc_chg, shp)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("calc_deg_soc", "i2[:,:](i2[:,:], i2[:,:], i2[:,:])")
 def calc_deg_soc(soc_bl, soc_tg, water):
     """Optimized SOC degradation calculation with fewer intermediate arrays"""
@@ -500,7 +500,7 @@ def calc_deg_soc(soc_bl, soc_tg, water):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("calc_deg_lc", "i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i4)")
 def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
     """calculate land cover degradation"""
@@ -525,7 +525,7 @@ def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
     return np.reshape(out, shp)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export("calc_deg_sdg", "i2[:,:](i2[:,:], i2[:,:], i2[:,:])")
 def calc_deg_sdg(deg_prod3, deg_lc, deg_soc):
     """Optimized SDG degradation calculation"""
@@ -559,7 +559,7 @@ def calc_deg_sdg(deg_prod3, deg_lc, deg_soc):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, nogil=True)
 @cc.export(
     "recode_block_stats",
     "Tuple((f8[:], f8[:,:,:]))(i2[:,:], i2[:,:,:], f8[:,:], b1[:,:])",

@@ -166,6 +166,7 @@ def _process_single_period_with_schemas(
     prepared_schemas,
     target_resolution=None,
     killed_callback=None,
+    parallel_backend="process",
 ):
     """Process a single period with pre-loaded schemas - for parallel processing
 
@@ -224,6 +225,7 @@ def _process_single_period_with_schemas(
         "n_cpus": n_cpus,
         "target_resolution": target_resolution,
         "killed_callback": killed_callback,
+        "parallel_backend": parallel_backend,
     }
 
     if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -331,6 +333,7 @@ def _process_single_period(
     target_resolution=None,
     prepared_schemas=None,
     killed_callback=None,
+    parallel_backend="process",
 ):
     """Process a single period - updated to accept pre-loaded schemas for thread safety
 
@@ -348,6 +351,7 @@ def _process_single_period(
             prepared_schemas,
             target_resolution,
             killed_callback=killed_callback,
+            parallel_backend=parallel_backend,
         )
 
     # Original non-threaded execution path (load schemas here)
@@ -570,7 +574,7 @@ def collect_resolutions_from_periods(periods: List[Dict]) -> List[Tuple[float, f
             resolution = get_resolution_from_file(ref_file)
             if resolution:
                 resolutions.append(resolution)
-                logger.debug(f"Period '{period['name']}' resolution: {resolution}")
+                logger.info(f"Period '{period['name']}' resolution: {resolution}")
 
     return resolutions
 
@@ -628,6 +632,8 @@ def summarise_land_degradation(
     job_output_path: Path,
     n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
     killed_callback=None,
+    parallel_backend: str = "process",
+    progress_callback=None,
 ) -> "Job":
     """Calculate final SDG 15.3.1 indicator and save to disk"""
     logger.info("Starting SDG 15.3.1 land degradation summary")
@@ -663,6 +669,9 @@ def summarise_land_degradation(
 
     if killed_callback is not None and killed_callback():
         raise RuntimeError("Cancelled by user.")
+
+    if progress_callback is not None:
+        progress_callback(5)
 
     # Process periods in parallel when there are multiple periods
     if len(ldn_job.params["periods"]) > 1 and effective_n_cpus > 2:
@@ -701,6 +710,7 @@ def summarise_land_degradation(
                 cpus,
                 prepared_schemas,
                 target_resolution,
+                parallel_backend=parallel_backend,
             )
 
         # Pre-load schemas in main thread to avoid thread-safety issues
@@ -734,6 +744,9 @@ def summarise_land_degradation(
             period_results = list(
                 executor.map(process_period_wrapper_with_thread_marker, period_data)
             )
+
+        if progress_callback is not None:
+            progress_callback(85)
 
         if killed_callback is not None and killed_callback():
             raise RuntimeError("Cancelled by user.")
@@ -778,6 +791,7 @@ def summarise_land_degradation(
                 "period_name": period_name,
                 "periods": periods,
                 "n_cpus": period_cpus,
+                "parallel_backend": parallel_backend,
             }
     else:
         # Sequential processing for single period or when CPU count is low
@@ -797,10 +811,15 @@ def summarise_land_degradation(
                 effective_n_cpus,
                 target_resolution,
                 killed_callback=killed_callback,
+                parallel_backend=parallel_backend,
             )
             if result is None:
                 raise RuntimeError("Error processing period")
             period_df, period_vrt, summary_table, period_name = result
+
+            if progress_callback is not None:
+                n_periods = len(ldn_job.params["periods"])
+                progress_callback(5 + int(80 * (period_idx + 1) / n_periods))
             period_dfs.append(period_df)
             period_vrts.append(period_vrt)
             summary_tables[period_name] = summary_table
@@ -847,11 +866,15 @@ def summarise_land_degradation(
                 "period_name": period_name,
                 "periods": periods,
                 "n_cpus": effective_n_cpus,
+                "parallel_backend": parallel_backend,
             }
 
     logger.info(
         "All %d period(s) processed successfully", len(ldn_job.params["periods"])
     )
+
+    if progress_callback is not None:
+        progress_callback(85)
 
     if len(ldn_job.params["periods"]) > 1:
         logger.info("Computing reporting period summary for multi-period analysis")
@@ -881,7 +904,7 @@ def summarise_land_degradation(
             )
             assert baseline_nesting.nesting == reporting_nesting.nesting
 
-        logger.debug(f"Computing reporting period {period_number} summary")
+        logger.info(f"Computing reporting period {period_number} summary")
 
         # Get prod_mode and compute_bbs_from from the first period
         first_period_params = ldn_job.params["periods"][0]["params"]
@@ -909,6 +932,7 @@ def summarise_land_degradation(
                 ldn_job.params["periods"],
                 baseline_nesting,
                 n_cpus=effective_n_cpus,
+                parallel_backend=parallel_backend,
             )
         )
         period_vrts.append(reporting_df.path)
@@ -916,6 +940,9 @@ def summarise_land_degradation(
     else:
         summary_table_status = None
         summary_table_change = None
+
+    if progress_callback is not None:
+        progress_callback(95)
 
     if killed_callback is not None and killed_callback():
         raise RuntimeError("Cancelled by user.")
@@ -1447,9 +1474,7 @@ class SummarizeTileInputs:
 def _summarize_tile(inputs: SummarizeTileInputs):
     error_message = None
     tile_name = inputs.in_file.name
-    logger.debug(
-        "Processing tile: %s", tile_name
-    )  # Changed to debug to reduce verbosity
+    logger.info("Processing tile: %s", tile_name)
 
     # Compute a mask layer that will be used in the tabulation code to
     # mask out areas outside of the AOI. Do this instead of using
@@ -1476,9 +1501,7 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         result = None
 
     else:
-        logger.debug(
-            "Computing degradation summary for tile: %s", tile_name
-        )  # Changed to debug to reduce verbosity
+        logger.info("Computing degradation summary for tile: %s", tile_name)
         in_df = combine_data_files(inputs.in_file, inputs.in_dfs)
         n_out_bands = 2  # 1 band for SDG, and 1 band for total pop affected
 
@@ -1528,20 +1551,51 @@ def _summarize_tile(inputs: SummarizeTileInputs):
                 error_message = f"Error calculating summary table for tile {tile_name}."
                 result = None
         else:
-            logger.debug(
-                "Completed processing tile: %s", tile_name
-            )  # Changed to debug to reduce verbosity
+            logger.info("Completed processing tile: %s", tile_name)
             result = models.accumulate_summarytableld(result)
             result.cast_to_cpython()  # needed for multiprocessing
 
     return result, out_file, error_message
 
 
-def _aoi_process_multiprocess(inputs, n_cpus):
+def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
     from .. import util
 
-    # Use ThreadPoolExecutor for I/O bound tasks + ProcessPoolExecutor for CPU bound
-    # This hybrid approach can improve throughput when tasks have mixed characteristics
+    worker_type = "threads" if parallel_backend == "thread" else "processes"
+
+    # Thread backend: use ThreadPoolExecutor (requires nogil numba functions)
+    if parallel_backend == "thread":
+        from concurrent.futures import ThreadPoolExecutor
+
+        total_tiles = len(inputs)
+        logger.info(
+            f"Processing {total_tiles} tiles with {n_cpus} {worker_type} "
+            f"(ThreadPoolExecutor)"
+        )
+        summary_tables = []
+        out_files = []
+
+        with ThreadPoolExecutor(max_workers=n_cpus) as executor:
+            for n, output in enumerate(executor.map(_summarize_tile, inputs)):
+                completed_tiles = n + 1
+                if (
+                    completed_tiles % max(5, total_tiles // 20) == 0
+                ) or completed_tiles == total_tiles:
+                    util.log_progress(
+                        completed_tiles / total_tiles,
+                        message=f"Land degradation processing: {completed_tiles}/{total_tiles} tiles completed",
+                    )
+                error_message = output[2]
+                if error_message is not None:
+                    logger.error("Error %s", error_message)
+                    return None
+                summary_tables.append(output[0])
+                out_files.append(output[1])
+
+        summary_table = models.accumulate_summarytableld(summary_tables)
+        return summary_table, out_files
+
+    # Process backend: original multiprocessing.Pool code
 
     # Check if we're already in a ThreadPoolExecutor thread to avoid deadlocks
     current_thread = threading.current_thread()
@@ -1766,6 +1820,7 @@ def _process_region(
     mask_worker_params: dict = None,
     deg_worker_function: Callable = None,
     deg_worker_params: dict = None,
+    parallel_backend: str = "process",
 ) -> Tuple[Optional[models.SummaryTableLD], str]:
     """Runs summary statistics for a particular area
 
@@ -1837,7 +1892,10 @@ def _process_region(
             effective_cpus = n_cpus
 
         translate_worker = workers.CutTiles(
-            indic_vrt, effective_cpus, output_layers_path
+            indic_vrt,
+            effective_cpus,
+            output_layers_path,
+            parallel_backend=parallel_backend,
         )
         tiles = translate_worker.work()
 
@@ -1867,7 +1925,9 @@ def _process_region(
             for tile in tiles
         ]
         if n_cpus > 1:
-            summary_table, output_paths = _aoi_process_multiprocess(inputs, n_cpus)
+            summary_table, output_paths = _aoi_process_multiprocess(
+                inputs, n_cpus, parallel_backend=parallel_backend
+            )
         else:
             summary_table, output_paths = _aoi_process_sequential(
                 inputs, killed_callback
@@ -1894,6 +1954,7 @@ def _compute_ld_summary_table(
     n_cpus: int,
     target_resolution=None,
     killed_callback=None,
+    parallel_backend: str = "process",
 ) -> Tuple[models.SummaryTableLD, Path, Path]:
     """Computes summary table and the output tif file(s)
 
@@ -1920,6 +1981,7 @@ def _compute_ld_summary_table(
         "n_cpus": n_cpus,
         "target_resolution": target_resolution,
         "killed_callback": killed_callback,
+        "parallel_backend": parallel_backend,
     }
 
     summary_tables = []

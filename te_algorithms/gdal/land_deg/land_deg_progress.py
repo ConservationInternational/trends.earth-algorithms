@@ -155,7 +155,7 @@ def _process_single_region(region_data):
         )
         geojson = util.wkt_geom_to_geojson_file_string(wkt_aoi)
 
-        logger.debug(f"Region {index}: Starting mask creation")
+        logger.info(f"Region {index}: Starting mask creation")
         if mask_worker_function:
             mask_worker_params = mask_worker_params or {}
             mask_result = mask_worker_function(
@@ -183,7 +183,7 @@ def _process_single_region(region_data):
             f"Calculating status summary table and saving layer to: {status_out_path}"
         )
 
-        logger.debug(f"Region {index}: Creating status parameters")
+        logger.info(f"Region {index}: Creating status parameters")
         status_params = models.DegradationStatusSummaryParams(
             prod_mode=prod_mode,
             in_file=str(cropped_status_vrt),
@@ -196,7 +196,7 @@ def _process_single_region(region_data):
             nesting=nesting,
         )
 
-        logger.debug(f"Region {index}: Starting status processing")
+        logger.info(f"Region {index}: Starting status processing")
         if status_worker_function:
             status_worker_params = status_worker_params or {}
             result = status_worker_function(
@@ -215,7 +215,7 @@ def _process_single_region(region_data):
             return None, None, "Error calculating status summary tables."
 
         # Extract status and change tables from result
-        logger.debug(f"Region {index}: Extracting results from {len(result)} blocks")
+        logger.info(f"Region {index}: Extracting results from {len(result)} blocks")
         summary_table_status = [item[0] for item in result]
         summary_table_change = [item[1] for item in result]
 
@@ -321,6 +321,7 @@ def compute_status_summary(
     status_worker_function: Union[None, Callable] = None,
     status_worker_params: Union[None, dict] = None,
     n_cpus: Optional[int] = None,
+    parallel_backend: str = "process",
 ):
     """Compute status summary with optional parallel processing for multiple regions"""
 
@@ -384,32 +385,41 @@ def compute_status_summary(
             "Using parallel processing with optimized serialization for status processing"
         )
 
-        with multiprocessing.get_context("spawn").Pool(
-            min(n_cpus, len(wkt_aois))
-        ) as pool:
-            try:
-                # Use map_async with timeout for better control
-                async_result = pool.map_async(_process_single_region, region_data)
+        if parallel_backend == "thread":
+            from concurrent.futures import ThreadPoolExecutor
 
-                # Wait for results with timeout
-                results = async_result.get(timeout=STATUS_PROCESSING_TIMEOUT)
+            with ThreadPoolExecutor(max_workers=min(n_cpus, len(wkt_aois))) as executor:
+                results = list(executor.map(_process_single_region, region_data))
                 logger.info(
-                    f"Successfully completed parallel processing of {len(results)} regions"
+                    f"Successfully completed thread-parallel processing of {len(results)} regions"
                 )
-            except multiprocessing.TimeoutError:
-                logger.error(
-                    f"Status processing timed out after {STATUS_PROCESSING_TIMEOUT // 3600} hours"
-                )
-                pool.terminate()
-                pool.join()
-                raise RuntimeError(
-                    f"Status processing timed out after {STATUS_PROCESSING_TIMEOUT // 3600} hours"
-                )
-            except Exception as e:
-                logger.error(f"Error in parallel status processing: {e}")
-                pool.terminate()
-                pool.join()
-                raise RuntimeError(f"Error calculating status: {e}")
+        else:
+            with multiprocessing.get_context("spawn").Pool(
+                min(n_cpus, len(wkt_aois))
+            ) as pool:
+                try:
+                    # Use map_async with timeout for better control
+                    async_result = pool.map_async(_process_single_region, region_data)
+
+                    # Wait for results with timeout
+                    results = async_result.get(timeout=STATUS_PROCESSING_TIMEOUT)
+                    logger.info(
+                        f"Successfully completed parallel processing of {len(results)} regions"
+                    )
+                except multiprocessing.TimeoutError:
+                    logger.error(
+                        f"Status processing timed out after {STATUS_PROCESSING_TIMEOUT // 3600} hours"
+                    )
+                    pool.terminate()
+                    pool.join()
+                    raise RuntimeError(
+                        f"Status processing timed out after {STATUS_PROCESSING_TIMEOUT // 3600} hours"
+                    )
+                except Exception as e:
+                    logger.error(f"Error in parallel status processing: {e}")
+                    pool.terminate()
+                    pool.join()
+                    raise RuntimeError(f"Error calculating status: {e}")
 
         # Process the simplified results and reconstruct the objects
         logger.info("Reconstructing status objects from parallel results")

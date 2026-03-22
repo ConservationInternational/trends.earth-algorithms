@@ -207,10 +207,14 @@ def _optimize_tile_size_for_balance(img_dimension, tile_size, block_size):
     return tile_size
 
 
-def _cut_tiles_multiprocess(n_cpus, params):
+def _cut_tiles_multiprocess(n_cpus, params, parallel_backend="process"):
     """Optimized multiprocessing with chunking and error handling"""
+    backend_label = "threading" if parallel_backend == "thread" else "multiprocessing"
     logger.info(
-        "Using multiprocessing with %d CPUs to process %d tiles", n_cpus, len(params)
+        "Using %s with %d workers to process %d tiles",
+        backend_label,
+        n_cpus,
+        len(params),
     )
 
     # Optimize chunking for faster tile processing
@@ -222,6 +226,42 @@ def _cut_tiles_multiprocess(n_cpus, params):
 
     results = []
     failed_tiles = []
+
+    if parallel_backend == "thread":
+        from concurrent.futures import ThreadPoolExecutor
+
+        try:
+            with ThreadPoolExecutor(max_workers=n_cpus) as executor:
+                for i, result in enumerate(executor.map(cut_tile, params)):
+                    if result is None:
+                        logger.error(
+                            f"Failed to process tile {i}: {params[i].out_file}"
+                        )
+                        raise RuntimeError(
+                            f"Tile processing failed for tile {i}. This indicates a critical error in tile boundary calculation or GDAL processing. All tiles must be processed successfully to ensure complete analysis."
+                        )
+                    else:
+                        logger.debug("Finished processing %s", result)
+                    results.append(result)
+
+                    if (i + 1) % max(5, len(params) // 20) == 0:
+                        logger.info(
+                            f"Tile splitting progress: {i + 1}/{len(params)} tiles ({100 * (i + 1) / len(params):.1f}%)"
+                        )
+
+        except Exception as e:
+            logger.error(f"Thread pool failed: {e}")
+            util.log_system_resources(
+                context_message="Memory and disk usage at time of GDAL threading error",
+                error_logger=logger,
+                input_file=params[0].in_file if params and len(params) > 0 else None,
+            )
+            raise
+
+        logger.info(
+            f"Completed tile splitting: {len(results)} tiles processed successfully"
+        )
+        return results
 
     try:
         with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
@@ -347,6 +387,7 @@ class CutTiles:
     )  # Cap at 8 CPUs max, not min 16
     out_file: Optional[Path] = None
     datatype: int = gdal.GDT_Int16
+    parallel_backend: str = "process"
 
     def work(self):
         gdal.UseExceptions()
@@ -464,7 +505,7 @@ class CutTiles:
         ]
 
         if effective_cpus > 1:
-            _cut_tiles_multiprocess(effective_cpus, params)
+            _cut_tiles_multiprocess(effective_cpus, params, self.parallel_backend)
         else:
             _cut_tiles_sequential(params)
 
