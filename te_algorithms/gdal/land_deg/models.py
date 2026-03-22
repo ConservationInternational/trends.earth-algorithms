@@ -120,6 +120,53 @@ class DegradationErrorRecodeSummaryParams(SchemaBase):
     report_band_nums: Optional[List[int]] = None  # Band numbers for reporting periods
 
 
+@marshmallow_dataclass.dataclass
+class CounterbalancingLandTypeResult(SchemaBase):
+    """Gains, losses, and delta LDN for a single land type."""
+
+    land_type_code: int
+    land_type_name: str
+    gains_area_sqkm: float
+    losses_area_sqkm: float
+    delta_ldn: float
+    ldn_achieved: bool
+    ldn_pct: float  # (gains-losses)/(gains+losses)*100, bounded [-100,100]
+
+
+@marshmallow_dataclass.dataclass
+class SummaryTableCounterbalancing(SchemaBase):
+    """Accumulated counterbalancing statistics across all land types."""
+
+    # Per-land_type gain and loss areas
+    gains_by_land_type: Dict[int, float]
+    losses_by_land_type: Dict[int, float]
+
+    def cast_to_cpython(self):
+        self.gains_by_land_type = dict(self.gains_by_land_type)
+        self.losses_by_land_type = dict(self.losses_by_land_type)
+
+
+def accumulate_summary_table_counterbalancing(
+    tables: List[SummaryTableCounterbalancing],
+) -> SummaryTableCounterbalancing:
+    from .. import util
+
+    if len(tables) == 1:
+        return tables[0]
+
+    out = tables[0]
+
+    for table in tables[1:]:
+        out.gains_by_land_type = util.accumulate_dicts(
+            [out.gains_by_land_type, table.gains_by_land_type]
+        )
+        out.losses_by_land_type = util.accumulate_dicts(
+            [out.losses_by_land_type, table.losses_by_land_type]
+        )
+
+    return out
+
+
 def accumulate_summarytableld(
     tables: List[SummaryTableLD],
 ) -> SummaryTableLD:
