@@ -250,7 +250,7 @@ class gee_task(threading.Thread):
                     results.URI(
                         uri=item["mediaLink"],
                         etag=results.Etag(
-                            hash=item["md5Hash"], type=results.EtagType.GCS_CRC32C
+                            hash=item["md5Hash"], type=results.EtagType.GCS_MD5
                         ),
                     )
                 )
