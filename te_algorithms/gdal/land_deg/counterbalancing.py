@@ -112,19 +112,34 @@ def derive_land_type_raster(
 
     datasets = [gdal.Open(wp) for wp in warped]
 
+    # Collect per-layer nodata values so we can propagate them
+    layer_nodata = []
+    for ds in datasets:
+        nd = ds.GetRasterBand(1).GetNoDataValue()
+        layer_nodata.append(int(nd) if nd is not None else None)
+
     for y in range(0, ysize, block_ysize):
         win_y = min(block_ysize, ysize - y)
         combined = np.zeros((win_y, xsize), dtype=np.int64)
+        nodata_mask = np.zeros((win_y, xsize), dtype=bool)
 
         for idx, ds in enumerate(datasets):
             arr = ds.GetRasterBand(1).ReadAsArray(0, y, xsize, win_y).astype(np.int64)
+            nd = layer_nodata[idx]
+            if nd is not None:
+                nodata_mask |= arr == nd
             power = len(datasets) - 1 - idx
             combined += arr * (multiplier**power)
+
+        # Mark pixels where any input layer is nodata
+        combined[nodata_mask] = config.NODATA_VALUE
 
         # Collect unique labels
         uniques = np.unique(combined)
         for u in uniques:
             u_int = int(u)
+            if u_int == config.NODATA_VALUE:
+                continue
             if u_int not in spu_labels:
                 parts = []
                 remainder = u_int
@@ -229,6 +244,8 @@ def _summarize_counterbalancing_tile(
         lt_arr = lt_band.ReadAsArray(0, y, xsize, win_y).astype(np.int32)
         mask_arr = mask_band.ReadAsArray(0, y, xsize, win_y)
         mask_bool = mask_arr == config.MASK_VALUE
+        # Also mask pixels where the land-type layer is nodata
+        mask_bool |= lt_arr == config.NODATA_VALUE
 
         cell_areas = all_cell_areas[y : y + win_y].copy().reshape(-1, 1)
         cell_area_2d = np.broadcast_to(cell_areas, (win_y, xsize)).copy()
@@ -454,7 +471,7 @@ def compute_counterbalancing(
         import psutil
 
         available_memory_gb = psutil.virtual_memory().available / (1024**3)
-        memory_per_core_gb = 4.0
+        memory_per_core_gb = 1.0
         max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_core_gb))
         effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
         logger.info(
