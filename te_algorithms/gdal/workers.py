@@ -89,6 +89,7 @@ class CutParams:
     out_file: Path
     datatype: int
     progress_callback: Callable
+    output_format: str = "GTiff"
 
 
 def _next_power_of_two(x):
@@ -325,6 +326,34 @@ def _cut_tiles_sequential(params):
 
 def cut_tile(params):
     logger.debug("Starting tile %s", str(params.out_file))
+
+    if params.output_format == "VRT":
+        # Zero-cost: writes only an XML descriptor, no pixel I/O.
+        # Resolve in_file to absolute so the VRT stores a resolvable
+        # source reference regardless of working directory.
+        in_path = str(Path(params.in_file).resolve())
+        try:
+            res = gdal.Translate(
+                str(params.out_file),
+                in_path,
+                format="VRT",
+                srcWin=params.src_win,
+                outputType=params.datatype,
+            )
+        except Exception as gdal_error:
+            logger.error(
+                f"GDAL VRT Translate error for tile {params.out_file}: {gdal_error}"
+            )
+            raise gdal_error
+
+        # Flush XML to disk before returning
+        if res is not None:
+            res.FlushCache()
+            res = None
+
+        logger.debug("Finished VRT tile %s", str(params.out_file))
+        return params.out_file
+
     #
     gdal.SetConfigOption("GDAL_CACHEMAX", "1024")
     gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
@@ -388,6 +417,7 @@ class CutTiles:
     out_file: Optional[Path] = None
     datatype: int = gdal.GDT_Int16
     parallel_backend: str = "process"
+    output_format: str = "GTiff"
 
     def work(self):
         gdal.UseExceptions()
@@ -484,14 +514,16 @@ class CutTiles:
         logger.debug("Tile src_wins are %s ", src_wins)
 
         # Handle output file naming
+        ext = ".vrt" if self.output_format == "VRT" else ".tif"
+
         if self.out_file is None:
-            base_out_file = self.in_file.with_suffix(".tif")
+            base_out_file = self.in_file.with_suffix(ext)
         else:
-            base_out_file = self.out_file
+            base_out_file = self.out_file.with_suffix(ext)
 
         if len(src_wins) > 1:
             out_files = [
-                base_out_file.parent / (base_out_file.stem + f"_tiles_{n}.tif")
+                base_out_file.parent / (base_out_file.stem + f"_tiles_{n}{ext}")
                 for n in range(len(src_wins))
             ]
         else:
@@ -499,12 +531,20 @@ class CutTiles:
 
         params = [
             CutParams(
-                src_win, self.in_file, out_file, self.datatype, self.progress_callback
+                src_win,
+                self.in_file,
+                out_file,
+                self.datatype,
+                self.progress_callback,
+                self.output_format,
             )
             for src_win, out_file in zip(src_wins, out_files)
         ]
 
-        if effective_cpus > 1:
+        if self.output_format == "VRT":
+            # VRT tiles are instant XML descriptors — no parallelism needed
+            _cut_tiles_sequential(params)
+        elif effective_cpus > 1:
             _cut_tiles_multiprocess(effective_cpus, params, self.parallel_backend)
         else:
             _cut_tiles_sequential(params)
