@@ -147,11 +147,18 @@ def prepare_land_type_vrts(
 
     # Compute multiplier from the VRTs
     max_vals = []
-    for vrt in warped_vrts:
+    for i, vrt in enumerate(warped_vrts):
+        logger.info(
+            "Computing statistics for land-type layer %d/%d: %s",
+            i + 1,
+            len(warped_vrts),
+            Path(vrt).name,
+        )
         ds = gdal.Open(vrt)
         band = ds.GetRasterBand(1)
         stats = band.ComputeStatistics(False)
         max_vals.append(max(int(abs(stats[1])), 1))
+        logger.info("  max=%d", max_vals[-1])
         del ds
     multiplier = max(max_vals) + 1
 
@@ -728,7 +735,16 @@ def compute_counterbalancing(
     ach_band.SetOffset(0.0)
 
     block_ysize = 256
-    for y_off in range(0, proc_ysize, block_ysize):
+    total_blocks = (proc_ysize + block_ysize - 1) // block_ysize
+    log_interval = max(1, total_blocks // 10)
+    for block_n, y_off in enumerate(range(0, proc_ysize, block_ysize)):
+        if block_n % log_interval == 0:
+            logger.info(
+                "Achievement raster: block %d/%d (%.0f%%)",
+                block_n,
+                total_blocks,
+                100.0 * block_n / total_blocks,
+            )
         win_y = min(block_ysize, proc_ysize - y_off)
         lt_arr = lt_band_r.ReadAsArray(0, y_off, proc_xsize, win_y).astype(np.int32)
         m_arr = mask_band_r.ReadAsArray(0, y_off, proc_xsize, win_y)
@@ -742,6 +758,7 @@ def compute_counterbalancing(
 
         ach_band.WriteArray(ach_arr, 0, y_off)
 
+    logger.info("Achievement raster: %d/%d (100%%)", total_blocks, total_blocks)
     del lt_ds, mask_ds, ach_ds
 
     logger.info(
