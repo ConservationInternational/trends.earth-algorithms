@@ -167,6 +167,7 @@ def _process_single_period_with_schemas(
     target_resolution=None,
     killed_callback=None,
     parallel_backend="process",
+    progress_callback=None,
 ):
     """Process a single period with pre-loaded schemas - for parallel processing
 
@@ -226,6 +227,7 @@ def _process_single_period_with_schemas(
         "target_resolution": target_resolution,
         "killed_callback": killed_callback,
         "parallel_backend": parallel_backend,
+        "progress_callback": progress_callback,
     }
 
     if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -309,6 +311,11 @@ def _process_single_period_with_schemas(
     summary_table_output_path = (
         sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
     )
+    logger.info(
+        "[parallel] Calling save_summary_table_excel for period '%s' -> %s",
+        period_name,
+        summary_table_output_path,
+    )
     save_summary_table_excel(
         summary_table_output_path,
         summary_table,
@@ -319,6 +326,17 @@ def _process_single_period_with_schemas(
         summary_table_stable_kwargs["lc_trans_matrix"],
         period_name,
     )
+    if summary_table_output_path.exists():
+        logger.info(
+            "[parallel] Excel file created successfully: %s (%d bytes)",
+            summary_table_output_path,
+            summary_table_output_path.stat().st_size,
+        )
+    else:
+        logger.error(
+            "[parallel] Excel file was NOT created at %s",
+            summary_table_output_path,
+        )
 
     logger.info("Period '%s' processing complete", period_name)
     return period_df, period_vrt, summary_table, period_name
@@ -334,6 +352,7 @@ def _process_single_period(
     prepared_schemas=None,
     killed_callback=None,
     parallel_backend="process",
+    progress_callback=None,
 ):
     """Process a single period - updated to accept pre-loaded schemas for thread safety
 
@@ -352,6 +371,7 @@ def _process_single_period(
             target_resolution,
             killed_callback=killed_callback,
             parallel_backend=parallel_backend,
+            progress_callback=progress_callback,
         )
 
     # Original non-threaded execution path (load schemas here)
@@ -413,6 +433,7 @@ def _process_single_period(
         "target_resolution": target_resolution,
         "killed_callback": killed_callback,
         "parallel_backend": parallel_backend,
+        "progress_callback": progress_callback,
     }
 
     logger.info("Computing land degradation summary table for period '%s'", period_name)
@@ -497,6 +518,11 @@ def _process_single_period(
     summary_table_output_path = (
         sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
     )
+    logger.info(
+        "[sequential] Calling save_summary_table_excel for period '%s' -> %s",
+        period_name,
+        summary_table_output_path,
+    )
     save_summary_table_excel(
         summary_table_output_path,
         summary_table,
@@ -507,6 +533,17 @@ def _process_single_period(
         summary_table_stable_kwargs["lc_trans_matrix"],
         period_name,
     )
+    if summary_table_output_path.exists():
+        logger.info(
+            "[sequential] Excel file created successfully: %s (%d bytes)",
+            summary_table_output_path,
+            summary_table_output_path.stat().st_size,
+        )
+    else:
+        logger.error(
+            "[sequential] Excel file was NOT created at %s",
+            summary_table_output_path,
+        )
 
     logger.info("Period '%s' processing complete", period_name)
     return period_df, period_vrt, summary_table, period_name
@@ -796,14 +833,32 @@ def summarise_land_degradation(
             }
     else:
         # Sequential processing for single period or when CPU count is low
+        n_periods = len(ldn_job.params["periods"])
         for period_idx, period in enumerate(ldn_job.params["periods"]):
             if killed_callback is not None and killed_callback():
                 raise RuntimeError("Cancelled by user.")
             logger.info(
                 "Processing period %d of %d",
                 period_idx + 1,
-                len(ldn_job.params["periods"]),
+                n_periods,
             )
+
+            # Create a scaled progress callback for this period that maps
+            # tile-level progress (0.0 to 1.0) into the period's allocated
+            # range within the overall 5%-85% progress window
+            period_progress_cb = None
+            if progress_callback is not None:
+                period_start = 5 + int(80 * period_idx / n_periods)
+                period_end = 5 + int(80 * (period_idx + 1) / n_periods)
+
+                def _make_period_cb(start, end):
+                    def _cb(fraction):
+                        progress_callback(start + int((end - start) * fraction))
+
+                    return _cb
+
+                period_progress_cb = _make_period_cb(period_start, period_end)
+
             result = _process_single_period(
                 period,
                 ldn_job,
@@ -813,13 +868,13 @@ def summarise_land_degradation(
                 target_resolution,
                 killed_callback=killed_callback,
                 parallel_backend=parallel_backend,
+                progress_callback=period_progress_cb,
             )
             if result is None:
                 raise RuntimeError("Error processing period")
             period_df, period_vrt, summary_table, period_name = result
 
             if progress_callback is not None:
-                n_periods = len(ldn_job.params["periods"])
                 progress_callback(5 + int(80 * (period_idx + 1) / n_periods))
             period_dfs.append(period_df)
             period_vrts.append(period_vrt)
@@ -1559,7 +1614,9 @@ def _summarize_tile(inputs: SummarizeTileInputs):
     return result, out_file, error_message
 
 
-def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
+def _aoi_process_multiprocess(
+    inputs, n_cpus, parallel_backend="process", progress_callback=None
+):
     from .. import util
 
     worker_type = "threads" if parallel_backend == "thread" else "processes"
@@ -1586,6 +1643,8 @@ def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
                         completed_tiles / total_tiles,
                         message=f"Land degradation processing: {completed_tiles}/{total_tiles} tiles completed",
                     )
+                if progress_callback is not None:
+                    progress_callback(completed_tiles / total_tiles)
                 error_message = output[2]
                 if error_message is not None:
                     logger.error("Error %s", error_message)
@@ -1635,6 +1694,8 @@ def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
                             completed_tiles / total_tiles,
                             message=f"Land degradation processing: {completed_tiles}/{total_tiles} tiles completed ({progress_percent:.1f}%) - {total_tiles - completed_tiles} remaining",
                         )
+                    if progress_callback is not None:
+                        progress_callback(completed_tiles / total_tiles)
                     error_message = output[2]
 
                     if error_message is not None:
@@ -1769,7 +1830,7 @@ def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
     return summary_table, out_files
 
 
-def _aoi_process_sequential(inputs, killed_callback=None):
+def _aoi_process_sequential(inputs, killed_callback=None, progress_callback=None):
     summary_tables = []
     out_files = []
     total_tiles = len(inputs)
@@ -1788,6 +1849,8 @@ def _aoi_process_sequential(inputs, killed_callback=None):
             completed_tiles / total_tiles,
             message=f"Land degradation processing: {completed_tiles}/{total_tiles} tiles completed ({progress_percent:.1f}%) - {total_tiles - completed_tiles} remaining",
         )
+        if progress_callback is not None:
+            progress_callback(completed_tiles / total_tiles)
         error_message = output[2]
 
         if error_message is not None:
@@ -1822,6 +1885,7 @@ def _process_region(
     deg_worker_function: Callable = None,
     deg_worker_params: dict = None,
     parallel_backend: str = "process",
+    progress_callback=None,
 ) -> Tuple[Optional[models.SummaryTableLD], str]:
     """Runs summary statistics for a particular area
 
@@ -1927,11 +1991,14 @@ def _process_region(
         ]
         if n_cpus > 1:
             summary_table, output_paths = _aoi_process_multiprocess(
-                inputs, n_cpus, parallel_backend=parallel_backend
+                inputs,
+                n_cpus,
+                parallel_backend=parallel_backend,
+                progress_callback=progress_callback,
             )
         else:
             summary_table, output_paths = _aoi_process_sequential(
-                inputs, killed_callback
+                inputs, killed_callback, progress_callback=progress_callback
             )
     else:
         error_message = "Error reprojecting layers."
@@ -1956,6 +2023,7 @@ def _compute_ld_summary_table(
     target_resolution=None,
     killed_callback=None,
     parallel_backend: str = "process",
+    progress_callback=None,
 ) -> Tuple[models.SummaryTableLD, Path, Path]:
     """Computes summary table and the output tif file(s)
 
@@ -1983,6 +2051,7 @@ def _compute_ld_summary_table(
         "target_resolution": target_resolution,
         "killed_callback": killed_callback,
         "parallel_backend": parallel_backend,
+        "progress_callback": progress_callback,
     }
 
     summary_tables = []

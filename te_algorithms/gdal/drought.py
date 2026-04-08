@@ -684,6 +684,14 @@ def summarise_drought_vulnerability(
     if progress_callback is not None:
         progress_callback(5)
 
+    # Create a scaled progress callback that maps tile-level progress
+    # (0.0 to 1.0) into the 5%-90% window reserved for tile processing
+    tile_progress_cb = None
+    if progress_callback is not None:
+
+        def tile_progress_cb(fraction):
+            progress_callback(5 + int(85 * fraction))
+
     summary_table, out_path = _compute_drought_summary_table(
         aoi=aoi,
         compute_bbs_from=params["layer_spi_path"],
@@ -693,6 +701,7 @@ def summarise_drought_vulnerability(
         n_cpus=effective_n_cpus,
         killed_callback=killed_callback,
         parallel_backend=parallel_backend,
+        progress_callback=tile_progress_cb,
     )
 
     logger.info("Drought summary table complete")
@@ -811,7 +820,9 @@ def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
     return dfs
 
 
-def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
+def _aoi_process_multiprocess(
+    inputs, n_cpus, parallel_backend="process", progress_callback=None
+):
     if parallel_backend == "thread":
         from concurrent.futures import ThreadPoolExecutor
 
@@ -829,6 +840,8 @@ def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
                     completed_tiles / total_tiles,
                     message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
                 )
+                if progress_callback is not None:
+                    progress_callback(completed_tiles / total_tiles)
                 error_message = output[1]
 
                 if error_message is not None:
@@ -857,6 +870,8 @@ def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
                 completed_tiles / total_tiles,
                 message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
             )
+            if progress_callback is not None:
+                progress_callback(completed_tiles / total_tiles)
             error_message = output[1]
 
             if error_message is not None:
@@ -871,7 +886,7 @@ def _aoi_process_multiprocess(inputs, n_cpus, parallel_backend="process"):
     return results
 
 
-def _aoi_process_sequential(inputs, killed_callback=None):
+def _aoi_process_sequential(inputs, killed_callback=None, progress_callback=None):
     results = []
     total_tiles = len(inputs)
     logger.info(f"Processing {total_tiles} tiles sequentially")
@@ -889,6 +904,8 @@ def _aoi_process_sequential(inputs, killed_callback=None):
             completed_tiles / total_tiles,
             message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
         )
+        if progress_callback is not None:
+            progress_callback(completed_tiles / total_tiles)
         error_message = output[1]
 
         if error_message is not None:
@@ -917,6 +934,7 @@ def _summarize_over_aoi(
     drought_worker_function: Callable = None,
     drought_worker_params: dict = None,
     parallel_backend: str = "process",
+    progress_callback=None,
 ) -> Tuple[Optional[SummaryTableDrought], List[Path], str]:
     # Combine all raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(
@@ -1009,9 +1027,13 @@ def _summarize_over_aoi(
         ]
 
         if n_cpus > 1:
-            results = _aoi_process_multiprocess(inputs, n_cpus, parallel_backend)
+            results = _aoi_process_multiprocess(
+                inputs, n_cpus, parallel_backend, progress_callback=progress_callback
+            )
         else:
-            results = _aoi_process_sequential(inputs, killed_callback)
+            results = _aoi_process_sequential(
+                inputs, killed_callback, progress_callback=progress_callback
+            )
 
         results = _accumulate_drought_summary_tables(results)
     else:
@@ -1124,6 +1146,7 @@ def _compute_drought_summary_table(
     n_cpus: int,
     killed_callback=None,
     parallel_backend: str = "process",
+    progress_callback=None,
 ) -> Tuple[SummaryTableDrought, Path]:
     """Computes summary table and the output tif file(s)"""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
@@ -1165,6 +1188,7 @@ def _compute_drought_summary_table(
             n_cpus=n_cpus,
             killed_callback=killed_callback,
             parallel_backend=parallel_backend,
+            progress_callback=progress_callback,
         )
         out_paths.extend(out_files)
 
