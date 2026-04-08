@@ -412,6 +412,7 @@ def _process_single_period(
         "n_cpus": n_cpus,
         "target_resolution": target_resolution,
         "killed_callback": killed_callback,
+        "parallel_backend": parallel_backend,
     }
 
     logger.info("Computing land degradation summary table for period '%s'", period_name)
