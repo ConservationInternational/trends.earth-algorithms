@@ -351,6 +351,25 @@ def accumulate_dicts(z):
         return _accumulate_dicts(z)
 
 
+def accumulate_nested_dicts(a, b):
+    """Merge two nested dicts {outer_key: {inner_key: float}} by summing values.
+
+    Either *a* or *b* may be ``None``, in which case the other is returned.
+    """
+    if a is None or a == {}:
+        return b
+    if b is None or b == {}:
+        return a
+    out = {k: dict(v) for k, v in a.items()}
+    for outer_key, inner_dict in b.items():
+        if outer_key not in out:
+            out[outer_key] = dict(inner_dict)
+        else:
+            for inner_key, val in inner_dict.items():
+                out[outer_key][inner_key] = out[outer_key].get(inner_key, 0.0) + val
+    return out
+
+
 def log_progress(fraction, message=None, data=None):
     # Add more informative progress logging with reduced precision for cleaner output
     logger.info("%s - %.1f%%", message, 100 * fraction)

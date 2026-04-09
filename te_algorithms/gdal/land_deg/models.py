@@ -131,6 +131,8 @@ class CounterbalancingLandTypeResult(SchemaBase):
     delta_ldn: float
     ldn_achieved: bool
     ldn_pct: float  # (gains-losses)/(gains+losses)*100, bounded [-100,100]
+    status_breakdown_sqkm: Optional[Dict[int, float]] = None
+    baseline_breakdown_sqkm: Optional[Dict[int, float]] = None
 
 
 @marshmallow_dataclass.dataclass
@@ -141,9 +143,21 @@ class SummaryTableCounterbalancing(SchemaBase):
     gains_by_land_type: Dict[int, float]
     losses_by_land_type: Dict[int, float]
 
+    # Per-land_type area breakdown by status class (7-class) and baseline class
+    status_breakdown: Optional[Dict[int, Dict[int, float]]] = None
+    baseline_breakdown: Optional[Dict[int, Dict[int, float]]] = None
+
     def cast_to_cpython(self):
         self.gains_by_land_type = dict(self.gains_by_land_type)
         self.losses_by_land_type = dict(self.losses_by_land_type)
+        if self.status_breakdown is not None:
+            self.status_breakdown = {
+                int(k): dict(v) for k, v in self.status_breakdown.items()
+            }
+        if self.baseline_breakdown is not None:
+            self.baseline_breakdown = {
+                int(k): dict(v) for k, v in self.baseline_breakdown.items()
+            }
 
 
 def accumulate_summary_table_counterbalancing(
@@ -163,6 +177,14 @@ def accumulate_summary_table_counterbalancing(
         out.losses_by_land_type = util.accumulate_dicts(
             [out.losses_by_land_type, table.losses_by_land_type]
         )
+        if table.status_breakdown is not None:
+            out.status_breakdown = util.accumulate_nested_dicts(
+                out.status_breakdown, table.status_breakdown
+            )
+        if table.baseline_breakdown is not None:
+            out.baseline_breakdown = util.accumulate_nested_dicts(
+                out.baseline_breakdown, table.baseline_breakdown
+            )
 
     return out
 
