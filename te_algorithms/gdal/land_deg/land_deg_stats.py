@@ -39,7 +39,7 @@ def _get_degraded_mask(band_name, masked):
     ]:
         return masked == -1
     elif band_name in [config.SDG_STATUS_BAND_NAME]:
-        return np.isin(masked, [1, 2, 3])
+        return (masked == 1) | (masked == 2) | (masked == 3)
     elif band_name in [
         config.JRC_LPD_BAND_NAME,
         config.FAO_WOCAT_LPD_BAND_NAME,
@@ -47,7 +47,7 @@ def _get_degraded_mask(band_name, masked):
         config.CUSTOM_LPD_BAND_NAME,
         config.PROD_DEG_COMPARISON_BAND_NAME,
     ]:
-        return np.isin(masked, [1, 2])
+        return (masked == 1) | (masked == 2)
     elif band_name == config.SOC_DEG_BAND_NAME:
         return np.logical_and(masked <= -10, masked >= -101)
     else:
@@ -72,7 +72,7 @@ def _get_stable_mask(band_name, masked):
         config.CUSTOM_LPD_BAND_NAME,
         config.PROD_DEG_COMPARISON_BAND_NAME,
     ]:
-        return np.isin(masked, [3, 4])
+        return (masked == 3) | (masked == 4)
     else:
         return np.zeros_like(masked, dtype=bool)
 
@@ -86,7 +86,7 @@ def _get_improved_mask(band_name, masked):
     ]:
         return masked == 1
     elif band_name in [config.SDG_STATUS_BAND_NAME]:
-        return np.isin(masked, [5, 6, 7])
+        return (masked == 5) | (masked == 6) | (masked == 7)
     elif band_name in [
         config.JRC_LPD_BAND_NAME,
         config.FAO_WOCAT_LPD_BAND_NAME,
