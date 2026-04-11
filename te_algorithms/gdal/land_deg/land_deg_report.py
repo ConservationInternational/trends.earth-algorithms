@@ -34,27 +34,38 @@ def save_summary_table_excel(
     template_summary_table_path = (
         Path(__file__).parents[2] / "data/summary_table_ld_sdg.xlsx"
     )
-    workbook = load_workbook(str(template_summary_table_path))
-    _render_ld_workbook(
-        workbook,
-        summary_table,
-        periods,
-        land_cover_years,
-        soil_organic_carbon_years,
-        lc_legend_nesting,
-        lc_trans_matrix,
-        period_name,
-    )
-    try:
-        workbook.save(output_path)
-        logger.info("Indicator table saved to {}".format(output_path))
+    if not template_summary_table_path.exists():
+        logger.error("Excel template not found at %s", template_summary_table_path)
+        return
 
-    except OSError:
-        error_message = (
-            f"Error saving output table - check that {output_path!r} is accessible "
-            f"and not already open."
+    try:
+        workbook = load_workbook(str(template_summary_table_path))
+    except Exception:
+        logger.exception(
+            "Failed to load Excel template from %s", template_summary_table_path
         )
-        logger.error(error_message)
+        return
+
+    try:
+        _render_ld_workbook(
+            workbook,
+            summary_table,
+            periods,
+            land_cover_years,
+            soil_organic_carbon_years,
+            lc_legend_nesting,
+            lc_trans_matrix,
+            period_name,
+        )
+    except Exception:
+        logger.exception("Failed to render Excel workbook for period '%s'", period_name)
+        return
+
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        workbook.save(output_path)
+    except Exception:
+        logger.exception("Failed to save Excel workbook to %s", output_path)
 
 
 def _get_population_list_by_degradation_class(pop_by_deg_class, pop_type):
@@ -559,21 +570,25 @@ def _render_ld_workbook(
     period_name,
 ):
     _write_overview_sheet(template_workbook["SDG 15.3.1"], summary_table)
+
     _write_productivity_sheet(
         template_workbook["Productivity"], summary_table, lc_trans_matrix
     )
+
     _write_soc_sheet(
         template_workbook["Soil organic carbon"],
         summary_table,
         lc_trans_matrix,
         lc_legend_nesting,
     )
+
     _write_land_cover_sheet(
         template_workbook["Land cover"],
         summary_table,
         lc_trans_matrix,
         periods["land_cover"],
     )
+
     _write_population_sheet(template_workbook["Population"], summary_table)
 
     return template_workbook
@@ -675,8 +690,6 @@ def _write_soc_sheet(
 ):
     # Exclude any codes that are nested under IPCC class 7 (water)
     excluded_codes = lc_legend_nesting.nesting[7]
-
-    logger.debug("Excluding land cover codes nested under water (%s)", excluded_codes)
 
     classes = [
         c.get_name() for c in lc_trans_matrix.legend.key if c.code not in excluded_codes
