@@ -751,12 +751,8 @@ def compute_counterbalancing(
         lo = all_losses.get(lt_code, 0.0)
         delta = g - lo
         achieved = delta >= 0
-        total = g + lo
-        pct = (delta / total * 100.0) if total > 0 else 0.0
 
-        status_bd = None
-        if summary_table.status_breakdown and lt_code in summary_table.status_breakdown:
-            status_bd = summary_table.status_breakdown[lt_code]
+        status_bd = summary_table.status_breakdown[lt_code]
 
         baseline_bd = None
         if (
@@ -765,12 +761,18 @@ def compute_counterbalancing(
         ):
             baseline_bd = summary_table.baseline_breakdown[lt_code]
 
+        # Total land area = sum of all status classes (covers every valid pixel)
+        total_area = sum(status_bd.values())
+
+        pct = (delta / total_area * 100.0) if total_area > 0 else 0.0
+
         land_type_results.append(
             models.CounterbalancingLandTypeResult(
                 land_type_code=int(lt_code),
                 land_type_name=land_type_labels.get(lt_code, f"Land type {lt_code}"),
                 gains_area_sqkm=float(g),
                 losses_area_sqkm=float(lo),
+                total_area_sqkm=float(total_area),
                 delta_ldn=float(delta),
                 ldn_achieved=bool(achieved),
                 ldn_pct=float(pct),

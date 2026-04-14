@@ -128,9 +128,10 @@ class CounterbalancingLandTypeResult(SchemaBase):
     land_type_name: str
     gains_area_sqkm: float
     losses_area_sqkm: float
+    total_area_sqkm: float
     delta_ldn: float
     ldn_achieved: bool
-    ldn_pct: float  # (gains-losses)/(gains+losses)*100, bounded [-100,100]
+    ldn_pct: float  # (gains-losses)/total_area*100 (% of total land area)
     status_breakdown_sqkm: Optional[Dict[int, float]] = None
     baseline_breakdown_sqkm: Optional[Dict[int, float]] = None
 
