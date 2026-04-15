@@ -147,41 +147,41 @@ def zonal_gains_losses(status_7class, land_type, cell_area, mask):
 
 @numba.jit(nopython=True, nogil=True)
 @cc.export(
-    "zonal_status_breakdown",
+    "zonal_class_breakdown",
     "DictType(UniTuple(i4, 2), f8)(i2[:,:], i4[:,:], f8[:,:], b1[:,:])",
 )
-def zonal_status_breakdown(status_7class, land_type, cell_area, mask):
-    """Accumulate area by (land_type, status_class) for detailed reporting.
+def zonal_class_breakdown(class_band, land_type, cell_area, mask):
+    """Accumulate area by (land_type, class_value) for any categorical band.
+
+    Only nodata and masked pixels are skipped.
 
     Args:
-        status_7class: 2D int16 array of expanded status (1-7).
+        class_band: 2D int16 array of class values.
         land_type: 2D int32 array of land type codes.
         cell_area: 2D float64 array of pixel areas (sq km).
         mask: 2D boolean mask.
 
     Returns:
-        Dict of (land_type_code, status_class) → area (sq km).
+        Dict of (land_type_code, class_value) → area (sq km).
     """
-    status_flat = status_7class.ravel().astype(np.int32)
+    class_flat = class_band.ravel().astype(np.int32)
     lt_flat = land_type.ravel().astype(np.int32)
     area_flat = cell_area.ravel().astype(np.float64)
     mask_flat = mask.ravel()
 
-    status_flat[mask_flat] = np.int32(MASK_VALUE[0])
+    class_flat[mask_flat] = np.int32(MASK_VALUE[0])
 
     breakdown = dict()
 
-    for i in range(status_flat.shape[0]):
-        s = status_flat[i]
-        if s == np.int32(MASK_VALUE[0]) or s == np.int32(NODATA_VALUE[0]):
-            continue
-        if s < 1 or s > 7:
+    for i in range(class_flat.shape[0]):
+        c = class_flat[i]
+        if c == np.int32(MASK_VALUE[0]) or c == np.int32(NODATA_VALUE[0]):
             continue
         lt = lt_flat[i]
         if lt == np.int32(NODATA_VALUE[0]):
             continue
 
-        key = (lt, s)
+        key = (lt, c)
         if key not in breakdown:
             breakdown[key] = area_flat[i]
         else:

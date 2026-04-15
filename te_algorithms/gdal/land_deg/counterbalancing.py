@@ -22,8 +22,8 @@ from ..util_numba import calc_cell_area
 from . import config, models
 from .counterbalancing_numba import (
     classify_gains_losses,
+    zonal_class_breakdown,
     zonal_gains_losses,
-    zonal_status_breakdown,
 )
 
 if TYPE_CHECKING:
@@ -325,7 +325,7 @@ def _summarize_counterbalancing_tile(
         all_losses = util.accumulate_dicts([all_losses, dict(losses)])
 
         # Status breakdown (7-class) per land type
-        sb = zonal_status_breakdown(status_arr, lt_arr, cell_area_2d, mask_bool)
+        sb = zonal_class_breakdown(status_arr, lt_arr, cell_area_2d, mask_bool)
         block_status: Dict[int, Dict[int, float]] = {}
         for (lt_code, s_class), area in sb.items():
             block_status.setdefault(int(lt_code), {})[int(s_class)] = float(area)
@@ -335,7 +335,7 @@ def _summarize_counterbalancing_tile(
 
         # Baseline breakdown (3-class) per land type
         if baseline_band is not None:
-            bb = zonal_status_breakdown(baseline_arr, lt_arr, cell_area_2d, mask_bool)
+            bb = zonal_class_breakdown(baseline_arr, lt_arr, cell_area_2d, mask_bool)
             block_baseline: Dict[int, Dict[int, float]] = {}
             for (lt_code, b_class), area in bb.items():
                 block_baseline.setdefault(int(lt_code), {})[int(b_class)] = float(area)
