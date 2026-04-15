@@ -133,7 +133,7 @@ class CounterbalancingLandTypeResult(SchemaBase):
     ldn_achieved: bool
     ldn_pct: float  # (gains-losses)/total_area*100 (% of total land area)
     status_breakdown_sqkm: Optional[Dict[int, float]] = None
-    baseline_breakdown_sqkm: Optional[Dict[int, float]] = None
+    transition_breakdown_sqkm: Optional[Dict[int, float]] = None
 
 
 @marshmallow_dataclass.dataclass
@@ -144,9 +144,10 @@ class SummaryTableCounterbalancing(SchemaBase):
     gains_by_land_type: Dict[int, float]
     losses_by_land_type: Dict[int, float]
 
-    # Per-land_type area breakdown by status class (7-class) and baseline class
+    # Per-land_type area breakdown by status class (7-class)
     status_breakdown: Optional[Dict[int, Dict[int, float]]] = None
-    baseline_breakdown: Optional[Dict[int, Dict[int, float]]] = None
+    # Per-land_type baseline→period transition matrix (encoded keys)
+    transition_breakdown: Optional[Dict[int, Dict[int, float]]] = None
 
     def cast_to_cpython(self):
         self.gains_by_land_type = dict(self.gains_by_land_type)
@@ -155,9 +156,9 @@ class SummaryTableCounterbalancing(SchemaBase):
             self.status_breakdown = {
                 int(k): dict(v) for k, v in self.status_breakdown.items()
             }
-        if self.baseline_breakdown is not None:
-            self.baseline_breakdown = {
-                int(k): dict(v) for k, v in self.baseline_breakdown.items()
+        if self.transition_breakdown is not None:
+            self.transition_breakdown = {
+                int(k): dict(v) for k, v in self.transition_breakdown.items()
             }
 
 
@@ -182,9 +183,9 @@ def accumulate_summary_table_counterbalancing(
             out.status_breakdown = util.accumulate_nested_dicts(
                 out.status_breakdown, table.status_breakdown
             )
-        if table.baseline_breakdown is not None:
-            out.baseline_breakdown = util.accumulate_nested_dicts(
-                out.baseline_breakdown, table.baseline_breakdown
+        if table.transition_breakdown is not None:
+            out.transition_breakdown = util.accumulate_nested_dicts(
+                out.transition_breakdown, table.transition_breakdown
             )
 
     return out

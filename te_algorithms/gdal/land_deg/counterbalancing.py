@@ -176,7 +176,7 @@ class CounterbalancingTileInputs:
 
     The tile is a multi-band raster produced by CutTiles from a combined VRT:
       Band 1 = 7-class expanded status
-      Band 2 = baseline SDG indicator (only when has_baseline_band is True)
+      Band 2..3 = baseline & period SDG indicators (only when has_transition_bands is True)
       Bands (2+offset)..  = individual land-type layers (warped VRTs)
       Last band = AOI mask
     """
@@ -185,7 +185,7 @@ class CounterbalancingTileInputs:
     n_land_type_bands: int
     multiplier: int
     layer_nodata: List[Optional[int]]
-    has_baseline_band: bool = False
+    has_transition_bands: bool = False
 
 
 def _summarize_counterbalancing_tile(
@@ -215,12 +215,19 @@ def _summarize_counterbalancing_tile(
     n_lt = inputs.n_land_type_bands
     multiplier = inputs.multiplier
 
-    # Band layout depends on whether baseline band is present
-    band_offset = 1 if inputs.has_baseline_band else 0
+    # Band layout depends on whether optional bands are present
+    # Layout: status | [baseline, period] | lt_1 .. lt_N | mask
     status_band = tile_ds.GetRasterBand(1)
-    baseline_band = tile_ds.GetRasterBand(2) if inputs.has_baseline_band else None
-    lt_bands = [tile_ds.GetRasterBand(2 + band_offset + i) for i in range(n_lt)]
-    mask_band = tile_ds.GetRasterBand(2 + band_offset + n_lt)
+    next_band = 2
+    baseline_band = None
+    period_band = None
+    if inputs.has_transition_bands:
+        baseline_band = tile_ds.GetRasterBand(next_band)
+        next_band += 1
+        period_band = tile_ds.GetRasterBand(next_band)
+        next_band += 1
+    lt_bands = [tile_ds.GetRasterBand(next_band + i) for i in range(n_lt)]
+    mask_band = tile_ds.GetRasterBand(next_band + n_lt)
 
     xsize = tile_ds.RasterXSize
     ysize = tile_ds.RasterYSize
@@ -264,7 +271,7 @@ def _summarize_counterbalancing_tile(
     all_losses: Dict[int, float] = {}
     all_spu_labels: Dict[int, str] = {}
     all_status_breakdown: Dict[int, Dict[int, float]] = {}
-    all_baseline_breakdown: Dict[int, Dict[int, float]] = {}
+    all_transition_breakdown: Dict[int, Dict[int, float]] = {}
 
     for y in range(0, ysize, block_ysize):
         win_y = min(block_ysize, ysize - y)
@@ -272,11 +279,6 @@ def _summarize_counterbalancing_tile(
         status_arr = status_band.ReadAsArray(0, y, xsize, win_y).astype(np.int16)
         mask_arr = mask_band.ReadAsArray(0, y, xsize, win_y)
         mask_bool = mask_arr == config.MASK_VALUE
-
-        if baseline_band is not None:
-            baseline_arr = baseline_band.ReadAsArray(0, y, xsize, win_y).astype(
-                np.int16
-            )
 
         # Encode land-type layers
         combined = np.zeros((win_y, xsize), dtype=np.int64)
@@ -333,14 +335,23 @@ def _summarize_counterbalancing_tile(
             all_status_breakdown, block_status
         )
 
-        # Baseline breakdown (3-class) per land type
-        if baseline_band is not None:
-            bb = zonal_class_breakdown(baseline_arr, lt_arr, cell_area_2d, mask_bool)
-            block_baseline: Dict[int, Dict[int, float]] = {}
-            for (lt_code, b_class), area in bb.items():
-                block_baseline.setdefault(int(lt_code), {})[int(b_class)] = float(area)
-            all_baseline_breakdown = util.accumulate_nested_dicts(
-                all_baseline_breakdown, block_baseline
+        # Baseline→period transition matrix per land type.
+        # Encode (baseline, period) as a single int16 so we can reuse the
+        # existing numba zonal_class_breakdown for speed.
+        # Key = (baseline + 2) * 10 + (period + 2), giving values 10-32.
+        if baseline_band is not None and period_band is not None:
+            bl_arr = baseline_band.ReadAsArray(0, y, xsize, win_y).astype(np.int16)
+            pd_arr = period_band.ReadAsArray(0, y, xsize, win_y).astype(np.int16)
+            trans_arr = ((bl_arr + 2) * 10 + (pd_arr + 2)).astype(np.int16)
+            # Propagate nodata from either source band
+            nd16 = np.int16(config.NODATA_VALUE)
+            trans_arr[(bl_arr == nd16) | (pd_arr == nd16)] = nd16
+            tb = zonal_class_breakdown(trans_arr, lt_arr, cell_area_2d, mask_bool)
+            block_trans: Dict[int, Dict[int, float]] = {}
+            for (lt_code, t_code), area in tb.items():
+                block_trans.setdefault(int(lt_code), {})[int(t_code)] = float(area)
+            all_transition_breakdown = util.accumulate_nested_dicts(
+                all_transition_breakdown, block_trans
             )
 
     del gl_ds, lt_ds, tile_ds
@@ -349,7 +360,9 @@ def _summarize_counterbalancing_tile(
         gains_by_land_type=all_gains,
         losses_by_land_type=all_losses,
         status_breakdown=all_status_breakdown if all_status_breakdown else None,
-        baseline_breakdown=all_baseline_breakdown if all_baseline_breakdown else None,
+        transition_breakdown=(
+            all_transition_breakdown if all_transition_breakdown else None
+        ),
     )
     summary_table.cast_to_cpython()  # needed for multiprocessing pickling
 
@@ -529,6 +542,7 @@ def compute_counterbalancing(
     killed_callback=None,
     parallel_backend: str = "process",
     baseline_band_index: Optional[int] = None,
+    status_period_band_index: Optional[int] = None,
 ) -> Tuple[
     models.SummaryTableCounterbalancing,
     List[models.CounterbalancingLandTypeResult],
@@ -552,6 +566,9 @@ def compute_counterbalancing(
         baseline_band_index: Optional 1-based band index for the baseline SDG
             indicator (3-class: -1/0/1). When provided, per-land-type area
             breakdowns are computed for the baseline and the 7-class status.
+        status_period_band_index: Optional 1-based band index for the
+            status-period SDG indicator (3-class: -1/0/1). When provided,
+            per-land-type area breakdowns are computed for the status period.
 
     Returns:
         Tuple of:
@@ -640,10 +657,13 @@ def compute_counterbalancing(
     if not mask_worker.work():
         raise RuntimeError("Failed to create AOI mask raster.")
 
-    # --- 3b. Optionally extract baseline band --------------------------------
-    has_baseline = baseline_band_index is not None
+    # --- 3b. Optionally extract baseline and status-period bands for transition
+    has_transition = (
+        baseline_band_index is not None and status_period_band_index is not None
+    )
     baseline_extracted = None
-    if has_baseline:
+    status_period_extracted = None
+    if has_transition:
         logger.info(
             "Extracting baseline band %d as VRT at processing extent",
             baseline_band_index,
@@ -662,11 +682,29 @@ def compute_counterbalancing(
         _ds.FlushCache()
         del _ds
 
+        logger.info(
+            "Extracting status-period band %d as VRT at processing extent",
+            status_period_band_index,
+        )
+        status_period_extracted = str(
+            output_base.parent
+            / f"{output_base.stem}_status_period_b{status_period_band_index}.vrt"
+        )
+        _ds = gdal.Translate(
+            status_period_extracted,
+            status_path,
+            format="VRT",
+            bandList=[status_period_band_index],
+            projWin=[proc_bounds[0], proc_bounds[3], proc_bounds[2], proc_bounds[1]],
+        )
+        _ds.FlushCache()
+        del _ds
+
     # Build combined VRT with all bands
-    # Layout: status | [baseline] | lt_layer_1 | ... | lt_layer_N | mask
+    # Layout: status | [baseline, period] | lt_1 .. lt_N | mask
     vrt_bands = [status_extracted]
-    if baseline_extracted is not None:
-        vrt_bands.append(baseline_extracted)
+    if has_transition:
+        vrt_bands += [baseline_extracted, status_period_extracted]
     vrt_bands += warped_vrts + [mask_path]
     n_combined = len(vrt_bands)
     logger.info("Building %d-band combined VRT", n_combined)
@@ -703,7 +741,7 @@ def compute_counterbalancing(
             n_land_type_bands=len(warped_vrts),
             multiplier=multiplier,
             layer_nodata=layer_nodata,
-            has_baseline_band=has_baseline,
+            has_transition_bands=has_transition,
         )
         for tile in tiles
     ]
@@ -754,12 +792,12 @@ def compute_counterbalancing(
 
         status_bd = summary_table.status_breakdown[lt_code]
 
-        baseline_bd = None
+        transition_bd = None
         if (
-            summary_table.baseline_breakdown
-            and lt_code in summary_table.baseline_breakdown
+            summary_table.transition_breakdown
+            and lt_code in summary_table.transition_breakdown
         ):
-            baseline_bd = summary_table.baseline_breakdown[lt_code]
+            transition_bd = summary_table.transition_breakdown[lt_code]
 
         # Total land area = sum of all status classes (covers every valid pixel)
         total_area = sum(status_bd.values())
@@ -777,7 +815,7 @@ def compute_counterbalancing(
                 ldn_achieved=bool(achieved),
                 ldn_pct=float(pct),
                 status_breakdown_sqkm=status_bd,
-                baseline_breakdown_sqkm=baseline_bd,
+                transition_breakdown_sqkm=transition_bd,
             )
         )
 
