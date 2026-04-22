@@ -13,21 +13,50 @@ def _download_default(
     temporal_resolution,
     year_initial,
     year_final,
+    band_number=None,
 ):
     """
     Default function used to download data if no other function is provided for an asset
     """
     in_img = ee.Image(asset)
 
+    info = in_img.getInfo()
+    image_properties = info.get("properties", {})
+    image_bands = info.get("bands", [])
+
+    if band_number is not None:
+        selected_band_number = int(band_number)
+        if selected_band_number < 1 or selected_band_number > len(image_bands):
+            raise ValueError(
+                f"Requested band_number {selected_band_number} is out of range "
+                f"for asset {asset} ({len(image_bands)} bands)."
+            )
+
+        band_index = selected_band_number - 1
+        out = in_img.select([band_index])
+        selected_band_metadata = image_bands[band_index]
+        metadata = image_properties.copy()
+        metadata.update(
+            {
+                "band_number": selected_band_number,
+                "source_band_id": selected_band_metadata.get("id", ""),
+            }
+        )
+
+        return teimage_v1_to_teimage_v2(
+            TEImage(
+                out,
+                [BandInfo(name, add_to_map=True, metadata=metadata)],
+            )
+        )
+
     out = in_img
-    band_info = [
-        BandInfo(name, add_to_map=True, metadata=in_img.getInfo()["properties"])
-    ]
-    n_bands = len(in_img.getInfo()["bands"])
+    band_info = [BandInfo(name, add_to_map=True, metadata=image_properties)]
+    n_bands = len(image_bands)
 
     if n_bands > 1:
         band_info.extend(
-            [BandInfo(name, add_to_map=False, metadata=in_img.getInfo()["properties"])]
+            [BandInfo(name, add_to_map=False, metadata=image_properties)]
             * (n_bands - 1)
         )
 
@@ -155,7 +184,15 @@ download_functions = {
 }
 
 
-def download(asset, name, temporal_resolution, year_initial, year_final, logger):
+def download(
+    asset,
+    name,
+    temporal_resolution,
+    year_initial,
+    year_final,
+    logger,
+    band_number=None,
+):
     """
     Download dataset from GEE assets.
     """
@@ -177,5 +214,10 @@ def download(asset, name, temporal_resolution, year_initial, year_final, logger)
         )
     else:
         return _download_default(
-            asset, name, temporal_resolution, year_initial, year_final
+            asset,
+            name,
+            temporal_resolution,
+            year_initial,
+            year_final,
+            band_number=band_number,
         )
