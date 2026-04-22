@@ -14,6 +14,9 @@ def _download_default(
     year_initial,
     year_final,
     band_number=None,
+    band_name=None,
+    band_metadata=None,
+    band_add_to_map=None,
 ):
     """
     Default function used to download data if no other function is provided for an asset
@@ -36,6 +39,8 @@ def _download_default(
         out = in_img.select([band_index])
         selected_band_metadata = image_bands[band_index]
         metadata = image_properties.copy()
+        if isinstance(band_metadata, dict):
+            metadata.update(band_metadata)
         metadata.update(
             {
                 "band_number": selected_band_number,
@@ -43,10 +48,18 @@ def _download_default(
             }
         )
 
+        resolved_band_name = band_name or name
+
         return teimage_v1_to_teimage_v2(
             TEImage(
                 out,
-                [BandInfo(name, add_to_map=True, metadata=metadata)],
+                [
+                    BandInfo(
+                        resolved_band_name,
+                        add_to_map=True,
+                        metadata=metadata,
+                    )
+                ],
             )
         )
 
@@ -56,8 +69,7 @@ def _download_default(
 
     if n_bands > 1:
         band_info.extend(
-            [BandInfo(name, add_to_map=False, metadata=image_properties)]
-            * (n_bands - 1)
+            [BandInfo(name, add_to_map=True, metadata=image_properties)] * (n_bands - 1)
         )
 
     return teimage_v1_to_teimage_v2(TEImage(out, band_info))
@@ -79,8 +91,7 @@ def _download_worldpop(asset, name, temporal_resolution, year_initial, year_fina
     for year in range(year_initial + 1, year_final + 1):
         # Be inclusive of final year (+1) above, and recognize that initial
         # year was already added
-        add_to_map = bool(((year - year_initial) % 4) == 0)
-        out.add_image(**_get_population(year, asset, add_to_map))
+        out.add_image(**_get_population(year, asset, add_to_map=True))
 
     return out
 
@@ -192,6 +203,9 @@ def download(
     year_final,
     logger,
     band_number=None,
+    band_name=None,
+    band_metadata=None,
+    band_add_to_map=None,
 ):
     """
     Download dataset from GEE assets.
@@ -220,4 +234,7 @@ def download(
             year_initial,
             year_final,
             band_number=band_number,
+            band_name=band_name,
+            band_metadata=band_metadata,
+            band_add_to_map=band_add_to_map,
         )
