@@ -1,16 +1,19 @@
 # trends.earth-algorithms
 
+[![Trends.Earth](https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_600width.png)](http://trends.earth)
+
 [![Ruff](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/ruff.yaml/badge.svg)](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/ruff.yaml)
 [![Test](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/test.yaml/badge.svg)](https://github.com/ConservationInternational/trends.earth-algorithms/actions/workflows/test.yaml)
 [![docs](https://readthedocs.org/projects/trendsearth-algorithms/badge/?version=latest)](https://app.readthedocs.org/projects/trendsearth-algorithms/builds/)
 
-`trends.earth-algorithms` is a python package to facilitate analyzing
+`trends.earth-algorithms` is a Python package to facilitate analyzing
 remotely-sensed datasets in support of monitoring land degradation. This
-project contains common code used by the scripts in [trends.earth](http://github.com/ConservationInternational/trends.earth).
+project contains common code used by the scripts in
+[trends.earth](https://github.com/ConservationInternational/trends.earth).
 
 `Trends.Earth` is a free and open source tool to understand land change: the how and why
 behind changes on the ground. Trends.Earth allows users to draw on the best available
-information from across a range of sources - from globally available data to customized
+information from across a range of sources — from globally available data to customized
 local maps. A broad range of users are applying Trends.Earth for projects ranging from
 planning and monitoring restoration efforts, to tracking urbanization, to developing
 official national reports for submission to the United Nations Convention to Combat
@@ -20,37 +23,54 @@ Desertification (UNCCD).
 University, and the National Aeronautics and Space Administration (NASA), with
 the support of the Global Environment Facility (GEF). It was further developed
 through a partnership with Conservation International, University of Bern,
-University of Colorado in partnership with USDA and USAID, University of California -
-Santa Barbara in partnership with University of North Carolina - Wilmington and Brown
+University of Colorado in partnership with USDA and USAID, University of California —
+Santa Barbara in partnership with University of North Carolina — Wilmington and Brown
 University with additional funding from the Global Environment Facility (GEF).
 
-# License
+## Documentation
 
-`trends.earth-algorithms` is free and open-source. It is released under the
-following (MIT) license:
+For further information on `trends.earth-algorithms` see
+[the documentation](https://trendsearth-algorithms.readthedocs.io).
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do
-so, subject to the following conditions:
+## Installation
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+GDAL must be installed before installing `trends.earth-algorithms`. On
+Ubuntu/Debian:
 
-Except as contained in this notice, the name(s) of the above copyright holders
-shall not be used in advertising or otherwise to promote the sale, use or other
-dealings in this Software without prior written authorization.
+```bash
+sudo apt-add-repository ppa:ubuntugis/ubuntugis-unstable
+sudo apt-get update
+sudo apt-get install gdal-bin libgdal-dev
+```
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Then install the package:
 
-`trends.earth-algorithms` is part of trends.earth
+```bash
+git clone https://github.com/ConservationInternational/trends.earth-algorithms
+cd trends.earth-algorithms
+pip install -e .
+```
+
+## Related Projects
+
+`Trends.Earth` is built from a set of interconnected repositories:
+
+- [trends.earth](https://github.com/ConservationInternational/trends.earth) — QGIS plugin for land degradation monitoring
+- [trends.earth-schemas](https://github.com/ConservationInternational/trends.earth-schemas) — Data schemas for analysis results
+- [trends.earth-API](https://github.com/ConservationInternational/trends.earth-API) — Backend REST API
+- [trends.earth-Environment](https://github.com/ConservationInternational/trends.earth-Environment) — Job execution environment for running scripts
+- [trends.earth-CLI](https://github.com/ConservationInternational/trends.earth-CLI) — Command-line interface for developing custom scripts
+- [trends.earth-api-ui](https://github.com/ConservationInternational/trends.earth-api-ui) — Web UI for API management
+
+## Contributing
+
+Contributions are welcome. Please report bugs or suggest improvements via the
+[issue tracker](https://github.com/ConservationInternational/trends.earth-algorithms/issues).
+
+## License
+
+`trends.earth-algorithms` is free and open-source. MIT License — see [LICENSE](LICENSE).
+
+---
 
 [![Part of Trends.Earth](https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_600width.png)](http://trends.earth)
