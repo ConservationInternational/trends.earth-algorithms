@@ -276,6 +276,7 @@ def combine_all_bands_into_vrt(
             out_ds.AddBand(this_dt)
             # The new band will always be last band in out_ds
             band = out_ds.GetRasterBand(out_ds.RasterCount)
+            band.SetDescription(this_band.GetDescription())
 
             md = {}
             md["source_0"] = simple_source_raw.format(
