@@ -28,7 +28,12 @@ from te_schemas.results import (
 )
 
 from .. import workers
-from ..util import accumulate_dicts, save_vrt, wkt_geom_to_geojson_file_string
+from ..util import (
+    accumulate_dicts,
+    generate_sanitized_band_names,
+    save_vrt,
+    wkt_geom_to_geojson_file_string,
+)
 from ..util_numba import zonal_total
 from . import config
 from .land_deg_numba import (
@@ -743,6 +748,17 @@ def recode_errors(params) -> Job:
                 )
             }
             main_uri = URI(uri=error_recode_paths[0])
+
+        # Embed band descriptions in the output file so they are available
+        # when this function is called outside the QGIS plugin.
+        _band_names = generate_sanitized_band_names(out_bands)
+        _ds = gdal.Open(str(main_uri.uri), gdal.GA_Update)
+        if _ds is not None:
+            for _i, _name in enumerate(_band_names, start=1):
+                if _i <= _ds.RasterCount:
+                    _ds.GetRasterBand(_i).SetDescription(_name)
+            _ds.FlushCache()
+            _ds = None
 
         raster_results = RasterResults(
             name=params["layer_baseline_band"]["name"],

@@ -18,71 +18,19 @@ from te_schemas.schemas import (
 from te_schemas.schemas import Url as UrlDeprecated
 
 from . import GEEImageError, GEETaskFailure
+from ..gdal.util import (
+    generate_sanitized_band_names as _gdal_generate_sanitized_band_names,
+)
 
 _SANITIZE_PATTERN = re.compile(r"[^0-9A-Za-z_]+")
 
 
 def _generate_sanitized_band_names(bands):
-    sanitized_names = []
-    used_names = set()
-
-    for idx, band in enumerate(bands, start=1):
-        raw_name = band.name or f"band_{idx}"
-        sanitized = _SANITIZE_PATTERN.sub("_", raw_name).strip("_")
-
-        if not sanitized:
-            sanitized = f"band_{idx}"
-
-        if sanitized[0].isdigit():
-            sanitized = f"b_{sanitized}"
-
-        # Append year info from band metadata so bands covering different time
-        # periods get distinct names
-        year = band.metadata.get("year")
-        year_initial = band.metadata.get("year_initial")
-        year_final = band.metadata.get("year_final")
-        reporting_year_initial = band.metadata.get("reporting_year_initial")
-        reporting_year_final = band.metadata.get("reporting_year_final")
-        year_bl_start = band.metadata.get("year_bl_start")
-        year_bl_end = band.metadata.get("year_bl_end")
-        year_tg_start = band.metadata.get("year_tg_start")
-        year_tg_end = band.metadata.get("year_tg_end")
-        band_type = band.metadata.get("type")
-        if year is not None:
-            sanitized = f"{sanitized}_{year}"
-        elif year_initial is not None and year_final is not None:
-            sanitized = f"{sanitized}_{year_initial}_{year_final}"
-        elif reporting_year_initial is not None and reporting_year_final is not None:
-            sanitized = f"{sanitized}_{reporting_year_initial}_{reporting_year_final}"
-        elif (
-            year_bl_start is not None
-            and year_bl_end is not None
-            and year_tg_start is not None
-            and year_tg_end is not None
-        ):
-            sanitized = (
-                f"{sanitized}_{year_bl_start}_{year_bl_end}"
-                f"_{year_tg_start}_{year_tg_end}"
-            )
-        # Append type (e.g. "male"/"female") after any year suffix so bands
-        # that share a year but differ by type get distinct names.
-        if band_type is not None:
-            sanitized = (
-                f"{sanitized}_{_SANITIZE_PATTERN.sub('_', str(band_type)).strip('_')}"
-            )
-
-        base_name = sanitized
-        suffix = 2
-        while sanitized in used_names:
-            sanitized = f"{base_name}_{suffix}"
-            suffix += 1
-
-        used_names.add(sanitized)
-        sanitized_names.append(sanitized)
-
-        band.metadata["gee_band_name"] = sanitized
-
-    return sanitized_names
+    """Sanitize band names and store the result in each band's metadata."""
+    names = _gdal_generate_sanitized_band_names(bands)
+    for band, name in zip(bands, names):
+        band.metadata["gee_band_name"] = name
+    return names
 
 
 # Google cloud storage bucket for output

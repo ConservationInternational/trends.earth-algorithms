@@ -302,7 +302,13 @@ def _process_single_period_with_schemas(
         band.add_to_map = False
 
     period_vrt = job_output_path.parent / f"{sub_job_output_path.stem}_rasterdata.vrt"
-    util.combine_all_bands_into_vrt([output_path, reproj_path], period_vrt)
+    util.combine_all_bands_into_vrt(
+        [output_path, reproj_path],
+        period_vrt,
+        band_names=util.generate_sanitized_band_names(
+            [b for df in [output_df, reproj_df] for b in df.bands]
+        ),
+    )
 
     period_df = combine_data_files(period_vrt, [output_df, reproj_df])
     for band in period_df.bands:
@@ -509,7 +515,13 @@ def _process_single_period(
         band.add_to_map = False
 
     period_vrt = job_output_path.parent / f"{sub_job_output_path.stem}_rasterdata.vrt"
-    util.combine_all_bands_into_vrt([output_path, reproj_path], period_vrt)
+    util.combine_all_bands_into_vrt(
+        [output_path, reproj_path],
+        period_vrt,
+        band_names=util.generate_sanitized_band_names(
+            [b for df in [output_df, reproj_df] for b in df.bands]
+        ),
+    )
 
     period_df = combine_data_files(period_vrt, [output_df, reproj_df])
     for band in period_df.bands:
@@ -941,7 +953,13 @@ def summarise_land_degradation(
         temp_overall_vrt = Path(
             tempfile.NamedTemporaryFile(suffix=".vrt", delete=False).name
         )
-        util.combine_all_bands_into_vrt(period_vrts, temp_overall_vrt)
+        util.combine_all_bands_into_vrt(
+            period_vrts,
+            temp_overall_vrt,
+            band_names=util.generate_sanitized_band_names(
+                [b for df in period_dfs for b in df.bands]
+            ),
+        )
         temp_df = combine_data_files(temp_overall_vrt, period_dfs)
 
         # Ensure the same lc legend and nesting are used for both the
@@ -1020,7 +1038,13 @@ def summarise_land_degradation(
             else:
                 logger.warning("VRT file %d does not exist: %s", i + 1, vrt_path)
 
-        util.combine_all_bands_into_vrt(period_vrts, overall_vrt_path)
+        util.combine_all_bands_into_vrt(
+            period_vrts,
+            overall_vrt_path,
+            band_names=util.generate_sanitized_band_names(
+                [b for df in period_dfs for b in df.bands]
+            ),
+        )
 
         out_df = combine_data_files(overall_vrt_path, period_dfs)
         out_df.path = overall_vrt_path.name

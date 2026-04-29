@@ -762,6 +762,17 @@ def summarise_drought_vulnerability(
 
     out_df = DataFile(out_path.name, out_bands)
 
+    # Embed band descriptions so they are available when this function is
+    # called outside the QGIS plugin (e.g. from the CLI or unit tests).
+    band_names = util.generate_sanitized_band_names(out_df.bands)
+    _ds = gdal.Open(str(out_path), gdal.GA_Update)
+    if _ds is not None:
+        for _i, _name in enumerate(band_names, start=1):
+            if _i <= _ds.RasterCount:
+                _ds.GetRasterBand(_i).SetDescription(_name)
+        _ds.FlushCache()
+        _ds = None
+
     logger.info("Saving report JSON, band key, and summary Excel")
     # Also save bands to a key file for ease of use in PRAIS
     key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
