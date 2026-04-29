@@ -36,6 +36,34 @@ def _generate_sanitized_band_names(bands):
         if sanitized[0].isdigit():
             sanitized = f"b_{sanitized}"
 
+        # Append year info from band metadata so bands covering different time
+        # periods get distinct names
+        year = band.metadata.get("year")
+        year_initial = band.metadata.get("year_initial")
+        year_final = band.metadata.get("year_final")
+        reporting_year_initial = band.metadata.get("reporting_year_initial")
+        reporting_year_final = band.metadata.get("reporting_year_final")
+        year_bl_start = band.metadata.get("year_bl_start")
+        year_bl_end = band.metadata.get("year_bl_end")
+        year_tg_start = band.metadata.get("year_tg_start")
+        year_tg_end = band.metadata.get("year_tg_end")
+        if year is not None:
+            sanitized = f"{sanitized}_{year}"
+        elif year_initial is not None and year_final is not None:
+            sanitized = f"{sanitized}_{year_initial}_{year_final}"
+        elif reporting_year_initial is not None and reporting_year_final is not None:
+            sanitized = f"{sanitized}_{reporting_year_initial}_{reporting_year_final}"
+        elif (
+            year_bl_start is not None
+            and year_bl_end is not None
+            and year_tg_start is not None
+            and year_tg_end is not None
+        ):
+            sanitized = (
+                f"{sanitized}_{year_bl_start}_{year_bl_end}"
+                f"_{year_tg_start}_{year_tg_end}"
+            )
+
         base_name = sanitized
         suffix = 2
         while sanitized in used_names:
