@@ -51,6 +51,11 @@ cd trends.earth-algorithms
 pip install -e .
 ```
 
+## Contributing
+
+Contributions are welcome. Please report bugs or suggest improvements via the
+[issue tracker](https://github.com/ConservationInternational/trends.earth-algorithms/issues).
+
 ## Related Projects
 
 `Trends.Earth` is built from a set of interconnected repositories:
@@ -62,15 +67,6 @@ pip install -e .
 - [trends.earth-CLI](https://github.com/ConservationInternational/trends.earth-CLI) — Command-line interface for developing custom scripts
 - [trends.earth-api-ui](https://github.com/ConservationInternational/trends.earth-api-ui) — Web UI for API management
 
-## Contributing
-
-Contributions are welcome. Please report bugs or suggest improvements via the
-[issue tracker](https://github.com/ConservationInternational/trends.earth-algorithms/issues).
-
 ## License
 
 `trends.earth-algorithms` is free and open-source. MIT License — see [LICENSE](LICENSE).
-
----
-
-[![Part of Trends.Earth](https://s3.amazonaws.com/trends.earth/sharing/trends_earth_logo_bl_600width.png)](http://trends.earth)
