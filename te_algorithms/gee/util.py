@@ -47,6 +47,7 @@ def _generate_sanitized_band_names(bands):
         year_bl_end = band.metadata.get("year_bl_end")
         year_tg_start = band.metadata.get("year_tg_start")
         year_tg_end = band.metadata.get("year_tg_end")
+        band_type = band.metadata.get("type")
         if year is not None:
             sanitized = f"{sanitized}_{year}"
         elif year_initial is not None and year_final is not None:
@@ -62,6 +63,12 @@ def _generate_sanitized_band_names(bands):
             sanitized = (
                 f"{sanitized}_{year_bl_start}_{year_bl_end}"
                 f"_{year_tg_start}_{year_tg_end}"
+            )
+        # Append type (e.g. "male"/"female") after any year suffix so bands
+        # that share a year but differ by type get distinct names.
+        if band_type is not None:
+            sanitized = (
+                f"{sanitized}_{_SANITIZE_PATTERN.sub('_', str(band_type)).strip('_')}"
             )
 
         base_name = sanitized
