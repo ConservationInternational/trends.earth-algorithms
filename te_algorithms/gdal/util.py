@@ -3,7 +3,7 @@ import logging
 import pathlib
 import shutil
 import tempfile
-from typing import List
+from typing import List, Optional
 
 import marshmallow_dataclass
 from defusedxml.ElementTree import parse
@@ -199,10 +199,18 @@ def combine_all_bands_into_vrt(
     is_relative=True,
     aws_access_key_id=None,
     aws_secret_access_key=None,
+    band_names: Optional[List[str]] = None,
 ):
     """creates a vrt file combining all bands of in_files
 
-    All bands must have the same extent, resolution, and crs
+    All bands must have the same extent, resolution, and crs.
+
+    If band_names is provided it must list a description for every band across
+    all in_files (in order).  These names are used as the VRT band
+    Description, taking precedence over any Description already embedded in
+    the source files.  If band_names is not provided the source band's
+    Description is copied (which may be empty for files exported by older
+    versions of the GEE pipeline).
     """
 
     logger.debug("Making %s", out_file)
@@ -276,7 +284,11 @@ def combine_all_bands_into_vrt(
             out_ds.AddBand(this_dt)
             # The new band will always be last band in out_ds
             band = out_ds.GetRasterBand(out_ds.RasterCount)
-            band.SetDescription(this_band.GetDescription())
+            out_band_index = out_ds.RasterCount - 1  # 0-based index of this band
+            if band_names and out_band_index < len(band_names):
+                band.SetDescription(band_names[out_band_index])
+            else:
+                band.SetDescription(this_band.GetDescription())
 
             md = {}
             md["source_0"] = simple_source_raw.format(
