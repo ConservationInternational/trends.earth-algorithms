@@ -18,8 +18,8 @@ from te_schemas.schemas import (
 from te_schemas.schemas import Url as UrlDeprecated
 
 from . import GEEImageError, GEETaskFailure
-from ..gdal.util import (
-    generate_sanitized_band_names as _gdal_generate_sanitized_band_names,
+from ..common.band_names import (
+    generate_sanitized_band_names as _common_generate_sanitized_band_names,
 )
 
 _SANITIZE_PATTERN = re.compile(r"[^0-9A-Za-z_]+")
@@ -27,7 +27,7 @@ _SANITIZE_PATTERN = re.compile(r"[^0-9A-Za-z_]+")
 
 def _generate_sanitized_band_names(bands):
     """Sanitize band names and store the result in each band's metadata."""
-    names = _gdal_generate_sanitized_band_names(bands)
+    names = _common_generate_sanitized_band_names(bands)
     for band, name in zip(bands, names):
         band.metadata["gee_band_name"] = name
     return names
