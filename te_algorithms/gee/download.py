@@ -189,9 +189,86 @@ def _get_gpw_population(year, asset, add_to_map=False):
     }
 
 
+def _download_spi_collection(
+    asset, name, temporal_resolution, year_initial, year_final
+):
+    """Download SPI/SPEI data from a monthly ImageCollection (CHIRPS, GPCC, UKCEH).
+
+    These datasets are stored as ImageCollections of monthly images, each
+    containing bands for different accumulation lag periods (e.g. lag_9, lag_12).
+    For each year in the requested range the December image is downloaded
+    with all available lag bands included in the output.
+    """
+    if year_initial is None:
+        year_initial = 1981
+    if year_final is None:
+        year_final = 2024
+
+    collection = ee.ImageCollection(asset)
+    proj = collection.first().projection()
+
+    is_spei = "spei" in asset.lower()
+    is_ukceh = "ukceh" in asset.lower()
+    band_label = (
+        "Standardized Precipitation Evapotranspiration Index (SPEI)"
+        if is_spei
+        else "Standardized Precipitation Index (SPI)"
+    )
+
+    # Discover available lag bands from the first image in the collection.
+    # This makes one synchronous API call upfront (comparable to the getInfo()
+    # call already made in _download_default).
+    first_image_info = collection.first().getInfo()
+    all_band_ids = [b["id"] for b in first_image_info.get("bands", [])]
+    lag_bands = [b for b in all_band_ids if b.startswith("lag_")]
+
+    def _get_december_image(year):
+        if is_ukceh:
+            # UKCEH images are indexed by system:index rather than date.
+            prefix = "spei" if is_spei else "spi"
+            lag = int(lag_bands[0].split("_")[1])
+            return collection.filter(
+                ee.Filter.equals("system:index", f"{prefix}{lag}_dec_{year}")
+            ).first()
+        else:
+            # CHIRPS and GPCC are filtered by acquisition date.
+            return collection.filterDate(f"{year}-12-01", f"{year + 1}-01-01").first()
+
+    def _get_spi_year(year, add_to_map=False):
+        year_img = (
+            _get_december_image(year)
+            .select(lag_bands)
+            .unmask(-32768)
+            .int16()
+            .reproject(crs=proj)
+        )
+        bands = [
+            Band(
+                band_label,
+                metadata={"year": year, "lag": int(b.split("_")[1])},
+                add_to_map=add_to_map,
+            )
+            for b in lag_bands
+        ]
+        return {"image": year_img, "bands": bands, "datatype": DataType.INT16}
+
+    first_output = _get_spi_year(year_initial, add_to_map=True)
+    out = TEImageV2({DataType.INT16: GEEImage(**first_output)})
+
+    for year in range(year_initial + 1, year_final + 1):
+        add_to_map = bool(((year - year_initial) % 4) == 0)
+        out.add_image(**_get_spi_year(year, add_to_map=add_to_map))
+
+    return out
+
+
 download_functions = {
     "Gridded Population Count (gender breakdown)": _download_worldpop,
     "Gridded Population of the World v411": _download_gpw,
+    "CHIRPS v2025": _download_spi_collection,
+    "GPCC V6 (Global Precipitation Climatology Centre)": _download_spi_collection,
+    "UKCEH SPI": _download_spi_collection,
+    "UKCEH SPEI": _download_spi_collection,
 }
 
 
