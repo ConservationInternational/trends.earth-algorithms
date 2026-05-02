@@ -790,7 +790,7 @@ def compute_counterbalancing(
         delta = g - lo
         achieved = delta >= 0
 
-        status_bd = summary_table.status_breakdown[lt_code]
+        status_bd = (summary_table.status_breakdown or {}).get(lt_code, {})
 
         transition_bd = None
         if (
