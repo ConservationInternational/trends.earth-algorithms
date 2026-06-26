@@ -64,13 +64,24 @@ def _download_default(
         )
 
     out = in_img
-    band_info = [BandInfo(name, add_to_map=True, metadata=image_properties)]
     n_bands = len(image_bands)
 
-    if n_bands > 1:
-        band_info.extend(
-            [BandInfo(name, add_to_map=True, metadata=image_properties)] * (n_bands - 1)
-        )
+    if n_bands == 1:
+        metadata = image_properties.copy()
+        if isinstance(band_metadata, dict):
+            metadata.update(band_metadata)
+        resolved_band_name = band_name or name
+        add_to_map = band_add_to_map if band_add_to_map is not None else True
+        band_info = [
+            BandInfo(resolved_band_name, add_to_map=add_to_map, metadata=metadata)
+        ]
+    else:
+        band_info = [BandInfo(name, add_to_map=True, metadata=image_properties)]
+        if n_bands > 1:
+            band_info.extend(
+                [BandInfo(name, add_to_map=True, metadata=image_properties)]
+                * (n_bands - 1)
+            )
 
     return teimage_v1_to_teimage_v2(TEImage(out, band_info))
 
