@@ -136,6 +136,10 @@ def soc(
             f"Provided year_initial is {year_initial}. Please use year_initial >= {soc_t0_year}."
         )
 
+    if year_initial >= year_final:
+        raise ValueError(
+            f"year_initial ({year_initial}) must be less than year_final ({year_final})."
+        )
     # First band in the LC layer stack is 1992
     lc_band0_year = 1992
 
@@ -417,6 +421,10 @@ def soc_deg(
             f"Provided year_initial is {year_initial}. Please use year_initial >= {soc_t0_year}."
         )
 
+    if year_initial >= year_final:
+        raise ValueError(
+            f"year_initial ({year_initial}) must be less than year_final ({year_final})."
+        )
     # First band in the LC layer stack is 1992
     lc_band0_year = 1992
 
