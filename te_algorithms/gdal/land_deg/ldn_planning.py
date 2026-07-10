@@ -685,6 +685,9 @@ def compute_bau_rate(
     zones_path: Optional[str] = None,
     zones_raster_path: Optional[str] = None,
     zones_raster_labels: Optional[Dict[Any, str]] = None,
+    land_type_path: Optional[str] = None,
+    land_type_band_index: int = 1,
+    land_type_labels: Optional[Dict[Any, str]] = None,
     progress_callback=None,
     killed_callback=None,
 ) -> Dict[str, Any]:
@@ -709,7 +712,7 @@ def compute_bau_rate(
         target_year: Year to project BAU to (e.g. 2030).
         zones_path: Optional path to a vector layer whose features define
             sub-national zones for per-zone BAU statistics.  When supplied,
-            the summary dict includes a ``"zones"`` list.
+            the summary dict includes a ``"jurisdictions"`` list.
         progress_callback: Optional callable(pct: float).
         killed_callback: Optional callable() → bool.
 
@@ -802,9 +805,9 @@ def compute_bau_rate(
         bau_proj if bau_proj is not None else 0.0,
     )
 
-    # --- Per-zone BAU statistics ---
+    # --- Per-jurisdiction BAU statistics ---
     if zones_path is not None or zones_raster_path is not None:
-        summary["zones"] = _compute_bau_zones(
+        summary["jurisdictions"] = _compute_bau_zones(
             status_baseline_path=status_baseline_path,
             status_baseline_band_index=status_baseline_band_index,
             status_reporting_path=status_reporting_path,
@@ -818,7 +821,26 @@ def compute_bau_rate(
             killed_callback=killed_callback,
         )
     else:
-        summary["zones"] = []
+        summary["jurisdictions"] = []
+
+    # --- Per-land-type BAU statistics ---
+    if land_type_path is not None:
+        summary["land_types_bau"] = _compute_bau_zones(
+            status_baseline_path=status_baseline_path,
+            status_baseline_band_index=status_baseline_band_index,
+            status_reporting_path=status_reporting_path,
+            status_reporting_band_index=status_reporting_band_index,
+            year_initial=year_initial,
+            year_final=year_final,
+            target_year=target_year,
+            zones_path=None,
+            zones_raster_path=land_type_path,
+            zones_raster_labels=land_type_labels,
+            zones_raster_band_index=land_type_band_index,
+            killed_callback=killed_callback,
+        )
+    else:
+        summary["land_types_bau"] = []
 
     return summary
 
@@ -834,12 +856,13 @@ def _compute_bau_zones(
     zones_path: Optional[str] = None,
     zones_raster_path: Optional[str] = None,
     zones_raster_labels: Optional[Dict[Any, str]] = None,
+    zones_raster_band_index: int = 1,
     killed_callback=None,
 ) -> List[Dict[str, Any]]:
     """Compute BAU statistics per zone.
 
     Zones may come from an uploaded/admin vector (``zones_path``) or a saved
-    zones raster (``zones_raster_path``). Statistics are grouped on a single
+    raster (``zones_raster_path``). Statistics are grouped on a single
     zone-id array aligned to the baseline grid, so all zone sources behave
     identically.
     """
@@ -907,6 +930,7 @@ def _compute_bau_zones(
         zones_path=zones_path,
         zones_raster_path=zones_raster_path,
         zones_raster_labels=zones_raster_labels,
+        zones_raster_band_index=zones_raster_band_index,
     )
     if zone_ids is None:
         return []
@@ -1202,7 +1226,7 @@ def apply_scenario(
 
     by_land_type = _group_stats(lt_full, {}, True)
 
-    by_zone = []
+    by_jurisdiction = []
     zone_ids, id_to_name = zones.resolve_zone_ids(
         gt,
         proj,
@@ -1213,7 +1237,7 @@ def apply_scenario(
         zones_raster_labels=zones_raster_labels,
     )
     if zone_ids is not None:
-        by_zone = _group_stats(zone_ids, id_to_name, False)
+        by_jurisdiction = _group_stats(zone_ids, id_to_name, False)
 
     if progress_callback:
         progress_callback(90.0)
@@ -1255,17 +1279,17 @@ def apply_scenario(
         ),
         "per_target": per_target_stats,
         "by_land_type": by_land_type,
-        "by_zone": by_zone,
+        "by_jurisdiction": by_jurisdiction,
     }
     logger.info(
         "Scenario: gains=%.1f km² (Reverse), avoided_losses=%.1f km² "
-        "(Reduce=%.1f + Avoid=%.1f); %d land types, %d zones",
+        "(Reduce=%.1f + Avoid=%.1f); %d land types, %d jurisdictions",
         total_gains,
         total_avoided_losses,
         avoided_losses_km2_reduce,
         avoided_losses_km2_avoid,
         len(by_land_type),
-        len(by_zone),
+        len(by_jurisdiction),
     )
 
     if progress_callback:
@@ -1324,7 +1348,7 @@ def project_scenario_against_bau(
         if z_bau is None:
             return None
         z_target = zone.get("ldntarget_km2", 0.0) or 0.0
-        contrib = scen_contrib_by_zone.get(zone.get("zone_name"))
+        contrib = scen_contrib_by_jurisdiction.get(zone.get("zone_name"))
         contrib = 0.0 if contrib is None else contrib
         z_scen = max(0.0, z_bau - contrib)
         z_shortfall = max(0.0, z_bau - z_target)
@@ -1342,19 +1366,19 @@ def project_scenario_against_bau(
             ),
         }
 
-    by_zone_out: List[Dict[str, Any]] = []
-    bau_zones = bau_summary.get("zones") or []
-    scen_zones = scenario_summary.get("by_zone") or []
-    if bau_zones and scen_zones:
-        scen_contrib_by_zone = {
+    by_jurisdiction_out: List[Dict[str, Any]] = []
+    bau_jurisdictions = bau_summary.get("jurisdictions") or []
+    scen_jurisdictions = scenario_summary.get("by_jurisdiction") or []
+    if bau_jurisdictions and scen_jurisdictions:
+        scen_contrib_by_jurisdiction = {
             z.get("name"): (z.get("total_gains_km2", 0.0) or 0.0)
             + (z.get("total_avoided_losses_km2", 0.0) or 0.0)
-            for z in scen_zones
+            for z in scen_jurisdictions
         }
-        for zone in bau_zones:
+        for zone in bau_jurisdictions:
             zp = _zone_projection(zone)
             if zp is not None:
-                by_zone_out.append(zp)
+                by_jurisdiction_out.append(zp)
 
     return {
         "target_year": target_year,
@@ -1372,7 +1396,7 @@ def project_scenario_against_bau(
         "remaining_shortfall_km2": remaining_shortfall,
         "gap_closed_pct": gap_closed_pct,
         "neutral": scenario_degraded <= ldntarget + 1e-9,
-        "by_zone": by_zone_out,
+        "by_jurisdiction": by_jurisdiction_out,
         "note": (
             "Scenario-adjusted degraded area = BAU projection - gains - avoided "
             "losses. Avoided losses are an upper bound (all treated at-risk / "

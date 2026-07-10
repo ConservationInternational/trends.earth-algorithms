@@ -333,6 +333,7 @@ def resolve_zone_ids(
     zones_path: Optional[str] = None,
     zones_raster_path: Optional[str] = None,
     zones_raster_labels: Optional[Dict[Any, str]] = None,
+    zones_raster_band_index: int = 1,
 ) -> Tuple[Optional[np.ndarray], Dict[int, str]]:
     """Resolve any supported zone source to (zone_id_array, {id: name}).
 
@@ -347,6 +348,7 @@ def resolve_zone_ids(
             xsize,
             ysize,
             label_key=zones_raster_labels,
+            band_index=zones_raster_band_index,
         )
     if zones_path:
         return rasterize_vector_zones(zones_path, ref_gt, ref_proj, xsize, ysize)

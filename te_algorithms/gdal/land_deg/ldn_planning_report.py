@@ -194,31 +194,31 @@ def _write_bau_sheet(sheet, bau_summary: Dict[str, Any]) -> None:
 
 
 def _write_bau_zones_sheet(
-    sheet, zones: List[Dict[str, Any]], target_year: int
+    sheet, zones, target_year: int, label: str = "Jurisdiction"
 ) -> None:
-    """Per-zone BAU statistics sheet."""
-    sheet.title = "BAU by Zone"
+    """Per-zone BAU statistics sheet (used for both jurisdictions and land types)."""
+    sheet.title = f"BAU by {label}"
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
     sheet.cell(
-        row=1, column=1, value="BAU Projection — Per-Zone Statistics"
+        row=1, column=1, value=f"BAU Projection \u2014 Per-{label} Statistics"
     ).font = Font(bold=True, size=14)
     headers = [
-        "Zone",
-        "Total Area (km²)",
-        "Degraded — Baseline (km²)",
-        "Degraded — Baseline (%)",
-        "Degraded — Reporting (km²)",
-        "Degraded — Reporting (%)",
-        "Annual Change (km²/yr)",
-        f"BAU Projection {target_year} (km²)",
-        "LDN Target (km²)",
-        "Shortfall (km²)",
+        label,
+        "Total Area (km\u00b2)",
+        "Degraded \u2014 Baseline (km\u00b2)",
+        "Degraded \u2014 Baseline (%)",
+        "Degraded \u2014 Reporting (km\u00b2)",
+        "Degraded \u2014 Reporting (%)",
+        "Annual Change (km\u00b2/yr)",
+        f"BAU Projection {target_year} (km\u00b2)",
+        "LDN Target (km\u00b2)",
+        "Shortfall (km\u00b2)",
     ]
     for col, h in enumerate(headers, 1):
         _hcell(sheet, 4, col, h)
 
     if not zones:
-        sheet.cell(row=5, column=1, value="No zone data available.")
+        sheet.cell(row=5, column=1, value=f"No {label.lower()} data available.")
         return
 
     proj_key = f"bau_projection_{target_year}_km2"
@@ -443,22 +443,22 @@ def _write_projection_summary_sheet(sheet, projection: Dict[str, Any]) -> None:
     sheet.column_dimensions["A"].width = 48
     sheet.column_dimensions["B"].width = 20
 
-    # Optional per-zone neutrality table
-    by_zone = projection.get("by_zone") or []
-    if by_zone:
+    # Optional per-jurisdiction neutrality table
+    by_jurisdiction = projection.get("by_jurisdiction") or []
+    if by_jurisdiction:
         start = note_row + 2
         headers = [
-            "Land Type",
-            f"BAU Projection {target_year} (km²)",
-            "LDN Target (km²)",
-            "Scenario Contribution (km²)",
-            f"Scenario-Adjusted {target_year} (km²)",
+            "Jurisdiction",
+            f"BAU Projection {target_year} (km\u00b2)",
+            "LDN Target (km\u00b2)",
+            "Scenario Contribution (km\u00b2)",
+            f"Scenario-Adjusted {target_year} (km\u00b2)",
             "Gap Closed (%)",
             "Neutral",
         ]
         for col, h in enumerate(headers, 1):
             _hcell(sheet, start, col, h)
-        for r, z in enumerate(by_zone, start=start + 1):
+        for r, z in enumerate(by_jurisdiction, start=start + 1):
             _dcell(sheet, r, 1, z.get("zone_name", ""))
             _dcell(sheet, r, 2, round(z.get("bau_projection_km2", 0), 2), "#,##0.00")
             _dcell(sheet, r, 3, round(z.get("ldntarget_km2", 0), 2), "#,##0.00")
@@ -509,12 +509,21 @@ def save_ldn_planning_excel(
         _write_hotspot_sheet(_next_sheet("Hotspot Ranking"), hotspot_zones)
     if bau_summary is not None:
         _write_bau_sheet(_next_sheet("BAU Projection"), bau_summary)
-        bau_zones = bau_summary.get("zones")
-        if bau_zones:
+        bau_land_types = bau_summary.get("land_types_bau")
+        if bau_land_types:
             _write_bau_zones_sheet(
-                _next_sheet("BAU by Zone"),
-                bau_zones,
+                _next_sheet("BAU by Land Type"),
+                bau_land_types,
                 bau_summary.get("target_year", ""),
+                label="Land Type",
+            )
+        bau_jurisdictions = bau_summary.get("jurisdictions")
+        if bau_jurisdictions:
+            _write_bau_zones_sheet(
+                _next_sheet("BAU by Jurisdiction"),
+                bau_jurisdictions,
+                bau_summary.get("target_year", ""),
+                label="Jurisdiction",
             )
     if scenario_summary is not None:
         _write_scenario_sheet(_next_sheet("Scenario Balance Sheet"), scenario_summary)
@@ -526,13 +535,13 @@ def save_ldn_planning_excel(
                 by_land_type,
                 "Land Type",
             )
-        by_zone = scenario_summary.get("by_zone")
-        if by_zone:
+        by_jurisdiction = scenario_summary.get("by_jurisdiction")
+        if by_jurisdiction:
             _write_scenario_breakdown_sheet(
-                _next_sheet("Scenario by Land Type"),
-                "Scenario by Land Type",
-                by_zone,
-                "Land Type",
+                _next_sheet("Scenario by Jurisdiction"),
+                "Scenario by Jurisdiction",
+                by_jurisdiction,
+                "Jurisdiction",
             )
     if projection_summary is not None:
         _write_projection_summary_sheet(
