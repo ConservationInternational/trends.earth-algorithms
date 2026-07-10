@@ -754,8 +754,27 @@ def summarise_land_degradation(
                 if hasattr(current_thread, "_is_in_thread_pool"):
                     delattr(current_thread, "_is_in_thread_pool")
 
+        # Thread-safe progress aggregator so each concurrently-processed
+        # period can report tile-level progress. Overall progress is the mean
+        # of all periods' fractions (0.0-1.0), mapped into the 5%-85% window.
+        n_parallel_periods = len(ldn_job.params["periods"])
+        period_fractions = [0.0] * n_parallel_periods
+        progress_lock = threading.Lock()
+
+        def _make_parallel_period_cb(period_index):
+            if progress_callback is None:
+                return None
+
+            def _cb(fraction):
+                with progress_lock:
+                    period_fractions[period_index] = max(0.0, min(1.0, fraction))
+                    overall = sum(period_fractions) / n_parallel_periods
+                progress_callback(5 + int(80 * overall))
+
+            return _cb
+
         def process_period_wrapper(period_data):
-            period, cpus, prepared_schemas = period_data
+            period_index, period, cpus, prepared_schemas = period_data
             # Process single period with allocated CPU count and pre-loaded schemas
             return _process_single_period_with_schemas(
                 period,
@@ -766,6 +785,7 @@ def summarise_land_degradation(
                 prepared_schemas,
                 target_resolution,
                 parallel_backend=parallel_backend,
+                progress_callback=_make_parallel_period_cb(period_index),
             )
 
         # Pre-load schemas in main thread to avoid thread-safety issues
@@ -789,8 +809,10 @@ def summarise_land_degradation(
             )
 
         period_data = [
-            (period, period_cpus, schemas)
-            for period, schemas in zip(ldn_job.params["periods"], prepared_schemas_list)
+            (idx, period, period_cpus, schemas)
+            for idx, (period, schemas) in enumerate(
+                zip(ldn_job.params["periods"], prepared_schemas_list)
+            )
         ]
 
         with concurrent.futures.ThreadPoolExecutor(

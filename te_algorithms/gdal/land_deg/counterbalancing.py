@@ -624,6 +624,9 @@ def compute_counterbalancing(
         proc_ysize,
     )
 
+    if progress_callback is not None:
+        progress_callback(2)
+
     logger.info(
         "Extracting status band %d as VRT at processing extent", status_band_index
     )
@@ -656,6 +659,9 @@ def compute_counterbalancing(
     )
     if not mask_worker.work():
         raise RuntimeError("Failed to create AOI mask raster.")
+
+    if progress_callback is not None:
+        progress_callback(4)
 
     # --- 3b. Optionally extract baseline and status-period bands for transition
     has_transition = (
@@ -716,6 +722,9 @@ def compute_counterbalancing(
     )
     _ds.FlushCache()
     del _ds
+
+    if progress_callback is not None:
+        progress_callback(6)
 
     # Cut into tiles and process in parallel
     logger.info("Cutting input rasters into tiles")
