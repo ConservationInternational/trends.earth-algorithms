@@ -1413,13 +1413,33 @@ def _process_block_summary(
     ###########################################################
     # Population affected by degradation
 
+    def _pop_band_to_counts(pop_row):
+        """Extract a population band as people-per-pixel counts.
+
+        Newer datasets store population as density (people per hectare, tagged
+        with a "units" metadata field) so values survive resampling to grids
+        other than WorldPop's native ~100m. Convert those back to counts using
+        each pixel's true area (cell_areas is in sq km; 1 sq km = 100 ha).
+        Older datasets store raw per-pixel counts and are passed through
+        unchanged.
+        """
+        pop_array = in_array[pop_row, :, :].astype(np.float64)
+        nodata = pop_array == config.NODATA_VALUE
+        band_metadata = params.in_df.bands[pop_row].metadata or {}
+        if band_metadata.get("units") == "people per hectare":
+            pop_array = pop_array * cell_areas * 100.0
+            pop_array[nodata] = config.NODATA_VALUE
+        pop_array_masked = pop_array.copy()
+        pop_array_masked[nodata] = 0
+        return pop_array, pop_array_masked
+
     if len(pop_rows_total) == 1:
         assert len(pop_rows_male) == 0 and len(pop_rows_female) == 0
         pop_by_sex = False
 
-        pop_array_total = in_array[pop_rows_total[0], :, :].astype(np.float64)
-        pop_array_total_masked = pop_array_total.copy()
-        pop_array_total_masked[pop_array_total == config.NODATA_VALUE] = 0
+        pop_array_total, pop_array_total_masked = _pop_band_to_counts(
+            pop_rows_total[0]
+        )
         sdg_zonal_population_male = {}
         sdg_zonal_population_female = {}
     else:
@@ -1436,14 +1456,12 @@ def _process_block_summary(
             in_array.shape,
         )
 
-        pop_array_male = in_array[pop_rows_male[0], :, :].astype(np.float64)
-        pop_array_male_masked = pop_array_male.copy()
-        pop_array_male_masked[pop_array_male == config.NODATA_VALUE] = 0
+        pop_array_male, pop_array_male_masked = _pop_band_to_counts(pop_rows_male[0])
         sdg_zonal_population_male = zonal_total(deg_sdg, pop_array_male_masked, mask)
 
-        pop_array_female = in_array[pop_rows_female[0], :, :].astype(np.float64)
-        pop_array_female_masked = pop_array_female.copy()
-        pop_array_female_masked[pop_array_female == config.NODATA_VALUE] = 0
+        pop_array_female, pop_array_female_masked = _pop_band_to_counts(
+            pop_rows_female[0]
+        )
         sdg_zonal_population_female = zonal_total(
             deg_sdg, pop_array_female_masked, mask
         )
