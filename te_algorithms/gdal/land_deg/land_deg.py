@@ -1437,9 +1437,7 @@ def _process_block_summary(
         assert len(pop_rows_male) == 0 and len(pop_rows_female) == 0
         pop_by_sex = False
 
-        pop_array_total, pop_array_total_masked = _pop_band_to_counts(
-            pop_rows_total[0]
-        )
+        pop_array_total, pop_array_total_masked = _pop_band_to_counts(pop_rows_total[0])
         sdg_zonal_population_male = {}
         sdg_zonal_population_female = {}
     else:
