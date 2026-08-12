@@ -51,7 +51,10 @@ ARR_NODATA: int = int(config.NODATA_VALUE)  # -32768
 # Status values that indicate "overall degraded" in each status type
 # 3-class: -1 = degraded (0 = stable, 1 = improved)
 # 7-class (expanded status matrix):
-#   1 = persistent degradation, 2 = recent degradation, 3 = baseline degradation
+#   1 = persistent degradation (degraded at baseline AND in reporting period)
+#   2 = recent degradation     (stable/improved at baseline, degraded in reporting)
+#   3 = baseline degradation   (degraded at baseline, stable in reporting — still degraded)
+#   4 = stability, 5-7 = improvement classes
 _STATUS_3CLASS_DEGRADED: set = {-1}
 _STATUS_7CLASS_DEGRADED: set = {1, 2, 3}
 
