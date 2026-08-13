@@ -26,7 +26,6 @@ te_schemas_mock.results = MagicMock()
 te_schemas_mock.results.Raster = MagicMock()
 te_schemas_mock.results.TiledRaster = MagicMock()
 
-# ruff: noqa: E402
 from te_algorithms.gee import GEEIOError, productivity
 
 

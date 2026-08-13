@@ -13,7 +13,7 @@ def trans_factors_for_custom_legend(trans_factors, ipcc_nesting):
 
     assert len(trans_factors[0]) == len(trans_factors[1])
 
-    for n in range(0, len(trans_factors[0])):
+    for n in range(len(trans_factors[0])):
         trans_code = trans_factors[0][n]
         value = trans_factors[1][n]
         ipcc_initial_class_code = int(trans_code / 10)

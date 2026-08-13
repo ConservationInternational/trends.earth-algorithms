@@ -1,7 +1,7 @@
 import re
 
 try:
-    from te_algorithms._version import __version__, __git_sha__, __git_date__
+    from te_algorithms._version import __git_date__, __git_sha__, __version__
 except ImportError:
     __version__ = "unknown"
     __git_sha__ = "unknown"

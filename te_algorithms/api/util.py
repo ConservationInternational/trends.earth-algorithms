@@ -761,9 +761,9 @@ def write_to_cog_tiled(
             )
 
         # Create temporary directory for tiles
+        import multiprocessing
         import tempfile
         from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-        import multiprocessing
 
         # Determine optimal number of workers based on CPU count and tile count
         cpu_count = multiprocessing.cpu_count()
@@ -1633,7 +1633,7 @@ def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, s3_extra_args=None
         )
 
 
-def slugify(value: Union[int, float, complex, str], allow_unicode=False):
+def slugify(value: Union[complex, str], allow_unicode=False):
     """
     Create an ASCII or Unicode slug
 
@@ -1663,9 +1663,9 @@ def _get_download_size(url):
     total_size = int(resp.headers["Content-length"])
 
     if total_size < 1e5:
-        total_size_pretty = "{:.2f} KB".format(round(total_size / 1024, 2))
+        total_size_pretty = f"{round(total_size / 1024, 2):.2f} KB"
     else:
-        total_size_pretty = "{:.2f} MB".format(round(total_size * 1e-6, 2))
+        total_size_pretty = f"{round(total_size * 1e-6, 2):.2f} MB"
 
     return total_size_pretty
 
@@ -1676,8 +1676,7 @@ def _download_file(url, out_file):
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
         with open(out_file, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+            f.writelines(r.iter_content(chunk_size=8192))
 
     return out_file
 

@@ -354,7 +354,6 @@ def cut_tile(params):
         logger.debug("Finished VRT tile %s", str(params.out_file))
         return params.out_file
 
-    #
     gdal.SetConfigOption("GDAL_CACHEMAX", "1024")
     gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
     gdal.SetConfigOption("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")

@@ -205,7 +205,7 @@ def mann_kendall(imageCollection):
     NumberOfItems = TimeSeriesList.length().getInfo()
     ConcordantArray = []
     DiscordantArray = []
-    for j in range(0, NumberOfItems - 1):
+    for j in range(NumberOfItems - 1):
         CurrentImage = ee.Image(TimeSeriesList.get(j))
         for k in range(j + 1, NumberOfItems):
             nextImage = ee.Image(TimeSeriesList.get(k))

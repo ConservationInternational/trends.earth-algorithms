@@ -23,8 +23,7 @@ if "te_schemas" not in sys.modules:
     sys.modules["te_schemas.results"] = MagicMock()
     sys.modules["te_schemas.schemas"] = MagicMock()
 
-from te_algorithms.gee.download import _download_default  # noqa: E402
-
+from te_algorithms.gee.download import _download_default
 
 # ---------------------------------------------------------------------------
 # Helpers

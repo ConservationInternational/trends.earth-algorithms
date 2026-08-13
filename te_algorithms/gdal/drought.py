@@ -952,7 +952,7 @@ def _summarize_over_aoi(
         suffix="_drought_indicators.vrt", delete=False
     ).name
     indic_vrt = Path(indic_vrt)
-    logger.info("Saving indicator VRT to {}".format(indic_vrt))
+    logger.info(f"Saving indicator VRT to {indic_vrt}")
     gdal.BuildVRT(
         str(indic_vrt),
         [item.path for item in in_dfs],
@@ -1230,7 +1230,7 @@ def save_summary_table_excel(
     _render_drought_workbook(workbook, summary_table, years)
     try:
         workbook.save(output_path)
-        logger.info("Indicator table saved to {}".format(output_path))
+        logger.info(f"Indicator table saved to {output_path}")
 
     except OSError:
         error_message = (

@@ -77,23 +77,21 @@ def rmtree(top):
                 os.remove(filename)
             except PermissionError:
                 print(
-                    "Permission error: unable to remove {}. Skipping that file.".format(
-                        filename
-                    )
+                    f"Permission error: unable to remove {filename}. Skipping that file."
                 )
         for name in dirs:
             try:
                 os.rmdir(os.path.join(root, name))
             except OSError:
                 print(
-                    "Unable to remove directory {}. Skipping removing "
-                    "that folder.".format(os.path.join(root, name))
+                    f"Unable to remove directory {os.path.join(root, name)}. Skipping removing "
+                    "that folder."
                 )
     try:
         os.rmdir(top)
     except OSError:
         print(
-            "Unable to remove directory {}. Skipping removing that folder.".format(top)
+            f"Unable to remove directory {top}. Skipping removing that folder."
         )
 
 
@@ -102,10 +100,9 @@ def _replace(file_path, regex, subst):
     # Create temp file
     fh, abs_path = mkstemp()
     if sys.version_info[0] < 3:
-        with os.fdopen(fh, "w") as new_file:
-            with open(file_path) as old_file:
-                for line in old_file:
-                    new_file.write(regex.sub(subst, line))
+        with os.fdopen(fh, "w") as new_file, open(file_path) as old_file:
+            for line in old_file:
+                new_file.write(regex.sub(subst, line))
     else:
         with open(fh, "w", encoding="Latin-1") as new_file:
             with open(file_path, encoding="Latin-1") as old_file:
@@ -241,7 +238,7 @@ def read_requirements():
     try:
         idx = lines.index(divider)
     except ValueError:
-        raise Exception('Expected to find "{}" in requirements.txt'.format(divider))
+        raise Exception(f'Expected to find "{divider}" in requirements.txt')
 
     return not_comments(lines, 0, idx), not_comments(lines, idx + 1, None)
 
@@ -269,26 +266,26 @@ def set_tag(c, version=None):
         ret = query_yes_no("Uncommitted changes exist in repository. Commit these?")
         if ret:
             ret = subprocess.run(
-                ["git", "commit", "-m", "Updating version tags for v{}".format(v)]
+                ["git", "commit", "-m", f"Updating version tags for v{v}"]
             )
             ret.check_returncode()
         else:
             print("Changes not committed - VERSION TAG NOT SET")
 
-    print("Tagging version {} and pushing tag to origin".format(v))
+    print(f"Tagging version {v} and pushing tag to origin")
     ret = subprocess.run(
-        ["git", "tag", "-l", "v{}".format(v)], capture_output=True, text=True
+        ["git", "tag", "-l", f"v{v}"], capture_output=True, text=True
     )
     ret.check_returncode()
-    if "v{}".format(v) in ret.stdout:
+    if f"v{v}" in ret.stdout:
         # Try to delete this tag on remote in case it exists there
-        ret = subprocess.run(["git", "push", "origin", "--delete", "v{}".format(v)])
+        ret = subprocess.run(["git", "push", "origin", "--delete", f"v{v}"])
         if ret.returncode == 0:
-            print("Deleted tag v{} on origin".format(v))
+            print(f"Deleted tag v{v} on origin")
     subprocess.check_call(
-        ["git", "tag", "-f", "-a", "v{}".format(v), "-m", "Version {}".format(v)]
+        ["git", "tag", "-f", "-a", f"v{v}", "-m", f"Version {v}"]
     )
-    subprocess.check_call(["git", "push", "origin", "v{}".format(v)])
+    subprocess.check_call(["git", "push", "origin", f"v{v}"])
 
 
 ###############################################################################

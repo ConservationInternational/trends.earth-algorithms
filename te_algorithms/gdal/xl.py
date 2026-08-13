@@ -7,8 +7,9 @@ from openpyxl.styles.borders import Border, Side
 
 def maybe_add_image_to_sheet(image_filename: str, sheet, place="H1"):
     try:
-        from openpyxl.drawing.image import Image
         from io import BytesIO
+
+        from openpyxl.drawing.image import Image
 
         image_path = Path(__file__).parents[1] / "data" / image_filename
         # Read the image data into memory to avoid file handle issues

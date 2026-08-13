@@ -38,7 +38,7 @@ def modis_ndvi_annual_integral(year_initial, year_final):
         for k in range(year_initial, year_final):
             ndvi_img = (
                 ndvi_coll.select("NDVI")
-                .filterDate("{}-01-01".format(k), "{}-12-31".format(k))
+                .filterDate(f"{k}-01-01", f"{k}-12-31")
                 .reduce(ee.Reducer.mean())
                 .multiply(0.0001)
             )

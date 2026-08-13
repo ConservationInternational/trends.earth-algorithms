@@ -13,8 +13,9 @@ import pytest
 
 # Skip all tests in this module if required dependencies are not available
 try:
-    from te_algorithms.gdal.land_deg.land_deg_recode import rasterize_error_recode
     from te_schemas.error_recode import ErrorRecodePolygons
+
+    from te_algorithms.gdal.land_deg.land_deg_recode import rasterize_error_recode
 except ImportError:
     pytest.skip(
         "te_algorithms.gdal modules require numpy, GDAL, and te_schemas dependencies",

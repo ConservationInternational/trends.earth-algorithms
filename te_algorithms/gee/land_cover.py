@@ -10,7 +10,7 @@ LAND_COVER_FINAL_YEAR = 2022
 
 def _select_lc(lc, year, logger, fake_data=False):
     try:
-        image = lc.select("y{}".format(year))
+        image = lc.select(f"y{year}")
         image.getInfo()
     except EEException:
         if year < LAND_COVER_INITIAL_YEAR and fake_data:

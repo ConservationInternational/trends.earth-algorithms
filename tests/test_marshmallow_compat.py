@@ -359,8 +359,9 @@ class TestTeSchemasDependencies:
 
     def test_job_schema_loads(self):
         """Job schema from te_schemas must load correctly."""
-        from te_schemas.jobs import Job, JobStatus
         import uuid
+
+        from te_schemas.jobs import Job, JobStatus
 
         job_data = {
             "id": str(uuid.uuid4()),

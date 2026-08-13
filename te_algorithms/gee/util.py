@@ -17,10 +17,10 @@ from te_schemas.schemas import (
 )
 from te_schemas.schemas import Url as UrlDeprecated
 
-from . import GEEImageError, GEETaskFailure
 from ..common.band_names import (
     generate_sanitized_band_names as _common_generate_sanitized_band_names,
 )
+from . import GEEImageError, GEETaskFailure
 
 _SANITIZE_PATTERN = re.compile(r"[^0-9A-Za-z_]+")
 
@@ -188,7 +188,7 @@ class gee_task(threading.Thread):
         items = resp.json()["items"]
 
         if len(items) < 1:
-            self.logger.debug("No urls were found for {}".format(self.task))
+            self.logger.debug(f"No urls were found for {self.task}")
             raise GEETaskFailure(self.task)
         else:
             urls = []
@@ -223,7 +223,7 @@ class gee_task(threading.Thread):
         items = resp.json()["items"]
 
         if len(items) < 1:
-            self.logger.debug("No uris were found for {}".format(self.task))
+            self.logger.debug(f"No uris were found for {self.task}")
             raise GEETaskFailure(self.task)
         else:
             uris = []
@@ -284,7 +284,7 @@ class TEImage:
         ]
 
         if len(band_indices) < 1:
-            raise GEEImageError('Bands "{}" not in image'.format(band_names))
+            raise GEEImageError(f'Bands "{band_names}" not in image')
 
         self.band_info = [self.band_info[i] for i in band_indices]
         self.image = self.image.select(band_indices)
@@ -353,9 +353,9 @@ class TEImage:
 
         for geojson in geojsons:
             if task_name:
-                out_name = "{}_{}_{}".format(execution_id, task_name, n)
+                out_name = f"{execution_id}_{task_name}_{n}"
             else:
-                out_name = "{}_{}".format(execution_id, n)
+                out_name = f"{execution_id}_{n}"
 
             export = {
                 "image": self.image,
@@ -675,11 +675,9 @@ class TEImageV2:
 
             for geojson in geojsons:
                 if task_name:
-                    out_name = "{}_{}_{}_{}".format(
-                        execution_id, task_name, datatype.value, n
-                    )
+                    out_name = f"{execution_id}_{task_name}_{datatype.value}_{n}"
                 else:
-                    out_name = "{}_{}_{}".format(execution_id, datatype.value, n)
+                    out_name = f"{execution_id}_{datatype.value}_{n}"
 
                 if filetype == results.RasterFileType.COG:
                     as_COG = True

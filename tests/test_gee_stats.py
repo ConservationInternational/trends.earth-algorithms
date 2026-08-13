@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import te_algorithms.gee.stats as stats
+from te_algorithms.gee import stats
 
 
 class TestGetKendallCoef:

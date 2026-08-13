@@ -242,7 +242,7 @@ class TestProductivityAlgorithmLogic:
     def test_kendall_coefficient_retrieval(self):
         """Test Kendall coefficient calculation for significance testing."""
         # Import and test the stats module directly
-        import te_algorithms.gee.stats as stats
+        from te_algorithms.gee import stats
 
         # Test different time periods and confidence levels
         period_5 = 5

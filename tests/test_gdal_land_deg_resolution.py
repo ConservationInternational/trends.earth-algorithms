@@ -17,11 +17,11 @@ try:
 
     # Import the functions under test
     from te_algorithms.gdal.land_deg.land_deg import (
+        collect_resolutions_from_periods,
+        determine_target_resolution,
         get_reference_file_for_period,
         get_resolution_from_file,
-        collect_resolutions_from_periods,
         select_highest_resolution,
-        determine_target_resolution,
     )
 except ImportError:
     pytest.skip(

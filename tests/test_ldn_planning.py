@@ -16,10 +16,9 @@ pytest.importorskip("osgeo.gdal", reason="GDAL not available")
 pytest.importorskip("osgeo.ogr", reason="OGR not available")
 pytest.importorskip("osgeo.osr", reason="OSR not available")
 
-from osgeo import gdal, osr  # noqa: E402
+from osgeo import gdal, osr
 
-from te_algorithms.gdal.land_deg import ldn_planning  # noqa: E402
-
+from te_algorithms.gdal.land_deg import ldn_planning
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -341,10 +340,11 @@ class TestReportWriter(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
 
     def test_excel_written(self):
+        from pathlib import Path
+
         from te_algorithms.gdal.land_deg.ldn_planning_report import (
             save_ldn_planning_excel,
         )
-        from pathlib import Path
 
         arr_summary = {
             "avoid_km2": 10.0,
@@ -372,10 +372,11 @@ class TestReportWriter(unittest.TestCase):
         self.assertGreater(out.stat().st_size, 0)
 
     def test_json_written(self):
+        from pathlib import Path
+
         from te_algorithms.gdal.land_deg.ldn_planning_report import (
             save_ldn_planning_json,
         )
-        from pathlib import Path
 
         arr = {"avoid_km2": 10.0, "reverse_km2": 3.0}
         out = Path(self.tmpdir) / "test_report.json"
@@ -386,10 +387,11 @@ class TestReportWriter(unittest.TestCase):
         self.assertIn("arr", data)
 
     def test_scenario_breakdown_sheets_written(self):
+        from pathlib import Path
+
         from te_algorithms.gdal.land_deg.ldn_planning_report import (
             save_ldn_planning_excel,
         )
-        from pathlib import Path
 
         scenario_summary = {
             "gains_km2_reverse": 3.0,

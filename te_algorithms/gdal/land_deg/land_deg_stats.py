@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 from typing import Dict
@@ -8,7 +9,6 @@ from te_schemas.results import JsonResults
 
 from ..util_numba import calc_cell_area
 from . import config
-import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -380,7 +380,7 @@ def get_stats_for_geom(raster_path, bands, geom, nodata_value=None, crosstabs=No
     # Calculate stats for each band
     results = {}
     band_arrays = {}  # Store arrays for crosstab calculations, keyed by band_hash
-    logger.debug("Getting stats for {} bands".format(len(bands)))
+    logger.debug(f"Getting stats for {len(bands)} bands")
 
     for band_hash, band_data in bands.items():
         band_name = band_data["name"]
@@ -388,7 +388,7 @@ def get_stats_for_geom(raster_path, bands, geom, nodata_value=None, crosstabs=No
 
         rb = rds.GetRasterBand(band_index)
         if not rb:
-            raise Exception("Band {} not found.".format(band_index))
+            raise Exception(f"Band {band_index} not found.")
 
         src_array = rb.ReadAsArray(*src_offset)
         src_array = np.nan_to_num(src_array)

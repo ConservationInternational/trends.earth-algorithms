@@ -4,7 +4,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple, Optional, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from osgeo import gdal

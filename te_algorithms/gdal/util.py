@@ -9,8 +9,10 @@ import marshmallow_dataclass
 from defusedxml.ElementTree import parse
 from osgeo import gdal, ogr, osr
 
+from ..common.band_names import (
+    generate_sanitized_band_names,  # noqa: F401 - re-exported
+)
 from .util_numba import _accumulate_dicts
-from ..common.band_names import generate_sanitized_band_names  # noqa: F401 - re-exported
 
 try:
     import psutil
@@ -308,10 +310,9 @@ def combine_all_bands_into_vrt(
     # (have to include them when setting metadata or else GDAL throws an error)
     fh, new_file = tempfile.mkstemp()
     new_file = pathlib.Path(new_file)
-    with new_file.open("w", encoding="utf-8") as fh_new:
-        with out_file.open() as fh_old:
-            for line in fh_old:
-                fh_new.write(line.replace(str(out_file.parents[0]) + "/", ""))
+    with new_file.open("w", encoding="utf-8") as fh_new, out_file.open() as fh_old:
+        for line in fh_old:
+            fh_new.write(line.replace(str(out_file.parents[0]) + "/", ""))
     out_file.unlink()
     shutil.copy(str(new_file), str(out_file))
 

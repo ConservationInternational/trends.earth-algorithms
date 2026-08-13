@@ -104,7 +104,7 @@ def soc(
     logger: Any,
     fake_data: bool = False,
     # openEO-specific arguments
-    connection: "openeo.Connection | None" = None,
+    connection: openeo.Connection | None = None,
     geojsons: list | None = None,
     execution_id: str | None = None,
 ):
@@ -175,7 +175,7 @@ def soc(
     # ---------------------------------------------------------------------------
     # Process graph construction
     # ---------------------------------------------------------------------------
-    import openeo  # noqa: PLC0415 – deferred to allow import without openeo installed
+    import openeo
 
     # 1. Load baseline SOC (single-band, reference year 2000)
     soc_baseline = connection.load_collection(
