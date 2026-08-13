@@ -719,8 +719,24 @@ def summarise_land_degradation(
     period_dfs = []
     period_vrts = []
 
-    # Determine highest resolution across all periods to ensure consistency
-    target_resolution = determine_target_resolution(ldn_job.params["periods"])
+    # For FWv2 (30m LPD) pin processing to the baseline (first)
+    # period's reference layer resolution for all periods.
+    all_fwv2 = all(
+        period["params"]["prod_mode"] == ProductivityMode.FWV2_5_CLASS_LPD.value
+        for period in ldn_job.params["periods"]
+    )
+    if all_fwv2:
+        first_period_params = ldn_job.params["periods"][0]["params"]
+        ref_file = get_reference_file_for_period(
+            first_period_params, first_period_params["prod_mode"]
+        )
+        target_resolution = get_resolution_from_file(ref_file) if ref_file else None
+        logger.info(
+            f"FWv2 mode: using baseline period reference resolution: {target_resolution}"
+        )
+    else:
+        # Determine highest resolution across all periods to ensure consistency
+        target_resolution = determine_target_resolution(ldn_job.params["periods"])
 
     if killed_callback is not None and killed_callback():
         raise RuntimeError("Cancelled by user.")
