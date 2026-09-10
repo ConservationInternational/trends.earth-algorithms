@@ -90,9 +90,7 @@ def rmtree(top):
     try:
         os.rmdir(top)
     except OSError:
-        print(
-            f"Unable to remove directory {top}. Skipping removing that folder."
-        )
+        print(f"Unable to remove directory {top}. Skipping removing that folder.")
 
 
 # Function to find and replace in a file
@@ -273,18 +271,14 @@ def set_tag(c, version=None):
             print("Changes not committed - VERSION TAG NOT SET")
 
     print(f"Tagging version {v} and pushing tag to origin")
-    ret = subprocess.run(
-        ["git", "tag", "-l", f"v{v}"], capture_output=True, text=True
-    )
+    ret = subprocess.run(["git", "tag", "-l", f"v{v}"], capture_output=True, text=True)
     ret.check_returncode()
     if f"v{v}" in ret.stdout:
         # Try to delete this tag on remote in case it exists there
         ret = subprocess.run(["git", "push", "origin", "--delete", f"v{v}"])
         if ret.returncode == 0:
             print(f"Deleted tag v{v} on origin")
-    subprocess.check_call(
-        ["git", "tag", "-f", "-a", f"v{v}", "-m", f"Version {v}"]
-    )
+    subprocess.check_call(["git", "tag", "-f", "-a", f"v{v}", "-m", f"Version {v}"])
     subprocess.check_call(["git", "push", "origin", f"v{v}"])
 
 
