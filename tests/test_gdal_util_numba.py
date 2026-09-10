@@ -11,6 +11,7 @@ import runpy
 from pathlib import Path
 
 import pytest
+
 import te_algorithms.gdal.util_numba as util_numba_module
 
 # Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
@@ -119,9 +120,10 @@ def test_public_functions_without_numba(monkeypatch):
 
     assert namespace["calc_cell_area"](0.0, 1.0, 1.0) > 0
     assert namespace["zonal_total"](zones, data, mask) == {1: 30.0, 2: 70.0}
-    assert namespace["zonal_total_weighted"](
-        zones, data, weights, mask
-    ) == {1: 30.0, 2: 70.0}
+    assert namespace["zonal_total_weighted"](zones, data, weights, mask) == {
+        1: 30.0,
+        2: 70.0,
+    }
     assert namespace["bizonal_total"](zones, zones, data, mask) == {
         (1, 1): 30.0,
         (2, 2): 70.0,
@@ -338,7 +340,7 @@ class TestEdgeCases:
 
         assert isinstance(result, Mapping)
         assert len(result) > 0
-        assert all(isinstance(k, (int, np.integer)) for k in result.keys())
+        assert all(isinstance(k, (int, np.integer)) for k in result)
         assert all(isinstance(v, (float, np.floating)) for v in result.values())
 
     def test_all_masked_data(self):
