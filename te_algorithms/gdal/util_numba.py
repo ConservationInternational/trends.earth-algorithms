@@ -11,62 +11,46 @@ MASK_VALUE = np.array([-32767], dtype=np.int16)
 
 try:
     import numba
-    from numba.pycc import CC
-
-    cc = CC("util_numba")
-
-    # Calculate the area of a slice of the globe from the equator to the parallel
-    # at latitude f (on WGS84 ellipsoid). Based on:
-    # https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
-    @numba.jit(nopython=True, nogil=True)
-    @cc.export("slice_area", "f8(f8)")
-    def slice_area(f):
-        a = 6378137.0  # in meters
-        b = 6356752.3142  # in meters
-        e = np.sqrt(1 - pow(b / a, 2))
-        zp = 1 + e * np.sin(f)
-        zm = 1 - e * np.sin(f)
-
-        return (
-            np.pi
-            * pow(b, 2)
-            * ((2 * np.arctanh(e * np.sin(f))) / (2 * e) + np.sin(f) / (zp * zm))
-        )
-
-    # Formula to calculate area of a raster cell on WGS84 ellipsoid, following
-    # https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
-    @numba.jit(nopython=True, nogil=True)
-    @cc.export("calc_cell_area", "f8(f8, f8, f8)")
-    def calc_cell_area(ymin, ymax, x_width):
-        if ymin > ymax:
-            temp = ymax
-            ymax = ymin
-            ymin = temp
-        return (slice_area(np.deg2rad(ymax)) - slice_area(np.deg2rad(ymin))) * (
-            x_width / 360.0
-        )
-
 except ImportError:
+    # Use these as regular Python functions if numba is not present.
+    class NumbaSubstitute:
+        @staticmethod
+        def jit(*args, **kwargs):
+            def wrapper(func):
+                return func
 
-    def slice_area(f):
-        a = 6378137.0  # in meters
-        b = 6356752.3142  # in meters
-        e = np.sqrt(1 - pow(b / a, 2))
-        zp = 1 + e * np.sin(f)
-        zm = 1 - e * np.sin(f)
+            return wrapper
 
-        return (
-            np.pi
-            * pow(b, 2)
-            * ((2 * np.arctanh(e * np.sin(f))) / (2 * e) + np.sin(f) / (zp * zm))
-        )
+    numba = NumbaSubstitute()
 
-    def calc_cell_area(ymin, ymax, x_width):
-        if ymin > ymax:
-            ymin, ymax = ymax, ymin
-        return (slice_area(np.deg2rad(ymax)) - slice_area(np.deg2rad(ymin))) * (
-            x_width / 360.0
-        )
+
+# Calculate the area of a slice of the globe from the equator to the parallel
+# at latitude f (on WGS84 ellipsoid). Based on:
+# https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
+@numba.jit(nopython=True, nogil=True)
+def slice_area(f):
+    a = 6378137.0  # in meters
+    b = 6356752.3142  # in meters
+    e = np.sqrt(1 - pow(b / a, 2))
+    zp = 1 + e * np.sin(f)
+    zm = 1 - e * np.sin(f)
+
+    return (
+        np.pi
+        * pow(b, 2)
+        * ((2 * np.arctanh(e * np.sin(f))) / (2 * e) + np.sin(f) / (zp * zm))
+    )
+
+
+# Formula to calculate area of a raster cell on WGS84 ellipsoid, following
+# https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
+@numba.jit(nopython=True, nogil=True)
+def calc_cell_area(ymin, ymax, x_width):
+    if ymin > ymax:
+        ymin, ymax = ymax, ymin
+    return (slice_area(np.deg2rad(ymax)) - slice_area(np.deg2rad(ymin))) * (
+        x_width / 360.0
+    )
 
 
 # zonal_total, zonal_total_weighted, and bizonal_total all return dicts.
@@ -166,7 +150,3 @@ def cast_numba_int_dict_list_to_cpython(dict_list):
 
 def cast_numba_int_dict_to_cpython(dictionary):
     return {int(key): float(value) for key, value in dictionary.items()}
-
-
-if __name__ == "__main__":
-    cc.compile()

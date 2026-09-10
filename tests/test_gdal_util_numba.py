@@ -5,9 +5,13 @@ This module tests the numba-optimized utility functions used for
 raster data processing and analysis without requiring GDAL installation.
 """
 
+import builtins
 import math
+import runpy
+from pathlib import Path
 
 import pytest
+import te_algorithms.gdal.util_numba as util_numba_module
 
 # Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
 np = pytest.importorskip("numpy")
@@ -92,6 +96,36 @@ class TestCellArea:
         equator_area = calc_cell_area(-0.5, 0.5, 1.0)  # Near equator
         polar_area = calc_cell_area(89.0, 89.5, 1.0)  # Near pole
         assert equator_area > polar_area  # Equatorial cells are larger
+
+
+def test_public_functions_without_numba(monkeypatch):
+    """The module remains usable when the optional numba extra is absent."""
+    real_import = builtins.__import__
+
+    def import_without_numba(name, *args, **kwargs):
+        if name == "numba" or name.startswith("numba."):
+            raise ImportError("numba blocked for fallback test")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_numba)
+    namespace = runpy.run_path(
+        Path(util_numba_module.__file__), run_name="util_numba_without_numba"
+    )
+
+    zones = np.array([[1, 1], [2, 2]], dtype=np.int16)
+    data = np.array([[10.0, 20.0], [30.0, 40.0]], dtype=np.float64)
+    weights = np.ones((2, 2), dtype=np.float64)
+    mask = np.zeros((2, 2), dtype=bool)
+
+    assert namespace["calc_cell_area"](0.0, 1.0, 1.0) > 0
+    assert namespace["zonal_total"](zones, data, mask) == {1: 30.0, 2: 70.0}
+    assert namespace["zonal_total_weighted"](
+        zones, data, weights, mask
+    ) == {1: 30.0, 2: 70.0}
+    assert namespace["bizonal_total"](zones, zones, data, mask) == {
+        (1, 1): 30.0,
+        (2, 2): 70.0,
+    }
 
 
 class TestZonalTotal:
