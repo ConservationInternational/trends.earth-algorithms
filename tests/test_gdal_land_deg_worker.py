@@ -3,13 +3,15 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-pytest.importorskip("marshmallow_dataclass", reason="marshmallow-dataclass not available")
+pytest.importorskip(
+    "marshmallow_dataclass", reason="marshmallow-dataclass not available"
+)
 pytest.importorskip("osgeo.gdal", reason="GDAL not available")
 pytest.importorskip("osgeo.osr", reason="OSR not available")
 
 from osgeo import gdal, osr
 
-from te_algorithms.gdal.land_deg import config, worker
+from te_algorithms.gdal.land_deg import worker
 
 
 def _write_raster(path, values):
@@ -45,13 +47,21 @@ def test_degradation_summary_writes_population_as_float32(tmp_path):
         return (
             {0: 1.0},
             [
-                {"array": np.array([[-1, 0], [1, 0]], dtype=np.int16), "xoff": xoff, "yoff": yoff},
+                {
+                    "array": np.array([[-1, 0], [1, 0]], dtype=np.int16),
+                    "xoff": xoff,
+                    "yoff": yoff,
+                },
                 {
                     "array": np.array([[40000.5, 0.25], [1.5, 2.75]], dtype=np.float64),
                     "xoff": xoff,
                     "yoff": yoff,
                 },
-                {"array": np.array([[1, 2], [3, 4]], dtype=np.int16), "xoff": xoff, "yoff": yoff},
+                {
+                    "array": np.array([[1, 2], [3, 4]], dtype=np.int16),
+                    "xoff": xoff,
+                    "yoff": yoff,
+                },
             ],
         )
 
@@ -64,7 +74,9 @@ def test_degradation_summary_writes_population_as_float32(tmp_path):
     assert integer_dataset.GetRasterBand(2).DataType == gdal.GDT_Int16
     assert population_dataset.RasterCount == 1
     assert population_dataset.GetRasterBand(1).DataType == gdal.GDT_Float32
-    assert population_dataset.GetRasterBand(1).ReadAsArray()[0, 0] == pytest.approx(40000.5)
+    assert population_dataset.GetRasterBand(1).ReadAsArray()[0, 0] == pytest.approx(
+        40000.5
+    )
 
 
 def test_degradation_summary_supports_non_population_parameters(tmp_path):

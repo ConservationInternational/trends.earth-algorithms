@@ -3,6 +3,7 @@ Comprehensive tests for GEE productivity functions.
 Tests the core productivity algorithms: state, trajectory, performance, and faowocat.
 """
 
+import importlib
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -26,7 +27,9 @@ te_schemas_mock.results = MagicMock()
 te_schemas_mock.results.Raster = MagicMock()
 te_schemas_mock.results.TiledRaster = MagicMock()
 
-from te_algorithms.gee import GEEIOError, productivity
+gee_module = importlib.import_module("te_algorithms.gee")
+GEEIOError = gee_module.GEEIOError
+productivity = importlib.import_module("te_algorithms.gee.productivity")
 
 
 class TestProductivityState:

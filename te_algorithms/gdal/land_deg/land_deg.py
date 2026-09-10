@@ -3,7 +3,6 @@ import datetime as dt
 import json
 import logging
 import multiprocessing
-import os
 import tempfile
 import threading
 import time
@@ -235,11 +234,13 @@ def _process_single_period_with_schemas(
         traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
         compute_bbs_from = traj.path
         in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = _compute_ld_summary_table(
-            in_dfs=in_dfs,
-            prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
-            compute_bbs_from=compute_bbs_from,
-            **summary_table_stable_kwargs,
+        summary_table, output_path, population_output_path, reproj_path = (
+            _compute_ld_summary_table(
+                in_dfs=in_dfs,
+                prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
+                compute_bbs_from=compute_bbs_from,
+                **summary_table_stable_kwargs,
+            )
         )
     elif prod_mode in (
         ProductivityMode.JRC_5_CLASS_LPD.value,
@@ -250,11 +251,13 @@ def _process_single_period_with_schemas(
         lpd_df = _prepare_precalculated_lpd_df(period_params)
         compute_bbs_from = lpd_df.path
         in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = _compute_ld_summary_table(
-            in_dfs=in_dfs,
-            prod_mode=prod_mode,
-            compute_bbs_from=compute_bbs_from,
-            **summary_table_stable_kwargs,
+        summary_table, output_path, population_output_path, reproj_path = (
+            _compute_ld_summary_table(
+                in_dfs=in_dfs,
+                prod_mode=prod_mode,
+                compute_bbs_from=compute_bbs_from,
+                **summary_table_stable_kwargs,
+            )
         )
     else:
         raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
@@ -405,11 +408,13 @@ def _process_single_period(
         traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
         compute_bbs_from = traj.path
         in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = _compute_ld_summary_table(
-            in_dfs=in_dfs,
-            prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
-            compute_bbs_from=compute_bbs_from,
-            **summary_table_stable_kwargs,
+        summary_table, output_path, population_output_path, reproj_path = (
+            _compute_ld_summary_table(
+                in_dfs=in_dfs,
+                prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
+                compute_bbs_from=compute_bbs_from,
+                **summary_table_stable_kwargs,
+            )
         )
     elif prod_mode in (
         ProductivityMode.JRC_5_CLASS_LPD.value,
@@ -420,11 +425,13 @@ def _process_single_period(
         lpd_df = _prepare_precalculated_lpd_df(period_params)
         compute_bbs_from = lpd_df.path
         in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = _compute_ld_summary_table(
-            in_dfs=in_dfs,
-            prod_mode=prod_mode,
-            compute_bbs_from=compute_bbs_from,
-            **summary_table_stable_kwargs,
+        summary_table, output_path, population_output_path, reproj_path = (
+            _compute_ld_summary_table(
+                in_dfs=in_dfs,
+                prod_mode=prod_mode,
+                compute_bbs_from=compute_bbs_from,
+                **summary_table_stable_kwargs,
+            )
         )
     else:
         raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
@@ -1732,9 +1739,7 @@ def _summarize_tile(inputs: SummarizeTileInputs):
             deg_worker_params = inputs.deg_worker_params or {}
             result = inputs.deg_worker_function(params, **deg_worker_params)
             missing_outputs = [
-                path
-                for path in (out_file, population_out_file)
-                if not path.exists()
+                path for path in (out_file, population_out_file) if not path.exists()
             ]
             if missing_outputs:
                 raise RuntimeError(

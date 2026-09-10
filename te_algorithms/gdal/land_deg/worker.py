@@ -77,7 +77,9 @@ class DegradationSummary:
         population_dst_ds = None
         if n_population_out_bands:
             if population_out_file is None:
-                raise ValueError("population_out_file is required for population output")
+                raise ValueError(
+                    "population_out_file is required for population output"
+                )
             logger.debug(f"Writing population data to {population_out_file}")
             population_dst_ds = driver.Create(
                 str(population_out_file),
