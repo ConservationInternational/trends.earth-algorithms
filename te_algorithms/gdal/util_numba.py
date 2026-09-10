@@ -2,32 +2,6 @@ import logging
 
 import numpy as np
 
-try:
-    import numba
-    from numba.pycc import CC
-
-except ImportError:
-    # Will use these as regular Python functions if numba is not present.
-    class DecoratorSubstitute:
-        # Make a cc.export that doesn't do anything
-        def export(*args, **kwargs):
-            def wrapper(func):
-                return func
-
-            return wrapper
-
-        # Make a numba.jit that doesn't do anything
-        def jit(*args, **kwargs):
-            def wrapper(func):
-                return func
-
-            return wrapper
-
-    cc = DecoratorSubstitute()
-    numba = DecoratorSubstitute()
-else:
-    cc = CC("util_numba")
-
 logger = logging.getLogger(__name__)
 
 # Ensure mask and nodata values are saved as 16 bit integers for raster compatibility
@@ -35,58 +9,75 @@ logger = logging.getLogger(__name__)
 NODATA_VALUE = np.array([-32768], dtype=np.int16)
 MASK_VALUE = np.array([-32767], dtype=np.int16)
 
+try:
+    import numba
+    from numba.pycc import CC
 
-# Calculate the area of a slice of the globe from the equator to the parallel
-# at latitude f (on WGS84 ellipsoid). Based on:
-# https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
-@numba.jit(nopython=True, nogil=True)
-@cc.export("slice_area", "f8(f8)")
-def slice_area(f):
-    a = 6378137.0  # in meters
-    b = 6356752.3142  # in meters,
-    e = np.sqrt(1 - pow(b / a, 2))
-    zp = 1 + e * np.sin(f)
-    zm = 1 - e * np.sin(f)
+    cc = CC("util_numba")
 
-    return (
-        np.pi
-        * pow(b, 2)
-        * ((2 * np.arctanh(e * np.sin(f))) / (2 * e) + np.sin(f) / (zp * zm))
-    )
+    # Calculate the area of a slice of the globe from the equator to the parallel
+    # at latitude f (on WGS84 ellipsoid). Based on:
+    # https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
+    @numba.jit(nopython=True, nogil=True)
+    @cc.export("slice_area", "f8(f8)")
+    def slice_area(f):
+        a = 6378137.0  # in meters
+        b = 6356752.3142  # in meters
+        e = np.sqrt(1 - pow(b / a, 2))
+        zp = 1 + e * np.sin(f)
+        zm = 1 - e * np.sin(f)
+
+        return (
+            np.pi
+            * pow(b, 2)
+            * ((2 * np.arctanh(e * np.sin(f))) / (2 * e) + np.sin(f) / (zp * zm))
+        )
+
+    # Formula to calculate area of a raster cell on WGS84 ellipsoid, following
+    # https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
+    @numba.jit(nopython=True, nogil=True)
+    @cc.export("calc_cell_area", "f8(f8, f8, f8)")
+    def calc_cell_area(ymin, ymax, x_width):
+        if ymin > ymax:
+            temp = ymax
+            ymax = ymin
+            ymin = temp
+        return (slice_area(np.deg2rad(ymax)) - slice_area(np.deg2rad(ymin))) * (
+            x_width / 360.0
+        )
+
+except ImportError:
+
+    def slice_area(f):
+        a = 6378137.0  # in meters
+        b = 6356752.3142  # in meters
+        e = np.sqrt(1 - pow(b / a, 2))
+        zp = 1 + e * np.sin(f)
+        zm = 1 - e * np.sin(f)
+
+        return (
+            np.pi
+            * pow(b, 2)
+            * ((2 * np.arctanh(e * np.sin(f))) / (2 * e) + np.sin(f) / (zp * zm))
+        )
+
+    def calc_cell_area(ymin, ymax, x_width):
+        if ymin > ymax:
+            ymin, ymax = ymax, ymin
+        return (slice_area(np.deg2rad(ymax)) - slice_area(np.deg2rad(ymin))) * (
+            x_width / 360.0
+        )
 
 
-# Formula to calculate area of a raster cell on WGS84 ellipsoid, following
-# https://gis.stackexchange.com/questions/127165/more-accurate-way-to-calculate-area-of-rasters
-@numba.jit(nopython=True, nogil=True)
-@cc.export("calc_cell_area", "f8(f8, f8, f8)")
-def calc_cell_area(ymin, ymax, x_width):
-    if ymin > ymax:
-        temp = 0
-        temp = ymax
-        ymax = ymin
-        ymin = temp
-    # ymin: minimum latitude
-    # ymax: maximum latitude
-    # x_width: width of cell in degrees
-
-    return (slice_area(np.deg2rad(ymax)) - slice_area(np.deg2rad(ymin))) * (
-        x_width / 360.0
-    )
+# zonal_total, zonal_total_weighted, and bizonal_total all return dicts.
+# Numba's typed.Dict boxing overhead cancels the loop speedup, so numpy
+# vectorised implementations are used unconditionally regardless of whether
+# numba is installed.
 
 
-@numba.jit(nopython=True, nogil=True)
-@cc.export("zonal_total", "DictType(i4, f8)(i4[:,:], f8[:,:], b1[:,:])")
 def zonal_total(z, d, mask):
     """
     Calculate zonal totals by summing data values within each zone.
-
-    This function sums the values in the data array (d) for each unique zone
-    identified in the zone array (z). It is typically used for calculating
-    area totals where the data array contains area values (cell_areas) and
-    the zone array contains class values (-1, 0, 1 for SDG indicators).
-
-    For 7-class status maps, use zonal_status_total() instead which counts
-    areas for each status class rather than summing the status values.
 
     Args:
         z: 2D array with zone identifiers (e.g., SDG classes -1, 0, 1)
@@ -107,23 +98,12 @@ def zonal_total(z, d, mask):
     # Convert int16 constants to int32 for mask operations
     z[mask] = np.int32(MASK_VALUE[0])  # Convert to int32 for assignment
     d[d == NODATA_VALUE[0]] = 0  # Use explicit indexing and ignore nodata values
-    # Use regular dict and let NumBA infer types from consistent usage
-    totals = dict()
+    keys, inverse = np.unique(z, return_inverse=True)
+    sums = np.bincount(inverse, weights=d)
 
-    for i in range(z.shape[0]):
-        zone_key = z[i]  # int32 now to avoid overflow
-        if zone_key not in totals:
-            totals[zone_key] = d[i]  # Already float64 from astype above
-        else:
-            totals[zone_key] += d[i]
-
-    return totals
+    return {int(k): float(v) for k, v in zip(keys, sums)}
 
 
-@numba.jit(nopython=True, nogil=True)
-@cc.export(
-    "zonal_total_weighted", "DictType(i4, f8)(i4[:,:], i4[:,:], f8[:,:], b1[:,:])"
-)
 def zonal_total_weighted(z, d, weights, mask):
     z = z.ravel().astype(np.int32)  # astype already creates a new array
     d = d.ravel().astype(np.float64)  # astype already creates a new array
@@ -131,43 +111,28 @@ def zonal_total_weighted(z, d, weights, mask):
     mask = mask.ravel()
     z[mask] = np.int32(MASK_VALUE[0])  # Convert int16 to int32 for assignment
     d[d == NODATA_VALUE[0]] = 0  # Use explicit indexing and ignore nodata values
-    # Use regular dict and let NumBA infer types from consistent usage
-    totals = dict()
+    keys, inverse = np.unique(z, return_inverse=True)
+    sums = np.bincount(inverse, weights=d * weights)
 
-    for i in range(z.shape[0]):
-        zone_key = z[i]  # int32 now to avoid overflow
-        if zone_key not in totals:
-            totals[zone_key] = (
-                d[i] * weights[i]
-            )  # Both already float64 from astype above
-        else:
-            totals[zone_key] += d[i] * weights[i]
-
-    return totals
+    return {int(k): float(v) for k, v in zip(keys, sums)}
 
 
-@numba.jit(nopython=True, nogil=True)
-@cc.export(
-    "bizonal_total", "DictType(UniTuple(i4, 2), f8)(i4[:,:], i4[:,:], f8[:,:], b1[:,:])"
-)
 def bizonal_total(z1, z2, d, mask):
-    z1 = z1.ravel().astype(np.int32)  # astype already creates a new array
-    z2 = z2.ravel().astype(np.int32)  # astype already creates a new array
+    z1 = z1.ravel().astype(np.int64)  # astype already creates a new array
+    z2 = z2.ravel().astype(np.int64)  # astype already creates a new array
     d = d.ravel().astype(np.float64)  # Ensure float64 type
     mask = mask.ravel()
-    z1[mask] = np.int32(MASK_VALUE[0])  # Convert int16 to int32 for assignment
-    z2[mask] = np.int32(MASK_VALUE[0])  # Convert int16 to int32 for assignment
-    # Use regular dict and let NumBA infer types from consistent usage
-    tab = dict()
+    z1[mask] = np.int64(MASK_VALUE[0])  # Convert int16 to int64 for assignment
+    z2[mask] = np.int64(MASK_VALUE[0])  # Convert int16 to int64 for assignment
+    combined = z1 * (2**32) + (z2 + 2**31)
+    keys, inverse = np.unique(combined, return_inverse=True)
+    sums = np.bincount(inverse, weights=d)
 
-    for i in range(z1.shape[0]):
-        # Ensure both elements are consistently int32
-        key = (z1[i], z2[i])  # Both are int32 now
-
-        if key not in tab:
-            tab[key] = d[i]  # Already float64 from astype above
-        else:
-            tab[key] += d[i]
+    tab = {}
+    for c, v in zip(keys, sums):
+        z2_val = int(c % (2**32)) - 2**31
+        z1_val = int((c - (z2_val + 2**31)) // (2**32))
+        tab[(z1_val, z2_val)] = float(v)
 
     return tab
 
