@@ -57,13 +57,15 @@ class DegradationSummary:
         x_block_size = block_sizes[0]
         y_block_size = block_sizes[1]
 
+        n_population_out_bands = getattr(self.params, "n_population_out_bands", 0)
+        population_out_file = getattr(self.params, "population_out_file", None)
         driver = gdal.GetDriverByName("GTiff")
         logger.debug(f"Writing to {self.params.out_file}")
         dst_ds = driver.Create(
             str(self.params.out_file),
             xsize,
             ysize,
-            self.params.n_out_bands,
+            self.params.n_out_bands - n_population_out_bands,
             gdal.GDT_Int16,
             options=[
                 "COMPRESS=LZW",
@@ -72,11 +74,33 @@ class DegradationSummary:
                 "TILED=YES",
             ],
         )
+        population_dst_ds = None
+        if n_population_out_bands:
+            if population_out_file is None:
+                raise ValueError("population_out_file is required for population output")
+            logger.debug(f"Writing population data to {population_out_file}")
+            population_dst_ds = driver.Create(
+                str(population_out_file),
+                xsize,
+                ysize,
+                n_population_out_bands,
+                gdal.GDT_Float32,
+                options=[
+                    "COMPRESS=LZW",
+                    "BIGTIFF=YES",
+                    "NUM_THREADS=ALL_CPUS",
+                    "TILED=YES",
+                ],
+            )
         src_gt = src_ds.GetGeoTransform()
         dst_ds.SetGeoTransform(src_gt)
+        if population_dst_ds is not None:
+            population_dst_ds.SetGeoTransform(src_gt)
         dst_srs = osr.SpatialReference()
         dst_srs.ImportFromWkt(src_ds.GetProjectionRef())
         dst_ds.SetProjection(dst_srs.ExportToWkt())
+        if population_dst_ds is not None:
+            population_dst_ds.SetProjection(dst_srs.ExportToWkt())
 
         # Width of cells in longitude
         long_width = src_gt[1]
@@ -134,8 +158,15 @@ class DegradationSummary:
         # Cache raster bands to avoid repeated access
         src_bands = [src_ds.GetRasterBand(i) for i in range(1, src_ds.RasterCount + 1)]
         dst_bands = [
-            dst_ds.GetRasterBand(i) for i in range(1, self.params.n_out_bands + 1)
+            dst_ds.GetRasterBand(i)
+            for i in range(1, self.params.n_out_bands - n_population_out_bands + 1)
         ]
+        population_dst_bands = []
+        if population_dst_ds is not None:
+            population_dst_bands = [
+                population_dst_ds.GetRasterBand(i)
+                for i in range(1, n_population_out_bands + 1)
+            ]
 
         progress_increment = 1.0 / n_blocks
         n = 0
@@ -185,8 +216,18 @@ class DegradationSummary:
                 block_index += 1
 
                 write_arrays = result[1]
-                for band_num, data in enumerate(write_arrays):
+                integer_write_arrays = [
+                    write_arrays[0],
+                    *write_arrays[1 + n_population_out_bands :],
+                ]
+                for band_num, data in enumerate(integer_write_arrays):
                     dst_bands[band_num].WriteArray(
+                        data["array"], data["xoff"], data["yoff"]
+                    )
+                for band_num, data in enumerate(
+                    write_arrays[1 : 1 + n_population_out_bands]
+                ):
+                    population_dst_bands[band_num].WriteArray(
                         data["array"], data["xoff"], data["yoff"]
                     )
 
@@ -198,18 +239,24 @@ class DegradationSummary:
             lat += pixel_height * win_ysize
 
         # Clean up cached references
-        del src_bands, dst_bands
+        del src_bands, dst_bands, population_dst_bands
 
         # pr.disable()
         # pr.dump_stats('calculate_ld_stats')
 
         if self.is_killed():
             del dst_ds
+            if population_dst_ds is not None:
+                del population_dst_ds
             os.remove(self.params.out_file)
+            if population_out_file is not None:
+                os.remove(population_out_file)
             return None
         else:
             self.emit_progress(1)
             del dst_ds
+            if population_dst_ds is not None:
+                del population_dst_ds
             # Filter out None values if processing was interrupted
             out = [item for item in out if item is not None]
             return out

@@ -235,7 +235,7 @@ def _process_single_period_with_schemas(
         traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
         compute_bbs_from = traj.path
         in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-        summary_table, output_path, reproj_path = _compute_ld_summary_table(
+        summary_table, output_path, population_output_path, reproj_path = _compute_ld_summary_table(
             in_dfs=in_dfs,
             prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
             compute_bbs_from=compute_bbs_from,
@@ -250,7 +250,7 @@ def _process_single_period_with_schemas(
         lpd_df = _prepare_precalculated_lpd_df(period_params)
         compute_bbs_from = lpd_df.path
         in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-        summary_table, output_path, reproj_path = _compute_ld_summary_table(
+        summary_table, output_path, population_output_path, reproj_path = _compute_ld_summary_table(
             in_dfs=in_dfs,
             prod_mode=prod_mode,
             compute_bbs_from=compute_bbs_from,
@@ -258,63 +258,6 @@ def _process_single_period_with_schemas(
         )
     else:
         raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
-
-    sdg_band = Band(
-        name=config.SDG_BAND_NAME,
-        no_data_value=config.NODATA_VALUE.item(),
-        metadata={
-            "year_initial": period_params["period"]["year_initial"],
-            "year_final": period_params["period"]["year_final"],
-        },
-        activated=True,
-    )
-    output_df = DataFile(output_path, [sdg_band])
-
-    so3_band_total = _get_so3_band_instance(
-        "total", period_params["periods"]["productivity"]
-    )
-    output_df.bands.append(so3_band_total)
-
-    if _have_pop_by_sex(population_dfs):
-        so3_band_female = _get_so3_band_instance(
-            "female", period_params["periods"]["productivity"]
-        )
-        output_df.bands.append(so3_band_female)
-        so3_band_male = _get_so3_band_instance(
-            "male", period_params["periods"]["productivity"]
-        )
-        output_df.bands.append(so3_band_male)
-
-    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        prod_band = Band(
-            name=config.TE_LPD_BAND_NAME,
-            no_data_value=config.NODATA_VALUE.item(),
-            metadata={
-                "year_initial": period_params["periods"]["productivity"][
-                    "year_initial"
-                ],
-                "year_final": period_params["periods"]["productivity"]["year_final"],
-            },
-            activated=True,
-        )
-        output_df.bands.append(prod_band)
-
-    reproj_df = combine_data_files(reproj_path, in_dfs)
-    for band in reproj_df.bands:
-        band.add_to_map = False
-
-    period_vrt = job_output_path.parent / f"{sub_job_output_path.stem}_rasterdata.vrt"
-    util.combine_all_bands_into_vrt(
-        [output_path, reproj_path],
-        period_vrt,
-        band_names=util.generate_sanitized_band_names(
-            [b for df in [output_df, reproj_df] for b in df.bands]
-        ),
-    )
-
-    period_df = combine_data_files(period_vrt, [output_df, reproj_df])
-    for band in period_df.bands:
-        band.metadata["period"] = period_name
 
     summary_table_output_path = (
         sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
@@ -346,8 +289,20 @@ def _process_single_period_with_schemas(
             summary_table_output_path,
         )
 
+    period_dfs, period_vrts = _build_period_rasters(
+        output_path,
+        population_output_path,
+        reproj_path,
+        in_dfs,
+        population_dfs,
+        prod_mode,
+        period_params,
+        job_output_path,
+        sub_job_output_path,
+        period_name,
+    )
     logger.info("Period '%s' processing complete", period_name)
-    return period_df, period_vrt, summary_table, period_name
+    return period_dfs, period_vrts, summary_table, period_name
 
 
 def _process_single_period(
@@ -450,7 +405,7 @@ def _process_single_period(
         traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
         compute_bbs_from = traj.path
         in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-        summary_table, output_path, reproj_path = _compute_ld_summary_table(
+        summary_table, output_path, population_output_path, reproj_path = _compute_ld_summary_table(
             in_dfs=in_dfs,
             prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
             compute_bbs_from=compute_bbs_from,
@@ -465,7 +420,7 @@ def _process_single_period(
         lpd_df = _prepare_precalculated_lpd_df(period_params)
         compute_bbs_from = lpd_df.path
         in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-        summary_table, output_path, reproj_path = _compute_ld_summary_table(
+        summary_table, output_path, population_output_path, reproj_path = _compute_ld_summary_table(
             in_dfs=in_dfs,
             prod_mode=prod_mode,
             compute_bbs_from=compute_bbs_from,
@@ -473,63 +428,6 @@ def _process_single_period(
         )
     else:
         raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
-
-    sdg_band = Band(
-        name=config.SDG_BAND_NAME,
-        no_data_value=config.NODATA_VALUE.item(),
-        metadata={
-            "year_initial": period_params["period"]["year_initial"],
-            "year_final": period_params["period"]["year_final"],
-        },
-        activated=True,
-    )
-    output_df = DataFile(output_path, [sdg_band])
-
-    so3_band_total = _get_so3_band_instance(
-        "total", period_params["periods"]["productivity"]
-    )
-    output_df.bands.append(so3_band_total)
-
-    if _have_pop_by_sex(population_dfs):
-        so3_band_female = _get_so3_band_instance(
-            "female", period_params["periods"]["productivity"]
-        )
-        output_df.bands.append(so3_band_female)
-        so3_band_male = _get_so3_band_instance(
-            "male", period_params["periods"]["productivity"]
-        )
-        output_df.bands.append(so3_band_male)
-
-    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        prod_band = Band(
-            name=config.TE_LPD_BAND_NAME,
-            no_data_value=config.NODATA_VALUE.item(),
-            metadata={
-                "year_initial": period_params["periods"]["productivity"][
-                    "year_initial"
-                ],
-                "year_final": period_params["periods"]["productivity"]["year_final"],
-            },
-            activated=True,
-        )
-        output_df.bands.append(prod_band)
-
-    reproj_df = combine_data_files(reproj_path, in_dfs)
-    for band in reproj_df.bands:
-        band.add_to_map = False
-
-    period_vrt = job_output_path.parent / f"{sub_job_output_path.stem}_rasterdata.vrt"
-    util.combine_all_bands_into_vrt(
-        [output_path, reproj_path],
-        period_vrt,
-        band_names=util.generate_sanitized_band_names(
-            [b for df in [output_df, reproj_df] for b in df.bands]
-        ),
-    )
-
-    period_df = combine_data_files(period_vrt, [output_df, reproj_df])
-    for band in period_df.bands:
-        band.metadata["period"] = period_name
 
     summary_table_output_path = (
         sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
@@ -561,8 +459,20 @@ def _process_single_period(
             summary_table_output_path,
         )
 
+    period_dfs, period_vrts = _build_period_rasters(
+        output_path,
+        population_output_path,
+        reproj_path,
+        in_dfs,
+        population_dfs,
+        prod_mode,
+        period_params,
+        job_output_path,
+        sub_job_output_path,
+        period_name,
+    )
     logger.info("Period '%s' processing complete", period_name)
-    return period_df, period_vrt, summary_table, period_name
+    return period_dfs, period_vrts, summary_table, period_name
 
 
 def get_reference_file_for_period(period_params: Dict, prod_mode: str) -> Optional[str]:
@@ -716,8 +626,8 @@ def summarise_land_degradation(
     summary_tables = {}
     summary_table_stable_kwargs = {}
 
-    period_dfs = []
-    period_vrts = []
+    period_dfs_by_type = {DataType.INT16: [], DataType.FLOAT32: []}
+    period_vrts_by_type = {DataType.INT16: [], DataType.FLOAT32: []}
 
     # Determine highest resolution across all periods to ensure consistency
     target_resolution = determine_target_resolution(ldn_job.params["periods"])
@@ -833,9 +743,10 @@ def summarise_land_degradation(
         ):
             if result is None:
                 raise RuntimeError("Error processing period in parallel")
-            period_df, period_vrt, summary_table, period_name = result
-            period_dfs.append(period_df)
-            period_vrts.append(period_vrt)
+            typed_period_dfs, typed_period_vrts, summary_table, period_name = result
+            for datatype in period_dfs_by_type:
+                period_dfs_by_type[datatype].append(typed_period_dfs[datatype])
+                period_vrts_by_type[datatype].append(typed_period_vrts[datatype])
             summary_tables[period_name] = summary_table
 
             # Populate summary_table_stable_kwargs for each period (needed for reporting)
@@ -912,12 +823,13 @@ def summarise_land_degradation(
             )
             if result is None:
                 raise RuntimeError("Error processing period")
-            period_df, period_vrt, summary_table, period_name = result
+            typed_period_dfs, typed_period_vrts, summary_table, period_name = result
 
             if progress_callback is not None:
                 progress_callback(5 + int(80 * (period_idx + 1) / n_periods))
-            period_dfs.append(period_df)
-            period_vrts.append(period_vrt)
+            for datatype in period_dfs_by_type:
+                period_dfs_by_type[datatype].append(typed_period_dfs[datatype])
+                period_vrts_by_type[datatype].append(typed_period_vrts[datatype])
             summary_tables[period_name] = summary_table
 
             # Populate summary_table_stable_kwargs for each period (needed for reporting)
@@ -972,6 +884,17 @@ def summarise_land_degradation(
 
     if progress_callback is not None:
         progress_callback(85)
+
+    period_dfs = [
+        period_df
+        for typed_period_dfs in period_dfs_by_type.values()
+        for period_df in typed_period_dfs
+    ]
+    period_vrts = [
+        period_vrt
+        for typed_period_vrts in period_vrts_by_type.values()
+        for period_vrt in typed_period_vrts
+    ]
 
     if len(ldn_job.params["periods"]) > 1:
         logger.info("Computing reporting period summary for multi-period analysis")
@@ -1039,8 +962,8 @@ def summarise_land_degradation(
                 parallel_backend=parallel_backend,
             )
         )
-        period_vrts.append(reporting_df.path)
-        period_dfs.append(reporting_df)
+        period_vrts_by_type[DataType.INT16].append(reporting_df.path)
+        period_dfs_by_type[DataType.INT16].append(reporting_df)
     else:
         summary_table_status = None
         summary_table_change = None
@@ -1056,27 +979,42 @@ def summarise_land_degradation(
     finalization_start_time = time.time()
 
     try:
+        typed_output_dfs = {}
+        typed_output_vrts = {}
+        for datatype, typed_period_vrts in period_vrts_by_type.items():
+            output_vrt_path = job_output_path.parent / (
+                f"{job_output_path.stem}_{datatype.value.lower()}.vrt"
+            )
+            util.combine_all_bands_into_vrt(
+                typed_period_vrts,
+                output_vrt_path,
+                band_names=util.generate_sanitized_band_names(
+                    [
+                        band
+                        for period_df in period_dfs_by_type[datatype]
+                        for band in period_df.bands
+                    ]
+                ),
+            )
+            typed_output_vrts[datatype] = output_vrt_path
+            typed_output_dfs[datatype] = combine_data_files(
+                output_vrt_path, period_dfs_by_type[datatype]
+            )
+
         overall_vrt_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
-        logging.debug("Combining all period VRTs into %s", overall_vrt_path)
-        logging.debug("Period VRTs are: %s", period_vrts)
-
-        # Log VRT file sizes to check for issues
-        for i, vrt_path in enumerate(period_vrts):
-            if os.path.exists(vrt_path):
-                size_mb = os.path.getsize(vrt_path) / (1024 * 1024)
-                logger.info("VRT file %d: %s (size: %.1f MB)", i + 1, vrt_path, size_mb)
-            else:
-                logger.warning("VRT file %d does not exist: %s", i + 1, vrt_path)
-
         util.combine_all_bands_into_vrt(
-            period_vrts,
+            list(typed_output_vrts.values()),
             overall_vrt_path,
             band_names=util.generate_sanitized_band_names(
-                [b for df in period_dfs for b in df.bands]
+                [
+                    band
+                    for output_df in typed_output_dfs.values()
+                    for band in output_df.bands
+                ]
             ),
         )
 
-        out_df = combine_data_files(overall_vrt_path, period_dfs)
+        out_df = combine_data_files(overall_vrt_path, list(typed_output_dfs.values()))
         out_df.path = overall_vrt_path.name
 
         # Also save bands to a key file for ease of use in PRAIS
@@ -1103,12 +1041,13 @@ def summarise_land_degradation(
             name="land_condition_summary",
             uri=URI(uri=overall_vrt_path),
             rasters={
-                DataType.INT16.value: Raster(
-                    uri=URI(uri=overall_vrt_path),
-                    bands=out_df.bands,
-                    datatype=DataType.INT16,
+                datatype.value: Raster(
+                    uri=URI(uri=typed_output_vrts[datatype]),
+                    bands=typed_output_dfs[datatype].bands,
+                    datatype=datatype,
                     filetype=RasterFileType.COG,
-                ),
+                )
+                for datatype in typed_output_vrts
             },
             data={"report": report_json},
         )
@@ -1568,6 +1507,108 @@ def _get_so3_band_instance(population_type, prod_params):
     )
 
 
+def _build_period_rasters(
+    output_path,
+    population_output_path,
+    reproj_path,
+    in_dfs,
+    population_dfs,
+    prod_mode,
+    period_params,
+    job_output_path,
+    sub_job_output_path,
+    period_name,
+):
+    sdg_band = Band(
+        name=config.SDG_BAND_NAME,
+        no_data_value=config.NODATA_VALUE.item(),
+        metadata={
+            "year_initial": period_params["period"]["year_initial"],
+            "year_final": period_params["period"]["year_final"],
+        },
+        activated=True,
+    )
+    integer_output_df = DataFile(output_path, [sdg_band])
+    population_output_df = DataFile(
+        population_output_path,
+        [_get_so3_band_instance("total", period_params["periods"]["productivity"])],
+    )
+
+    if _have_pop_by_sex(population_dfs):
+        population_output_df.bands.extend(
+            [
+                _get_so3_band_instance(
+                    "female", period_params["periods"]["productivity"]
+                ),
+                _get_so3_band_instance(
+                    "male", period_params["periods"]["productivity"]
+                ),
+            ]
+        )
+
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        integer_output_df.bands.append(
+            Band(
+                name=config.TE_LPD_BAND_NAME,
+                no_data_value=config.NODATA_VALUE.item(),
+                metadata={
+                    "year_initial": period_params["periods"]["productivity"][
+                        "year_initial"
+                    ],
+                    "year_final": period_params["periods"]["productivity"][
+                        "year_final"
+                    ],
+                },
+                activated=True,
+            )
+        )
+
+    reproj_df = combine_data_files(reproj_path, in_dfs)
+    typed_reproj_dfs = {}
+    for datatype in (DataType.INT16, DataType.FLOAT32):
+        band_indices = [
+            index + 1
+            for index, band in enumerate(reproj_df.bands)
+            if (band.name == config.POPULATION_BAND_NAME)
+            == (datatype == DataType.FLOAT32)
+        ]
+        typed_reproj_path = Path(util.save_vrt2(reproj_path, band_indices))
+        typed_reproj_df = DataFile(
+            typed_reproj_path,
+            [reproj_df.bands[index - 1] for index in band_indices],
+        )
+        for band in typed_reproj_df.bands:
+            band.add_to_map = False
+        typed_reproj_dfs[datatype] = typed_reproj_df
+
+    typed_output_dfs = {
+        DataType.INT16: integer_output_df,
+        DataType.FLOAT32: population_output_df,
+    }
+    period_dfs = {}
+    period_vrts = {}
+    for datatype, output_df in typed_output_dfs.items():
+        period_vrt = job_output_path.parent / (
+            f"{sub_job_output_path.stem}_rasterdata_{datatype.value.lower()}.vrt"
+        )
+        util.combine_all_bands_into_vrt(
+            [output_df.path, typed_reproj_dfs[datatype].path],
+            period_vrt,
+            band_names=util.generate_sanitized_band_names(
+                [*output_df.bands, *typed_reproj_dfs[datatype].bands]
+            ),
+        )
+        period_df = combine_data_files(
+            period_vrt, [output_df, typed_reproj_dfs[datatype]]
+        )
+        for band in period_df.bands:
+            band.metadata["period"] = period_name
+        period_dfs[datatype] = period_df
+        period_vrts[datatype] = period_vrt
+
+    return period_dfs, period_vrts
+
+
 @dataclasses.dataclass()
 class SummarizeTileInputs:
     in_file: Path
@@ -1616,10 +1657,12 @@ def _summarize_tile(inputs: SummarizeTileInputs):
     else:
         logger.info("Computing degradation summary for tile: %s", tile_name)
         in_df = combine_data_files(inputs.in_file, inputs.in_dfs)
+        n_population_out_bands = 1
         n_out_bands = 2  # 1 band for SDG, and 1 band for total pop affected
 
         if _have_pop_by_sex(inputs.in_dfs):
             logger.debug("Have population broken down by sex - adding 2 output bands")
+            n_population_out_bands += 2
             n_out_bands += 2
 
         if inputs.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -1631,6 +1674,9 @@ def _summarize_tile(inputs: SummarizeTileInputs):
 
         out_file = inputs.in_file.parent / (
             inputs.in_file.stem + "_sdg" + inputs.in_file.suffix
+        )
+        population_out_file = inputs.in_file.parent / (
+            inputs.in_file.stem + "_population" + inputs.in_file.suffix
         )
         logger.debug("Calculating summary table and saving to %s", out_file)
 
@@ -1646,11 +1692,23 @@ def _summarize_tile(inputs: SummarizeTileInputs):
             trans_matrix=inputs.lc_trans_matrix,
             period_name=inputs.period_name,
             periods=inputs.periods,
+            population_out_file=str(population_out_file),
+            n_population_out_bands=n_population_out_bands,
         )
 
         if inputs.deg_worker_function:
             deg_worker_params = inputs.deg_worker_params or {}
             result = inputs.deg_worker_function(params, **deg_worker_params)
+            missing_outputs = [
+                path
+                for path in (out_file, population_out_file)
+                if not path.exists()
+            ]
+            if missing_outputs:
+                raise RuntimeError(
+                    "The custom degradation worker did not create required output(s): "
+                    + ", ".join(str(path) for path in missing_outputs)
+                )
         else:
             summarizer = worker.DegradationSummary(params, _process_block_summary)
             result = summarizer.work()
@@ -1668,7 +1726,7 @@ def _summarize_tile(inputs: SummarizeTileInputs):
             result = models.accumulate_summarytableld(result)
             result.cast_to_cpython()  # needed for multiprocessing
 
-    return result, out_file, error_message
+    return result, (out_file, population_out_file), error_message
 
 
 def _aoi_process_multiprocess(
@@ -2151,10 +2209,21 @@ def _compute_ld_summary_table(
     else:
         reproj_path = reproj_paths[0]
 
-    if len(output_paths) > 1:
+    integer_output_paths, population_output_paths = zip(*output_paths)
+    if len(integer_output_paths) > 1:
         output_path = output_job_path.parent / f"{output_job_path.stem}_tiles_sdg.vrt"
-        gdal.BuildVRT(str(output_path), [str(p) for p in output_paths])
+        gdal.BuildVRT(str(output_path), [str(p) for p in integer_output_paths])
     else:
-        output_path = output_paths[0]
+        output_path = integer_output_paths[0]
 
-    return summary_table, output_path, reproj_path
+    if len(population_output_paths) > 1:
+        population_output_path = (
+            output_job_path.parent / f"{output_job_path.stem}_tiles_population.vrt"
+        )
+        gdal.BuildVRT(
+            str(population_output_path), [str(p) for p in population_output_paths]
+        )
+    else:
+        population_output_path = population_output_paths[0]
+
+    return summary_table, output_path, population_output_path, reproj_path
