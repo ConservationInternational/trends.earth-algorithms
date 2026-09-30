@@ -1,30 +1,29 @@
 import numpy as np
 
+
+class DecoratorSubstitute:
+    # Make a cc.export that doesn't do anything
+    def export(*args, **kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
+
+    # Make a numba.jit that doesn't do anything
+    def jit(*args, **kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
+
+
 try:
     import numba
-    from numba.pycc import CC
-
 except ImportError:
     # Will use these as regular Python functions if numba is not present.
-    class DecoratorSubstitute:
-        # Make a cc.export that doesn't do anything
-        def export(*args, **kwargs):
-            def wrapper(func):
-                return func
-
-            return wrapper
-
-        # Make a numba.jit that doesn't do anything
-        def jit(*args, **kwargs):
-            def wrapper(func):
-                return func
-
-            return wrapper
-
-    cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
-else:
-    cc = CC("drought_numba")
+
+cc = DecoratorSubstitute()
 
 # Ensure mask and nodata values are saved as 16 bit integers to keep numba
 # happy

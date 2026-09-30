@@ -21,30 +21,35 @@ For counterbalancing:
 
 import numpy as np
 
+
+class DecoratorSubstitute:
+    def export(*args, **kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
+
+    def jit(*args, **kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
+
+
 try:
     import numba
-    from numba.pycc import CC
 except ImportError:
     HAVE_NUMBA = False
-
-    class DecoratorSubstitute:
-        def export(*args, **kwargs):
-            def wrapper(func):
-                return func
-
-            return wrapper
-
-        def jit(*args, **kwargs):
-            def wrapper(func):
-                return func
-
-            return wrapper
-
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
 else:
     HAVE_NUMBA = True
-    cc = CC("counterbalancing_numba")
+    if __name__ == "__main__":
+        from numba.pycc import CC
+
+        cc = CC("counterbalancing_numba")
+    else:
+        cc = DecoratorSubstitute()
 
 NODATA_VALUE = np.array([-32768], dtype=np.int16)
 MASK_VALUE = np.array([-32767], dtype=np.int16)

@@ -1,33 +1,36 @@
 import numpy as np
 
+
+class DecoratorSubstitute:
+    # Make a cc.export that doesn't do anything
+    def export(*args, **kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
+
+    # Make a numba.jit that doesn't do anything
+    def jit(*args, **kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
+
+
 try:
     import numba
-    from numba.pycc import CC
-
 except ImportError:
     HAVE_NUMBA = False
-
-    # Will use these as regular Python functions if numba is not present.
-    class DecoratorSubstitute:
-        # Make a cc.export that doesn't do anything
-        def export(*args, **kwargs):
-            def wrapper(func):
-                return func
-
-            return wrapper
-
-        # Make a numba.jit that doesn't do anything
-        def jit(*args, **kwargs):
-            def wrapper(func):
-                return func
-
-            return wrapper
-
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
 else:
     HAVE_NUMBA = True
-    cc = CC("land_deg_numba")
+    if __name__ == "__main__":
+        from numba.pycc import CC
+
+        cc = CC("land_deg_numba")
+    else:
+        cc = DecoratorSubstitute()
 
 # Ensure mask and nodata values are saved as 16 bit integers to keep numba
 # happy

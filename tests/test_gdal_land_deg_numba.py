@@ -5,6 +5,10 @@ This module tests the numba-optimized land degradation calculation functions
 used for processing land cover, productivity, and soil organic carbon data.
 """
 
+import importlib
+import sys
+import types
+
 import pytest
 
 # Skip all tests in this module if numpy or te_algorithms.gdal modules are not available
@@ -29,6 +33,23 @@ except ImportError:
         "te_algorithms.gdal modules require numpy and GDAL dependencies",
         allow_module_level=True,
     )
+
+
+def test_import_does_not_initialize_pycc(monkeypatch):
+    module_name = "te_algorithms.gdal.land_deg.land_deg_numba"
+    fake_pycc = types.ModuleType("numba.pycc")
+
+    class FailingCC:
+        def __init__(self, name):
+            raise RuntimeError(f"AOT compiler initialized for {name}")
+
+    fake_pycc.CC = FailingCC
+    monkeypatch.setitem(sys.modules, "numba.pycc", fake_pycc)
+    monkeypatch.delitem(sys.modules, module_name)
+
+    imported = importlib.import_module(module_name)
+
+    assert imported.HAVE_NUMBA is True
 
 
 class TestRecodeIndicatorErrors:
