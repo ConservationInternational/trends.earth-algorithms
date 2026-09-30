@@ -270,10 +270,7 @@ def _process_block(
     first_rows = [*range(0, len(spi_rows), params.drought_period)]
 
     for period_number, first_row in enumerate(first_rows):
-        if (first_row + params.drought_period - 1) > len(spi_rows):
-            last_row = len(spi_rows)
-        else:
-            last_row = first_row + params.drought_period - 1
+        last_row = min(first_row + params.drought_period, len(spi_rows))
 
         spis = in_array[spi_rows[first_row:last_row], :, :]
 
@@ -778,7 +775,7 @@ def summarise_drought_vulnerability(
     year_initials = [
         *range(
             int(params["layer_spi_years"][0]),
-            int(params["layer_spi_years"][-1]),
+            int(params["layer_spi_years"][-1]) + 1,
             drought_period,
         )
     ]

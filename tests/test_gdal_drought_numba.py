@@ -11,11 +11,14 @@ import pytest
 np = pytest.importorskip("numpy")
 
 try:
+    from te_schemas.datafile import DataFile
+    from te_schemas.results import Band
+
+    from te_algorithms.gdal import drought as dr
     from te_algorithms.gdal.drought import _sanitize_population_values
     from te_algorithms.gdal.drought_numba import (
         NODATA_VALUE,
         drought_class,
-        jrc_dvi_class,
         jrc_sum_and_count,
     )
 except ImportError:
@@ -26,7 +29,7 @@ except ImportError:
 
 
 def test_drought_population_sanitizer_masks_nan_and_infinity():
-    population = np.array([[12.5, np.nan], [np.inf, NODATA_VALUE]])
+    population = np.array([[12.5, np.nan], [np.inf, NODATA_VALUE[0]]])
 
     sanitized, invalid = _sanitize_population_values(population)
 
@@ -161,7 +164,7 @@ class TestJrcSumAndCount:
             [[1000.0, 2000.0, 3000.0], [4000.0, 5000.0, 6000.0]], dtype=np.float64
         )
 
-        mask = np.array([[False, False, False], [False, False, False]], dtype=np.int16)
+        mask = np.array([[False, False, False], [False, False, False]], dtype=bool)
 
         total_sum, count = jrc_sum_and_count(jrc, mask)
 
@@ -183,7 +186,7 @@ class TestJrcSumAndCount:
                 [True, False, True],  # Mask first and third in row 1
                 [False, True, False],  # Mask middle in row 2
             ],
-            dtype=np.int16,
+            dtype=bool,
         )
 
         total_sum, count = jrc_sum_and_count(jrc, mask)
@@ -196,7 +199,7 @@ class TestJrcSumAndCount:
     def test_jrc_sum_and_count_all_masked(self):
         """Test JRC calculation when all values are masked."""
         jrc = np.array([[1000.0, 2000.0]], dtype=np.float64)
-        mask = np.array([[True, True]], dtype=np.int16)  # All masked
+        mask = np.array([[True, True]], dtype=bool)  # All masked
 
         total_sum, count = jrc_sum_and_count(jrc, mask)
 
@@ -212,7 +215,7 @@ class TestJrcSumAndCount:
                 [True, False],  # Mask first value
                 [False, True],  # Mask last value
             ],
-            dtype=np.int16,
+            dtype=bool,
         )
 
         total_sum, count = jrc_sum_and_count(jrc, mask)
@@ -227,7 +230,7 @@ class TestJrcSumAndCount:
     def test_jrc_sum_and_count_zero_values(self):
         """Test JRC calculation with zero values."""
         jrc = np.array([[0.0, 1000.0, 0.0]], dtype=np.float64)
-        mask = np.array([[False, False, False]], dtype=np.int16)
+        mask = np.array([[False, False, False]], dtype=bool)
 
         total_sum, count = jrc_sum_and_count(jrc, mask)
 
@@ -240,7 +243,7 @@ class TestJrcSumAndCount:
     def test_jrc_sum_and_count_negative_values(self):
         """Test JRC calculation with negative values."""
         jrc = np.array([[-1000.0, 2000.0, -500.0]], dtype=np.float64)
-        mask = np.array([[False, False, False]], dtype=np.int16)
+        mask = np.array([[False, False, False]], dtype=bool)
 
         total_sum, count = jrc_sum_and_count(jrc, mask)
 
@@ -249,64 +252,6 @@ class TestJrcSumAndCount:
 
         assert total_sum == expected_sum
         assert count == expected_count
-
-
-class TestJrcDviClass:
-    """Test the jrc_dvi_class function for JRC DVI classification."""
-
-    def test_jrc_dvi_class_basic_categories(self):
-        """Test basic JRC DVI classification categories."""
-        # Note: The function logic appears to have some inconsistencies in the original
-        # We'll test the actual behavior as implemented
-        jrc = np.array(
-            [
-                [10, 0, 3000],  # Various values
-                [3930, 4718, 9270],  # Boundary values
-                [10000, -1000, NODATA_VALUE[0]],  # Extreme and special values
-            ],
-            dtype=np.int16,
-        )
-
-        result = jrc_dvi_class(jrc)
-
-        # Test basic structure - exact values depend on implementation logic
-        assert result.shape == jrc.shape
-        assert result.dtype == np.int16
-        assert result[2, 2] == NODATA_VALUE[0]  # NODATA preserved
-
-    def test_jrc_dvi_class_preserves_nodata(self):
-        """Test that NODATA values are preserved."""
-        jrc = np.array(
-            [[NODATA_VALUE[0], 1000, NODATA_VALUE[0]], [5000, NODATA_VALUE[0], 0]],
-            dtype=np.int16,
-        )
-
-        result = jrc_dvi_class(jrc)
-
-        # Check that NODATA positions are preserved
-        assert result[0, 0] == NODATA_VALUE[0]
-        assert result[0, 2] == NODATA_VALUE[0]
-        assert result[1, 1] == NODATA_VALUE[0]
-
-    def test_jrc_dvi_class_positive_values(self):
-        """Test classification of positive values."""
-        jrc = np.array([[1, 100, 1000, 10000]], dtype=np.int16)
-
-        result = jrc_dvi_class(jrc)
-
-        # Positive values should be classified as 0 based on > 0 condition
-        expected = np.array([[0, 0, 0, 0]], dtype=np.int16)
-        np.testing.assert_array_equal(result, expected)
-
-    def test_jrc_dvi_class_preserves_shape(self):
-        """Test that output shape matches input shape."""
-        shapes_to_test = [(1, 1), (3, 3), (5, 2), (1, 10)]
-
-        for shape in shapes_to_test:
-            jrc = np.random.randint(-1000, 10000, size=shape, dtype=np.int16)
-            result = jrc_dvi_class(jrc)
-            assert result.shape == shape
-            assert result.dtype == np.int16
 
 
 class TestEdgeCases:
@@ -321,10 +266,6 @@ class TestEdgeCases:
         result_drought = drought_class(empty_array_int)
         assert result_drought.shape == (0, 0)
 
-        # Test jrc_dvi_class with empty array
-        result_jrc_dvi = jrc_dvi_class(empty_array_int)
-        assert result_jrc_dvi.shape == (0, 0)
-
         # Test jrc_sum_and_count with empty arrays
         total_sum, count = jrc_sum_and_count(empty_array_float, empty_array_int)
         assert total_sum == 0.0
@@ -334,13 +275,10 @@ class TestEdgeCases:
         """Test functions with single-element arrays."""
         single_int = np.array([[5]], dtype=np.int16)
         single_float = np.array([[1000.0]], dtype=np.float64)
-        single_mask = np.array([[False]], dtype=np.int16)
+        single_mask = np.array([[False]], dtype=bool)
 
         result_drought = drought_class(single_int)
         assert result_drought.shape == (1, 1)
-
-        result_jrc_dvi = jrc_dvi_class(single_int)
-        assert result_jrc_dvi.shape == (1, 1)
 
         total_sum, count = jrc_sum_and_count(single_float, single_mask)
         assert total_sum == 1.0  # 1000/1000
@@ -370,14 +308,11 @@ class TestEdgeCases:
         # Test with maximum and minimum values for int16
         extreme_int = np.array([[-32768, 32767]], dtype=np.int16)
         extreme_float = np.array([[-1e6, 1e6]], dtype=np.float64)
-        mask = np.array([[False, False]], dtype=np.int16)
+        mask = np.array([[False, False]], dtype=bool)
 
         # Functions should handle extreme values gracefully
         result_drought = drought_class(extreme_int)
         assert result_drought.shape == extreme_int.shape
-
-        result_jrc_dvi = jrc_dvi_class(extreme_int)
-        assert result_jrc_dvi.shape == extreme_int.shape
 
         total_sum, count = jrc_sum_and_count(extreme_float, mask)
         assert isinstance(total_sum, float)
@@ -387,14 +322,11 @@ class TestEdgeCases:
         """Test that functions maintain consistent data types."""
         test_array_int = np.array([[1, 2, 3]], dtype=np.int16)
         test_array_float = np.array([[1000.0, 2000.0]], dtype=np.float64)
-        test_mask = np.array([[False, False]], dtype=np.int16)
+        test_mask = np.array([[False, False]], dtype=bool)
 
         # Check return types
         result_drought = drought_class(test_array_int)
         assert result_drought.dtype == np.int16
-
-        result_jrc_dvi = jrc_dvi_class(test_array_int)
-        assert result_jrc_dvi.dtype == np.int16
 
         total_sum, count = jrc_sum_and_count(test_array_float, test_mask)
         assert isinstance(total_sum, float)
@@ -448,3 +380,57 @@ class TestDroughtClassificationLogic:
             [[0, 1, 2, 3]], dtype=np.int16
         )  # Normal, Mild, Moderate, Severe
         np.testing.assert_array_equal(result, expected)
+
+
+@pytest.mark.parametrize("n_years", [8, 9, 10])
+def test_process_block_max_drought_uses_every_year_in_period(n_years):
+    bands = (
+        [
+            Band(name=dr.SPI_BAND_NAME, metadata={"year": 2000 + i})
+            for i in range(n_years)
+        ]
+        + [
+            Band(
+                name=dr.POPULATION_BAND_NAME,
+                metadata={"year": 2000 + i, "type": "total"},
+            )
+            for i in range(n_years)
+        ]
+        + [Band(name=dr.JRC_BAND_NAME, metadata={})]
+    )
+    params = dr.DroughtSummaryParams(
+        in_df=DataFile("x.vrt", bands),
+        out_file="o.tif",
+        mask_file="m.tif",
+        drought_period=4,
+    )
+
+    shape = (2, 3)
+    spi = np.zeros((n_years, *shape), dtype=np.float32)
+    # Put the driest year last in every period, including a short final one
+    for first in range(0, n_years, 4):
+        last = min(first + 4, n_years) - 1
+        spi[last] = -2500 - last
+    pop = np.full((n_years, *shape), 10.0, dtype=np.float32)
+    pop[:, 0, 0] = np.arange(n_years) + 100
+    jrc = np.zeros((1, *shape), dtype=np.float32)
+    in_array = np.concatenate([spi, pop, jrc])
+
+    _, write_arrays = dr._process_block(
+        params,
+        in_array,
+        np.zeros(shape, dtype=bool),
+        0,
+        0,
+        np.ones((shape[0], 1)),
+    )
+
+    n_periods = len(range(0, n_years, 4))
+    assert len(write_arrays) == 2 * n_periods
+    for period, first in enumerate(range(0, n_years, 4)):
+        last = min(first + 4, n_years) - 1
+        max_drought = write_arrays[2 * period + 1]["array"]
+        pop_at_max = write_arrays[2 * period + 2]["array"]
+        np.testing.assert_array_equal(max_drought, -2500 - last)
+        # Population is negated where exposed to drought
+        assert pop_at_max[0, 0] == -(last + 100)
