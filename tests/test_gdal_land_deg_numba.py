@@ -517,3 +517,62 @@ class TestEdgeCases:
 
         result_state = recode_state(extreme_values)
         assert result_state.shape == extreme_values.shape
+
+
+class TestNumpyMatchesLoopImplementations:
+    """The numpy fallbacks must match the per-pixel loop versions exactly."""
+
+    @pytest.fixture
+    def rng(self):
+        return np.random.default_rng(42)
+
+    def test_calc_deg_soc(self, rng):
+        from te_algorithms.gdal.land_deg import land_deg_numba as ldn
+
+        shape = (60, 70)
+        soc_bl = rng.integers(0, 200, shape, dtype=np.int16)
+        soc_tg = rng.integers(0, 200, shape, dtype=np.int16)
+        soc_bl[rng.random(shape) < 0.05] = NODATA_VALUE[0]
+        soc_tg[rng.random(shape) < 0.05] = NODATA_VALUE[0]
+        water = rng.random(shape) < 0.05
+
+        expected = ldn._calc_deg_soc_numba(soc_bl, soc_tg, water)
+        result = ldn._calc_deg_soc_numpy(soc_bl, soc_tg, water)
+
+        assert result.dtype == np.int16
+        np.testing.assert_array_equal(result, expected)
+
+    @pytest.mark.parametrize("n_reports", [0, 1, 2])
+    def test_recode_block_stats(self, rng, n_reports):
+        from te_algorithms.gdal.land_deg import land_deg_numba as ldn
+
+        shape = (60, 70)
+        classes = np.array([-1, 0, 1, NODATA_VALUE[0], 5], dtype=np.int16)
+        baseline = rng.choice(classes, shape)
+        reports = rng.choice(classes, (n_reports, *shape))
+        cell_areas = rng.random(shape)
+        mask = rng.random(shape) < 0.2
+
+        exp_totals, exp_crosstabs = ldn._recode_block_stats_numba(
+            baseline, reports, cell_areas, mask
+        )
+        totals, crosstabs = ldn._recode_block_stats_numpy(
+            baseline, reports, cell_areas, mask
+        )
+
+        np.testing.assert_allclose(totals, exp_totals)
+        assert crosstabs.shape == (n_reports, 4, 4)
+        np.testing.assert_allclose(crosstabs, exp_crosstabs)
+
+    def test_recode_block_stats_all_masked(self):
+        from te_algorithms.gdal.land_deg import land_deg_numba as ldn
+
+        shape = (3, 4)
+        baseline = np.zeros(shape, dtype=np.int16)
+        reports = np.zeros((1, *shape), dtype=np.int16)
+        totals, crosstabs = ldn._recode_block_stats_numpy(
+            baseline, reports, np.ones(shape), np.ones(shape, dtype=bool)
+        )
+
+        np.testing.assert_array_equal(totals, np.zeros(4))
+        np.testing.assert_array_equal(crosstabs, np.zeros((1, 4, 4)))

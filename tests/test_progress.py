@@ -1,6 +1,9 @@
 import multiprocessing
 import threading
+from pathlib import Path
+from types import SimpleNamespace
 
+from te_algorithms.gdal.land_deg import land_deg_progress
 from te_algorithms.gdal.progress import ProgressReporter, WorkCounter
 
 _PROCESS_COUNTER = None
@@ -93,3 +96,72 @@ def test_work_counter_process_shared_value():
         pool.map(_increment_process_counter, [1, 2, 3, 4])
 
     assert counter.done == 10
+
+
+def test_status_summary_thread_dispatch_preserves_region_index(monkeypatch):
+    class DatelineAoi:
+        def meridian_split(self, **_kwargs):
+            return ["west", "east"]
+
+        def get_aligned_output_bounds(self, _compute_bbs_from):
+            return [(0, 0, 1, 1), (1, 0, 2, 1)]
+
+    status = {
+        "sdg_summaries": [{}],
+        "prod_summaries": [{"all_cover_types": {}, "non_water": {}}],
+        "lc_summaries": [{}],
+        "soc_summaries": [{"all_cover_types": {}, "non_water": {}}],
+    }
+    change = {
+        "sdg_crosstabs": [{}],
+        "prod_crosstabs": [{}],
+        "lc_crosstabs": [{}],
+        "soc_crosstabs": [{}],
+    }
+    periods = [
+        {
+            "params": {
+                "periods": {
+                    indicator: {"year_initial": 2000, "year_final": 2005}
+                    for indicator in ("productivity", "land_cover", "soc")
+                }
+            }
+        },
+        {
+            "params": {
+                "periods": {
+                    indicator: {"year_initial": 2006, "year_final": 2010}
+                    for indicator in ("productivity", "land_cover", "soc")
+                }
+            }
+        },
+    ]
+    fake_dataset = SimpleNamespace(GetGeoTransform=lambda: (0, 1, 0, 0, 0, -1))
+    monkeypatch.setattr(
+        land_deg_progress,
+        "_get_status_summary_input_vrt",
+        lambda *_args: (Path("status.vrt"), {}),
+    )
+    monkeypatch.setattr(land_deg_progress.gdal, "Open", lambda *_args: fake_dataset)
+    monkeypatch.setattr(
+        land_deg_progress.gdal, "BuildVRT", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        land_deg_progress,
+        "_process_single_region",
+        lambda region: (status, change, f"reporting-{region[0]}.tif"),
+    )
+
+    result = land_deg_progress.compute_status_summary(
+        df=None,
+        prod_mode=None,
+        job_output_path=Path("summary.tif"),
+        aoi=DatelineAoi(),
+        compute_bbs_from=None,
+        periods=periods,
+        nesting=None,
+        n_cpus=2,
+        parallel_backend="thread",
+    )
+
+    assert result[2].path == Path("summary_reporting.vrt")

@@ -5,6 +5,8 @@ try:
     from numba.pycc import CC
 
 except ImportError:
+    HAVE_NUMBA = False
+
     # Will use these as regular Python functions if numba is not present.
     class DecoratorSubstitute:
         # Make a cc.export that doesn't do anything
@@ -24,6 +26,7 @@ except ImportError:
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
 else:
+    HAVE_NUMBA = True
     cc = CC("land_deg_numba")
 
 # Ensure mask and nodata values are saved as 16 bit integers to keep numba
@@ -460,7 +463,7 @@ def calc_soc_pch(soc_bl, soc_tg):
 
 @numba.jit(nopython=True, nogil=True)
 @cc.export("calc_deg_soc", "i2[:,:](i2[:,:], i2[:,:], i2[:,:])")
-def calc_deg_soc(soc_bl, soc_tg, water):
+def _calc_deg_soc_numba(soc_bl, soc_tg, water):
     """Optimized SOC degradation calculation with fewer intermediate arrays"""
     original_shape = soc_bl.shape
 
@@ -500,29 +503,25 @@ def calc_deg_soc(soc_bl, soc_tg, water):
     return out.reshape(original_shape)
 
 
-@numba.jit(nopython=True, nogil=True)
-@cc.export("calc_deg_lc", "i2[:,:](i2[:,:], i2[:,:], i2[:], i2[:], i4)")
-def calc_deg_lc(lc_bl, lc_tg, trans_code, trans_meaning, multiplier):
-    """calculate land cover degradation"""
-    shp = lc_bl.shape
-    trans = calc_lc_trans(lc_bl, lc_tg, multiplier)
-    trans = trans.ravel()
-    lc_bl = lc_bl.ravel()
-    lc_tg = lc_tg.ravel()
-    out = np.zeros(lc_bl.shape, dtype=np.int16)
+def _calc_deg_soc_numpy(soc_bl, soc_tg, water):
+    """Vectorized equivalent of _calc_deg_soc_numba (releases the GIL)."""
+    valid = (soc_bl != NODATA_VALUE[0]) & (soc_tg != NODATA_VALUE[0]) & (soc_bl != 0)
+    bl = soc_bl.astype(np.float64)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pct_change = (soc_tg.astype(np.float64) - bl) / bl * 100.0
 
-    # Build lookup dict for O(1) access instead of O(m) linear scan per pixel
-    lookup = dict()
-    for i in range(len(trans_code)):
-        lookup[trans_code[i]] = trans_meaning[i]
+    out = np.zeros(soc_bl.shape, dtype=np.int16)
+    out[valid & (pct_change >= -101.0) & (pct_change <= -10.0)] = -1
+    out[valid & (pct_change >= 10.0)] = 1
+    out[~valid] = NODATA_VALUE[0]
+    out[water] = NODATA_VALUE[0]
 
-    for i in range(trans.shape[0]):
-        if lc_bl[i] == NODATA_VALUE or lc_tg[i] == NODATA_VALUE:
-            out[i] = NODATA_VALUE
-        elif trans[i] in lookup:
-            out[i] = lookup[trans[i]]
+    return out
 
-    return np.reshape(out, shp)
+
+# Without numba the per-pixel loop runs as pure Python, which is ~30x slower
+# and holds the GIL (starving the QGIS UI thread).
+calc_deg_soc = _calc_deg_soc_numba if HAVE_NUMBA else _calc_deg_soc_numpy
 
 
 @numba.jit(nopython=True, nogil=True)
@@ -564,7 +563,7 @@ def calc_deg_sdg(deg_prod3, deg_lc, deg_soc):
     "recode_block_stats",
     "Tuple((f8[:], f8[:,:,:]))(i2[:,:], i2[:,:,:], f8[:,:], b1[:,:])",
 )
-def recode_block_stats(baseline, reports, cell_areas, mask):
+def _recode_block_stats_numba(baseline, reports, cell_areas, mask):
     """Compute baseline summary and crosstabs in a single fused pass.
 
     Replaces separate calls to zonal_total (for baseline) and bizonal_total
@@ -625,3 +624,32 @@ def recode_block_stats(baseline, reports, cell_areas, mask):
                 crosstabs[k, bi, ri] += area
 
     return baseline_totals, crosstabs
+
+
+def _sdg_class_index(values):
+    """Map SDG class -> index: -1->0, 0->1, 1->2, else(nodata)->3."""
+    return np.where((values >= -1) & (values <= 1), values + 1, 3).astype(np.intp)
+
+
+def _recode_block_stats_numpy(baseline, reports, cell_areas, mask):
+    """Vectorized equivalent of _recode_block_stats_numba (releases the GIL)."""
+    valid = ~mask
+    area = cell_areas[valid].astype(np.float64, copy=False)
+    bi = _sdg_class_index(baseline[valid])
+
+    baseline_totals = np.bincount(bi, weights=area, minlength=4)
+
+    n_reports = reports.shape[0]
+    crosstabs = np.zeros((n_reports, 4, 4), dtype=np.float64)
+    for k in range(n_reports):
+        ri = _sdg_class_index(reports[k][valid])
+        crosstabs[k] = np.bincount(bi * 4 + ri, weights=area, minlength=16).reshape(
+            4, 4
+        )
+
+    return baseline_totals, crosstabs
+
+
+recode_block_stats = (
+    _recode_block_stats_numba if HAVE_NUMBA else _recode_block_stats_numpy
+)

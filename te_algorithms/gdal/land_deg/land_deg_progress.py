@@ -430,8 +430,10 @@ def compute_status_summary(
 
             with ThreadPoolExecutor(max_workers=min(n_cpus, len(wkt_aois))) as executor:
                 futures = {
-                    executor.submit(_process_status_region_indexed, item): index
-                    for index, item in indexed_regions
+                    executor.submit(
+                        _process_status_region_indexed, indexed_region
+                    ): indexed_region[0]
+                    for indexed_region in indexed_regions
                 }
                 pending = set(futures)
                 while pending:

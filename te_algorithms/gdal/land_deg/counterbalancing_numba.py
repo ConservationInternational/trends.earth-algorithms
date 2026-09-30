@@ -25,6 +25,7 @@ try:
     import numba
     from numba.pycc import CC
 except ImportError:
+    HAVE_NUMBA = False
 
     class DecoratorSubstitute:
         def export(*args, **kwargs):
@@ -42,6 +43,7 @@ except ImportError:
     cc = DecoratorSubstitute()
     numba = DecoratorSubstitute()
 else:
+    HAVE_NUMBA = True
     cc = CC("counterbalancing_numba")
 
 NODATA_VALUE = np.array([-32768], dtype=np.int16)
@@ -55,7 +57,7 @@ NEUTRAL_CODE = np.int16(0)
 
 @numba.jit(nopython=True, nogil=True)
 @cc.export("classify_gains_losses", "i2[:,:](i2[:,:], b1[:,:])")
-def classify_gains_losses(status_7class, mask):
+def _classify_gains_losses_numba(status_7class, mask):
     """Classify each pixel as gain, loss, or neutral from 7-class status.
 
     Args:
@@ -93,7 +95,7 @@ def classify_gains_losses(status_7class, mask):
     "zonal_gains_losses",
     "Tuple((DictType(i4, f8), DictType(i4, f8)))(i2[:,:], i4[:,:], f8[:,:], b1[:,:])",
 )
-def zonal_gains_losses(status_7class, land_type, cell_area, mask):
+def _zonal_gains_losses_numba(status_7class, land_type, cell_area, mask):
     """Accumulate gain and loss areas per land type.
 
     Implements GPG Addendum Step 4: for each land type, sum the area of
@@ -150,7 +152,7 @@ def zonal_gains_losses(status_7class, land_type, cell_area, mask):
     "zonal_class_breakdown",
     "DictType(UniTuple(i4, 2), f8)(i2[:,:], i4[:,:], f8[:,:], b1[:,:])",
 )
-def zonal_class_breakdown(class_band, land_type, cell_area, mask):
+def _zonal_class_breakdown_numba(class_band, land_type, cell_area, mask):
     """Accumulate area by (land_type, class_value) for any categorical band.
 
     Only nodata and masked pixels are skipped.
@@ -188,6 +190,68 @@ def zonal_class_breakdown(class_band, land_type, cell_area, mask):
             breakdown[key] += area_flat[i]
 
     return breakdown
+
+
+# Vectorized equivalents of the loops above. Without numba those loops run as
+# pure Python, which is far slower and holds the GIL
+
+
+def _sum_by_key(keys, weights):
+    if keys.size == 0:
+        return {}
+    unique_keys, inverse = np.unique(keys, return_inverse=True)
+    sums = np.bincount(inverse.ravel(), weights=weights)
+    return {int(k): float(v) for k, v in zip(unique_keys, sums)}
+
+
+def _classify_gains_losses_numpy(status_7class, mask):
+    valid = ~mask
+    s = status_7class
+    out = np.full(s.shape, NODATA_VALUE[0], dtype=np.int16)
+    out[valid & ((s == 1) | (s == 2))] = LOSS_CODE
+    out[valid & ((s == 6) | (s == 7))] = GAIN_CODE
+    out[valid & (s >= 3) & (s <= 5)] = NEUTRAL_CODE
+    return out
+
+
+def _zonal_gains_losses_numpy(status_7class, land_type, cell_area, mask):
+    s = status_7class
+    lt = land_type.astype(np.int32, copy=False)
+    area = cell_area.astype(np.float64, copy=False)
+    valid = ~mask & (lt != np.int32(NODATA_VALUE[0]))
+    gain = valid & ((s == 6) | (s == 7))
+    loss = valid & ((s == 1) | (s == 2))
+    return _sum_by_key(lt[gain], area[gain]), _sum_by_key(lt[loss], area[loss])
+
+
+def _zonal_class_breakdown_numpy(class_band, land_type, cell_area, mask):
+    c = class_band.astype(np.int32)
+    lt = land_type.astype(np.int32, copy=False)
+    valid = (
+        ~mask
+        & (c != np.int32(MASK_VALUE[0]))
+        & (c != np.int32(NODATA_VALUE[0]))
+        & (lt != np.int32(NODATA_VALUE[0]))
+    )
+    # Pack (land_type, class) into one int64: high 32 bits = lt, low = class
+    packed = (lt[valid].astype(np.int64) << 32) | (
+        c[valid].astype(np.int64) & 0xFFFFFFFF
+    )
+    sums = _sum_by_key(packed, cell_area[valid].astype(np.float64, copy=False))
+    return {
+        (k >> 32, int(np.uint32(k & 0xFFFFFFFF).view(np.int32))): v
+        for k, v in sums.items()
+    }
+
+
+if HAVE_NUMBA:
+    classify_gains_losses = _classify_gains_losses_numba
+    zonal_gains_losses = _zonal_gains_losses_numba
+    zonal_class_breakdown = _zonal_class_breakdown_numba
+else:
+    classify_gains_losses = _classify_gains_losses_numpy
+    zonal_gains_losses = _zonal_gains_losses_numpy
+    zonal_class_breakdown = _zonal_class_breakdown_numpy
 
 
 if __name__ == "__main__":
