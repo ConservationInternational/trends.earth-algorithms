@@ -59,6 +59,40 @@ def calc_cell_area(ymin, ymax, x_width):
 # numba is installed.
 
 
+# Largest zone-code range handled with np.bincount instead of sorting with
+# np.unique (the bincount buffers are this many elements long).
+_BINCOUNT_MAX_RANGE = 1 << 17
+
+
+def _zone_index(z, mask):
+    """Map zone codes to bincount indices once, for reuse across weight arrays.
+
+    Returns (index, present, keys, n_bins): ``index`` gives each pixel's bin,
+    ``present`` the bins that contain at least one pixel, and ``keys`` the
+    zone code for each of those bins.
+    """
+    # Use int32 to avoid overflow issues with int16
+    z = z.ravel().astype(np.int32)
+    z[mask.ravel()] = np.int32(MASK_VALUE[0])
+    if z.size:
+        zmin = int(z.min())
+        zmax = int(z.max())
+        if zmax - zmin <= _BINCOUNT_MAX_RANGE:
+            index = z - np.int32(zmin)
+            present = np.flatnonzero(np.bincount(index))
+            return index, present, present + zmin, zmax - zmin + 1
+    keys, inverse = np.unique(z, return_inverse=True)
+    return inverse.ravel(), np.arange(keys.size), keys, keys.size
+
+
+def _zone_sums(zone_index, d):
+    index, present, keys, n_bins = zone_index
+    d = d.ravel().astype(np.float64)
+    d[d == NODATA_VALUE[0]] = 0  # ignore nodata values
+    sums = np.bincount(index, weights=d, minlength=n_bins)
+    return {int(k): float(v) for k, v in zip(keys, sums[present])}
+
+
 def zonal_total(z, d, mask):
     """
     Calculate zonal totals by summing data values within each zone.
@@ -75,17 +109,16 @@ def zonal_total(z, d, mask):
         For SDG indicators with z=[-1,0,1] and d=[cell_areas], returns:
         {-1: total_degraded_area, 0: total_stable_area, 1: total_improved_area}
     """
-    # Use int32 to avoid overflow issues with int16
-    z = z.ravel().astype(np.int32)  # astype already creates a new array
-    d = d.ravel().astype(np.float64)  # astype already creates a new array
-    mask = mask.ravel()
-    # Convert int16 constants to int32 for mask operations
-    z[mask] = np.int32(MASK_VALUE[0])  # Convert to int32 for assignment
-    d[d == NODATA_VALUE[0]] = 0  # Use explicit indexing and ignore nodata values
-    keys, inverse = np.unique(z, return_inverse=True)
-    sums = np.bincount(inverse, weights=d)
+    return _zone_sums(_zone_index(z, mask), d)
 
-    return {int(k): float(v) for k, v in zip(keys, sums)}
+
+def zonal_totals(z, ds, mask):
+    """Like zonal_total, for several data arrays sharing the same zones and mask.
+
+    Returns a list with one dict per array in ``ds``.
+    """
+    zone_index = _zone_index(z, mask)
+    return [_zone_sums(zone_index, d) for d in ds]
 
 
 def zonal_total_weighted(z, d, weights, mask):

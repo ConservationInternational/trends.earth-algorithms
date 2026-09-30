@@ -36,7 +36,11 @@ from .progress import (
     initialize_process_counter,
     record_work,
 )
-from .util_numba import calc_cell_area, cast_numba_int_dict_list_to_cpython, zonal_total
+from .util_numba import (
+    calc_cell_area,
+    cast_numba_int_dict_list_to_cpython,
+    zonal_totals,
+)
 
 NODATA_VALUE = -32768
 MASK_VALUE = -32767
@@ -189,10 +193,9 @@ def _process_block(
     try:
         water_mask_index = params.in_df.index_for_name(WATER_MASK_BAND_NAME)
     except IndexError:
-        mask_water = False
+        is_water = None
     else:
-        mask_water = True
-        a_water_mask = in_array[water_mask_index, :, :]
+        is_water = in_array[water_mask_index, :, :] == 1
 
     # There should either be one pop row for each SPI row (if using total pop)
     # or two rows per SPI row (if using gender disaggregated population data)
@@ -203,8 +206,23 @@ def _process_block(
 
     if len(pop_rows_male) >= 1:
         pop_by_sex = True
+        pop_male_all, pop_male_invalid_all = _sanitize_population_values(
+            in_array[pop_rows_male, :, :]
+        )
+        pop_female_all, pop_female_invalid_all = _sanitize_population_values(
+            in_array[pop_rows_female, :, :]
+        )
     else:
         pop_by_sex = False
+        pop_total_all, pop_total_invalid_all = _sanitize_population_values(
+            in_array[pop_rows_total, :, :]
+        )
+
+    def _pop_weights(population, invalid):
+        weights = np.where(invalid, 0.0, population)
+        if is_water is not None:
+            weights[is_water] = 0
+        return weights
 
     # Calculate annual totals of area and population exposed to drought
     annual_area_by_drought_class = []
@@ -213,55 +231,34 @@ def _process_block(
     annual_population_by_drought_class_female = []
 
     for row_num in range(len(spi_rows)):
-        spi_row = spi_rows[row_num]
-        a_drought_class = drought_class(in_array[spi_row, :, :])
-
-        annual_area_by_drought_class.append(
-            zonal_total(a_drought_class, cell_areas, mask)
-        )
+        a_drought_class = drought_class(in_array[spi_rows[row_num], :, :])
 
         if pop_by_sex:
-            pop_row_male = pop_rows_male[row_num]
-            pop_row_female = pop_rows_female[row_num]
-
-            a_pop_male_recoded, male_invalid = _sanitize_population_values(
-                in_array[pop_row_male, :, :]
+            a_pop_male = _pop_weights(
+                pop_male_all[row_num], pop_male_invalid_all[row_num]
             )
-            a_pop_male_recoded[male_invalid] = 0
-
-            if mask_water:
-                a_pop_male_recoded[a_water_mask == 1] = 0
-            annual_population_by_drought_class_male.append(
-                zonal_total(a_drought_class, a_pop_male_recoded, mask)
+            a_pop_female = _pop_weights(
+                pop_female_all[row_num], pop_female_invalid_all[row_num]
             )
-
-            a_pop_female_recoded, female_invalid = _sanitize_population_values(
-                in_array[pop_row_female, :, :]
+            a_pop_total = a_pop_male + a_pop_female
+            a_pop_total[~np.isfinite(a_pop_total)] = 0
+            area, pop_total, pop_male, pop_female = zonal_totals(
+                a_drought_class,
+                [cell_areas, a_pop_total, a_pop_male, a_pop_female],
+                mask,
             )
-            a_pop_female_recoded[female_invalid] = 0
-
-            if mask_water:
-                a_pop_female_recoded[a_water_mask == 1] = 0
-            annual_population_by_drought_class_female.append(
-                zonal_total(a_drought_class, a_pop_female_recoded, mask)
-            )
-
-            a_pop_total_recoded = a_pop_male_recoded + a_pop_female_recoded
-            a_pop_total_recoded[~np.isfinite(a_pop_total_recoded)] = 0
-
+            annual_population_by_drought_class_male.append(pop_male)
+            annual_population_by_drought_class_female.append(pop_female)
         else:
-            pop_row_total = pop_rows_total[row_num]
-            a_pop_total_recoded, total_invalid = _sanitize_population_values(
-                in_array[pop_row_total, :, :]
+            a_pop_total = _pop_weights(
+                pop_total_all[row_num], pop_total_invalid_all[row_num]
             )
-            a_pop_total_recoded[total_invalid] = 0
+            area, pop_total = zonal_totals(
+                a_drought_class, [cell_areas, a_pop_total], mask
+            )
 
-            if mask_water:
-                a_pop_total_recoded[a_water_mask == 1] = 0
-
-        annual_population_by_drought_class_total.append(
-            zonal_total(a_drought_class, a_pop_total_recoded, mask)
-        )
+        annual_area_by_drought_class.append(area)
+        annual_population_by_drought_class_total.append(pop_total)
 
     # Calculate minimum SPI in blocks of length (in years) defined by
     # params.drought_period, and save the spi at that point as well as
@@ -280,20 +277,18 @@ def _process_block(
         max_drought = np.take_along_axis(spis, min_indices, axis=0).squeeze()
 
         if pop_by_sex:
-            pop_male, pop_male_invalid = _sanitize_population_values(
-                in_array[pop_rows_male[first_row:last_row], :, :]
-            )
-            pop_female, pop_female_invalid = _sanitize_population_values(
-                in_array[pop_rows_female[first_row:last_row], :, :]
-            )
+            pop_male = pop_male_all[first_row:last_row]
+            pop_male_invalid = pop_male_invalid_all[first_row:last_row]
+            pop_female = pop_female_all[first_row:last_row]
+            pop_female_invalid = pop_female_invalid_all[first_row:last_row]
             pop_total = pop_male + pop_female
             pop_total_invalid = pop_male_invalid | pop_female_invalid
         else:
-            pop_total, pop_total_invalid = _sanitize_population_values(
-                in_array[pop_rows_total[first_row:last_row], :, :]
-            )
-        pop_total_invalid |= ~np.isfinite(pop_total)
-        pop_total[pop_total_invalid] = NODATA_VALUE
+            pop_total = pop_total_all[first_row:last_row]
+            pop_total_invalid = pop_total_invalid_all[first_row:last_row]
+        # Not in-place: these may be views of the cached population arrays
+        pop_total_invalid = pop_total_invalid | ~np.isfinite(pop_total)
+        pop_total = np.where(pop_total_invalid, NODATA_VALUE, pop_total)
         pop_total_max_drought = np.take_along_axis(
             pop_total, min_indices, axis=0
         ).squeeze()
@@ -346,9 +341,8 @@ def _process_block(
         exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
         pop_total_max_drought[exposed_areas] = -pop_total_max_drought[exposed_areas]
         # Set water to NODATA_VALUE as requested by UNCCD for Prais
-        if mask_water:
-            logger.debug("a_water_mask.shape %s", a_water_mask.shape)
-            pop_total_max_drought[a_water_mask == 1] = NODATA_VALUE
+        if is_water is not None:
+            pop_total_max_drought[is_water] = NODATA_VALUE
 
         # Add one as output band numbers start at 1, not zero
         write_arrays[2 * period_number + 1] = {
@@ -376,9 +370,8 @@ def _process_block(
                 exposed_areas
             ]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
-            if mask_water:
-                logger.debug("a_water_mask.shape %s", a_water_mask.shape)
-                pop_female_max_drought[a_water_mask == 1] = NODATA_VALUE
+            if is_water is not None:
+                pop_female_max_drought[is_water] = NODATA_VALUE
 
             pop_male_max_drought[
                 (pop_male_max_drought == NODATA_VALUE)
@@ -388,9 +381,8 @@ def _process_block(
             exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
             pop_male_max_drought[exposed_areas] = -pop_male_max_drought[exposed_areas]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
-            if mask_water:
-                logger.debug("a_water_mask.shape %s", a_water_mask.shape)
-                pop_male_max_drought[a_water_mask == 1] = NODATA_VALUE
+            if is_water is not None:
+                pop_male_max_drought[is_water] = NODATA_VALUE
 
             # Add two as output band numbers start at 1, not zero, and this is
             # the third band for this period
@@ -450,10 +442,12 @@ def _get_cell_areas(y, lat, win_y_size, image_info):
     return cell_areas
 
 
-def _process_line(line_params: LineParams):
-    mask_ds = gdal.Open(line_params.params.mask_file)
-    mask_band = mask_ds.GetRasterBand(1)
-    src_ds = gdal.Open(str(line_params.params.in_df.path))
+def _process_line(line_params: LineParams, src_ds=None, mask_band=None):
+    if mask_band is None:
+        mask_ds = gdal.Open(line_params.params.mask_file)
+        mask_band = mask_ds.GetRasterBand(1)
+    if src_ds is None:
+        src_ds = gdal.Open(str(line_params.params.in_df.path))
 
     cell_areas = _get_cell_areas(
         line_params.y, line_params.lat, line_params.win_ysize, line_params.image_info
@@ -588,13 +582,16 @@ class DroughtSummary:
 
     def process_lines(self, line_params_list):
         out_ds = self._get_out_ds()
+        src_ds = gdal.Open(str(self.params.in_df.path))
+        mask_ds = gdal.Open(self.params.mask_file)
+        mask_band = mask_ds.GetRasterBand(1)
 
         out = []
 
         try:
             for n, line_params in enumerate(line_params_list):
                 self.emit_progress(n / len(line_params_list))
-                results = _process_line(line_params)
+                results = _process_line(line_params, src_ds, mask_band)
 
                 for result in results:
                     out.append(result[0])

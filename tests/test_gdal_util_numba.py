@@ -30,6 +30,7 @@ try:
         slice_area,
         zonal_total,
         zonal_total_weighted,
+        zonal_totals,
     )
 except ImportError:
     pytest.skip(
@@ -180,6 +181,53 @@ class TestZonalTotal:
 
         assert result[5] == 10.0  # All values sum to 10
         assert len(result) == 1  # Only one zone
+
+    @pytest.mark.parametrize(
+        "codes",
+        [
+            [0, 1, 2, 3, 4, NODATA_VALUE[0]],  # small range: bincount path
+            [-(2**30), 0, 7, 2**30],  # large range: np.unique fallback
+        ],
+    )
+    def test_zonal_total_matches_unique_reference(self, codes):
+        rng = np.random.default_rng(0)
+        zones = rng.choice(np.array(codes, dtype=np.int64), (30, 40))
+        data = rng.random((30, 40)) * 100
+        data[rng.random(data.shape) < 0.05] = NODATA_VALUE[0]
+        mask = rng.random((30, 40)) < 0.25
+
+        z = zones.ravel().astype(np.int32)
+        z[mask.ravel()] = MASK_VALUE[0]
+        d = np.where(data == NODATA_VALUE[0], 0.0, data).ravel()
+        keys, inverse = np.unique(z, return_inverse=True)
+        expected = dict(zip(keys.tolist(), np.bincount(inverse, weights=d).tolist()))
+
+        result = zonal_total(zones, data, mask)
+
+        assert result.keys() == expected.keys()
+        for key, value in expected.items():
+            assert result[key] == pytest.approx(value)
+
+    def test_zonal_total_only_includes_zones_present(self):
+        zones = np.array([[0, 4], [4, 0]], dtype=np.int16)
+        data = np.zeros((2, 2))
+        mask = np.zeros((2, 2), dtype=bool)
+
+        assert zonal_total(zones, data, mask) == {0: 0.0, 4: 0.0}
+
+    def test_zonal_total_empty(self):
+        empty = np.zeros((0, 0))
+        assert zonal_total(empty, empty, empty.astype(bool)) == {}
+
+    def test_zonal_totals_matches_zonal_total(self):
+        rng = np.random.default_rng(1)
+        zones = rng.choice(np.array([0, 1, 2, NODATA_VALUE[0]]), (20, 25))
+        weights = [rng.random((20, 25)) for _ in range(3)]
+        mask = rng.random((20, 25)) < 0.3
+
+        result = zonal_totals(zones, weights, mask)
+
+        assert result == [zonal_total(zones, d, mask) for d in weights]
 
 
 class TestZonalTotalWeighted:
