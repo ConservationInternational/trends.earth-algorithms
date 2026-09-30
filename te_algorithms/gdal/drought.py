@@ -1555,7 +1555,7 @@ def _write_dvi_sheet(sheet, st: SummaryTableDrought, years):
 
 
 def _write_drought_area_sheet(sheet, st: SummaryTableDrought, years):
-    xl.write_col_to_sheet(sheet, np.array(years), 2, 7)
+    xl.write_col_to_sheet(sheet, np.array(years), 2, 7, number_format="0")
     xl.write_col_to_sheet(
         sheet, _get_col_for_drought_class(st.annual_area_by_drought_class, 1), 4, 7
     )
@@ -1583,7 +1583,9 @@ def _write_drought_area_sheet(sheet, st: SummaryTableDrought, years):
 def _write_drought_pop_columns(
     sheet, drought_class_annual_totals: list, years, initial_row: int
 ):
-    xl.write_col_to_sheet(sheet, np.array(years), 2, initial_row)
+    xl.write_col_to_sheet(
+        sheet, np.array(years), 2, initial_row, number_format="0"
+    )
     xl.write_col_to_sheet(
         sheet,
         _get_col_for_drought_class(drought_class_annual_totals, 1),
