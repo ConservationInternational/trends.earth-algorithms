@@ -11,6 +11,7 @@ import pytest
 np = pytest.importorskip("numpy")
 
 try:
+    from te_algorithms.gdal.drought import _sanitize_population_values
     from te_algorithms.gdal.drought_numba import (
         NODATA_VALUE,
         drought_class,
@@ -22,6 +23,18 @@ except ImportError:
         "te_algorithms.gdal modules require numpy and GDAL dependencies",
         allow_module_level=True,
     )
+
+
+def test_drought_population_sanitizer_masks_nan_and_infinity():
+    population = np.array([[12.5, np.nan], [np.inf, NODATA_VALUE]])
+
+    sanitized, invalid = _sanitize_population_values(population)
+
+    assert sanitized[0, 0] == 12.5
+    assert sanitized[0, 1] == NODATA_VALUE
+    assert sanitized[1, 0] == NODATA_VALUE
+    assert sanitized[1, 1] == NODATA_VALUE
+    np.testing.assert_array_equal(invalid, [[False, True], [True, True]])
 
 
 class TestDroughtClass:

@@ -46,6 +46,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from osgeo import gdal, ogr
 
+from ..progress import ProgressReporter
 from . import config
 
 logger = logging.getLogger(__name__)
@@ -515,6 +516,7 @@ def create_zones(
     target_rows = max(1, int(200 * 1_000_000 / max(xsize * bytes_per_pixel, 1)))
     zone_block_rows = min(target_rows, ysize, 256)
     n_blocks = math.ceil(ysize / zone_block_rows)
+    block_reporter = ProgressReporter(progress_callback, start=10, end=95)
 
     # ── Create output GeoTIFF ────────────────────────────────────────────────
     driver = gdal.GetDriverByName("GTiff")
@@ -594,8 +596,7 @@ def create_zones(
             zone_block[valid & (combined == raw)] = seq
         out_band.WriteArray(zone_block, 0, y_off)
 
-        if progress_callback:
-            progress_callback(10.0 + 85.0 * (blk_idx + 1) / n_blocks)
+        block_reporter.update((blk_idx + 1) / n_blocks)
 
     out_band.FlushCache()
     out_ds.FlushCache()
@@ -628,8 +629,11 @@ def create_zones(
     except OSError as exc:
         logger.warning("Could not write zones key sidecar %s: %s", key_path, exc)
 
-    if progress_callback:
-        progress_callback(100.0)
+    cancelled = killed_callback and killed_callback()
+    if not cancelled:
+        block_reporter.finish()
+        if progress_callback:
+            progress_callback(100.0)
 
     logger.info(
         "Create Zones: %d zone(s) from %d raster(s) -> %s",

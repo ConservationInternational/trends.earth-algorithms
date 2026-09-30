@@ -24,6 +24,12 @@ from te_schemas.results import (
 )
 
 from .. import util, workers
+from ..progress import (
+    ProgressReporter,
+    WorkCounter,
+    initialize_process_counter,
+    record_work,
+)
 from ..util_numba import bizonal_total, zonal_total, zonal_total_weighted
 from . import config, models, worker
 from .land_deg_numba import (
@@ -156,6 +162,169 @@ def _prepare_precalculated_lpd_df(params: Dict) -> DataFile:
     )
 
 
+def _process_single_period(
+    period,
+    ldn_job,
+    aoi,
+    job_output_path,
+    n_cpus,
+    prepared_schemas=None,
+    target_resolution=None,
+    killed_callback=None,
+    parallel_backend="process",
+    progress_callback=None,
+):
+    """Process a single period, optionally using schemas prepared by the caller.
+
+    Args:
+        target_resolution: Optional tuple of (xRes, yRes) to ensure consistent
+            resolution across periods.
+    """
+    period_name = period["name"]
+    period_params = period["params"]
+    logger.info("Preparing input data for period '%s'", period_name)
+    logger.info("Preparing land cover data")
+    lc_dfs = _prepare_land_cover_dfs(period_params)
+    logger.info("Preparing soil organic carbon data")
+    soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
+    logger.info("Preparing population data")
+    population_dfs = _prepare_population_dfs(period_params)
+    logger.debug("len(population_dfs) %s", len(population_dfs))
+    logger.debug("population_dfs %s", population_dfs)
+    sub_job_output_path = (
+        job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
+    )
+    prod_mode = period_params["prod_mode"]
+
+    period_params["periods"] = {
+        "land_cover": period_params["layer_lc_deg_years"],
+        "soc": period_params["layer_soc_deg_years"],
+    }
+
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        period_params["periods"]["productivity"] = period_params["layer_traj_years"]
+    elif prod_mode in (
+        ProductivityMode.JRC_5_CLASS_LPD.value,
+        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ProductivityMode.FWV2_5_CLASS_LPD.value,
+        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
+    ):
+        period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
+    else:
+        raise Exception(f"Unknown productivity mode {prod_mode}")
+
+    if "period" not in period_params:
+        period_params["period"] = {
+            "name": period_name,
+            "year_initial": period_params["periods"]["productivity"]["year_initial"],
+            "year_final": period_params["periods"]["productivity"]["year_final"],
+        }
+
+    if prepared_schemas is None:
+        nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
+        if nesting:
+            nesting = LCLegendNesting.Schema().loads(nesting)
+        trans_matrix_data = period_params["layer_lc_deg_band"]["metadata"][
+            "trans_matrix"
+        ]
+        lc_trans_matrix = LCTransitionDefinitionDeg.Schema().loads(trans_matrix_data)
+    else:
+        nesting = prepared_schemas["nesting"]
+        lc_trans_matrix = prepared_schemas["lc_trans_matrix"]
+
+    summary_table_stable_kwargs = {
+        "aoi": aoi,
+        "lc_legend_nesting": nesting,
+        "lc_trans_matrix": lc_trans_matrix,
+        "output_job_path": sub_job_output_path,
+        "period_name": period_name,
+        "periods": period_params["periods"],
+        "n_cpus": n_cpus,
+        "target_resolution": target_resolution,
+        "killed_callback": killed_callback,
+        "parallel_backend": parallel_backend,
+        "progress_callback": progress_callback,
+    }
+
+    logger.info("Computing land degradation summary table for period '%s'", period_name)
+    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+        traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
+        compute_bbs_from = traj.path
+        in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
+        summary_table, output_path, population_output_path, reproj_path = (
+            _compute_ld_summary_table(
+                in_dfs=in_dfs,
+                prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
+                compute_bbs_from=compute_bbs_from,
+                **summary_table_stable_kwargs,
+            )
+        )
+    elif prod_mode in (
+        ProductivityMode.JRC_5_CLASS_LPD.value,
+        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+        ProductivityMode.FWV2_5_CLASS_LPD.value,
+        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
+    ):
+        lpd_df = _prepare_precalculated_lpd_df(period_params)
+        compute_bbs_from = lpd_df.path
+        in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
+        summary_table, output_path, population_output_path, reproj_path = (
+            _compute_ld_summary_table(
+                in_dfs=in_dfs,
+                prod_mode=prod_mode,
+                compute_bbs_from=compute_bbs_from,
+                **summary_table_stable_kwargs,
+            )
+        )
+    else:
+        raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
+
+    summary_table_output_path = (
+        sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
+    )
+    logger.info(
+        "Calling save_summary_table_excel for period '%s' -> %s",
+        period_name,
+        summary_table_output_path,
+    )
+    save_summary_table_excel(
+        summary_table_output_path,
+        summary_table,
+        period_params["periods"],
+        period_params["layer_lc_years"],
+        period_params["layer_soc_years"],
+        summary_table_stable_kwargs["lc_legend_nesting"],
+        summary_table_stable_kwargs["lc_trans_matrix"],
+        period_name,
+    )
+    if summary_table_output_path.exists():
+        logger.info(
+            "Excel file created successfully: %s (%d bytes)",
+            summary_table_output_path,
+            summary_table_output_path.stat().st_size,
+        )
+    else:
+        logger.error(
+            "Excel file was NOT created at %s",
+            summary_table_output_path,
+        )
+
+    period_dfs, period_vrts = _build_period_rasters(
+        output_path,
+        population_output_path,
+        reproj_path,
+        in_dfs,
+        population_dfs,
+        prod_mode,
+        period_params,
+        job_output_path,
+        sub_job_output_path,
+        period_name,
+    )
+    logger.info("Period '%s' processing complete", period_name)
+    return period_dfs, period_vrts, summary_table, period_name
+
+
 def _process_single_period_with_schemas(
     period,
     ldn_job,
@@ -168,318 +337,18 @@ def _process_single_period_with_schemas(
     parallel_backend="process",
     progress_callback=None,
 ):
-    """Process a single period with pre-loaded schemas - for parallel processing
-
-    Args:
-        target_resolution: Optional tuple of (xRes, yRes) to ensure consistent resolution across periods
-    """
-    period_name = period["name"]
-    period_params = period["params"]
-    logger.info("Preparing input data for period '%s'", period_name)
-    logger.info("Preparing land cover data")
-    lc_dfs = _prepare_land_cover_dfs(period_params)
-    logger.info("Preparing soil organic carbon data")
-    soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
-    logger.info("Preparing population data")
-    population_dfs = _prepare_population_dfs(period_params)
-    logger.debug("len(population_dfs) %s", len(population_dfs))
-    logger.debug("population_dfs %s", population_dfs)
-    sub_job_output_path = (
-        job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
-    )
-    prod_mode = period_params["prod_mode"]
-
-    period_params["periods"] = {
-        "land_cover": period_params["layer_lc_deg_years"],
-        "soc": period_params["layer_soc_deg_years"],
-    }
-
-    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        period_params["periods"]["productivity"] = period_params["layer_traj_years"]
-    elif prod_mode in (
-        ProductivityMode.JRC_5_CLASS_LPD.value,
-        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
-        ProductivityMode.FWV2_5_CLASS_LPD.value,
-        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
-    ):
-        period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
-    else:
-        raise Exception(f"Unknown productivity mode {prod_mode}")
-
-    # Add in period start/end if it isn't already in the parameters
-    if "period" not in period_params:
-        period_params["period"] = {
-            "name": period_name,
-            "year_initial": period_params["periods"]["productivity"]["year_initial"],
-            "year_final": period_params["periods"]["productivity"]["year_final"],
-        }
-
-    # Use pre-loaded schemas instead of loading them here
-    logger.info("Computing land degradation summary table for period '%s'", period_name)
-    summary_table_stable_kwargs = {
-        "aoi": aoi,
-        "lc_legend_nesting": prepared_schemas["nesting"],
-        "lc_trans_matrix": prepared_schemas["lc_trans_matrix"],
-        "output_job_path": sub_job_output_path,
-        "period_name": period_name,
-        "periods": period_params["periods"],
-        "n_cpus": n_cpus,
-        "target_resolution": target_resolution,
-        "killed_callback": killed_callback,
-        "parallel_backend": parallel_backend,
-        "progress_callback": progress_callback,
-    }
-
-    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
-        compute_bbs_from = traj.path
-        in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = (
-            _compute_ld_summary_table(
-                in_dfs=in_dfs,
-                prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
-                compute_bbs_from=compute_bbs_from,
-                **summary_table_stable_kwargs,
-            )
-        )
-    elif prod_mode in (
-        ProductivityMode.JRC_5_CLASS_LPD.value,
-        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
-        ProductivityMode.FWV2_5_CLASS_LPD.value,
-        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
-    ):
-        lpd_df = _prepare_precalculated_lpd_df(period_params)
-        compute_bbs_from = lpd_df.path
-        in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = (
-            _compute_ld_summary_table(
-                in_dfs=in_dfs,
-                prod_mode=prod_mode,
-                compute_bbs_from=compute_bbs_from,
-                **summary_table_stable_kwargs,
-            )
-        )
-    else:
-        raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
-
-    summary_table_output_path = (
-        sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
-    )
-    logger.info(
-        "[parallel] Calling save_summary_table_excel for period '%s' -> %s",
-        period_name,
-        summary_table_output_path,
-    )
-    save_summary_table_excel(
-        summary_table_output_path,
-        summary_table,
-        period_params["periods"],
-        period_params["layer_lc_years"],
-        period_params["layer_soc_years"],
-        summary_table_stable_kwargs["lc_legend_nesting"],
-        summary_table_stable_kwargs["lc_trans_matrix"],
-        period_name,
-    )
-    if summary_table_output_path.exists():
-        logger.info(
-            "[parallel] Excel file created successfully: %s (%d bytes)",
-            summary_table_output_path,
-            summary_table_output_path.stat().st_size,
-        )
-    else:
-        logger.error(
-            "[parallel] Excel file was NOT created at %s",
-            summary_table_output_path,
-        )
-
-    period_dfs, period_vrts = _build_period_rasters(
-        output_path,
-        population_output_path,
-        reproj_path,
-        in_dfs,
-        population_dfs,
-        prod_mode,
-        period_params,
+    return _process_single_period(
+        period,
+        ldn_job,
+        aoi,
         job_output_path,
-        sub_job_output_path,
-        period_name,
+        n_cpus,
+        prepared_schemas=prepared_schemas,
+        target_resolution=target_resolution,
+        killed_callback=killed_callback,
+        parallel_backend=parallel_backend,
+        progress_callback=progress_callback,
     )
-    logger.info("Period '%s' processing complete", period_name)
-    return period_dfs, period_vrts, summary_table, period_name
-
-
-def _process_single_period(
-    period,
-    ldn_job,
-    aoi,
-    job_output_path,
-    n_cpus,
-    target_resolution=None,
-    prepared_schemas=None,
-    killed_callback=None,
-    parallel_backend="process",
-    progress_callback=None,
-):
-    """Process a single period - updated to accept pre-loaded schemas for thread safety
-
-    Args:
-        target_resolution: Optional tuple of (xRes, yRes) to ensure consistent resolution across periods
-    """
-    if prepared_schemas is not None:
-        # Use pre-loaded schemas (for threaded execution)
-        return _process_single_period_with_schemas(
-            period,
-            ldn_job,
-            aoi,
-            job_output_path,
-            n_cpus,
-            prepared_schemas,
-            target_resolution,
-            killed_callback=killed_callback,
-            parallel_backend=parallel_backend,
-            progress_callback=progress_callback,
-        )
-
-    # Original non-threaded execution path (load schemas here)
-    period_name = period["name"]
-    period_params = period["params"]
-    logger.info("Preparing input data for period '%s'", period_name)
-    logger.info("Preparing land cover data")
-    lc_dfs = _prepare_land_cover_dfs(period_params)
-    logger.info("Preparing soil organic carbon data")
-    soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
-    logger.info("Preparing population data")
-    population_dfs = _prepare_population_dfs(period_params)
-    logger.debug("len(population_dfs) %s", len(population_dfs))
-    logger.debug("population_dfs %s", population_dfs)
-    sub_job_output_path = (
-        job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
-    )
-    prod_mode = period_params["prod_mode"]
-
-    period_params["periods"] = {
-        "land_cover": period_params["layer_lc_deg_years"],
-        "soc": period_params["layer_soc_deg_years"],
-    }
-
-    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        period_params["periods"]["productivity"] = period_params["layer_traj_years"]
-    elif prod_mode in (
-        ProductivityMode.JRC_5_CLASS_LPD.value,
-        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
-        ProductivityMode.FWV2_5_CLASS_LPD.value,
-        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
-    ):
-        period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
-    else:
-        raise Exception(f"Unknown productivity mode {prod_mode}")
-
-    # Add in period start/end if it isn't already in the parameters
-    if "period" not in period_params:
-        period_params["period"] = {
-            "name": period_name,
-            "year_initial": period_params["periods"]["productivity"]["year_initial"],
-            "year_final": period_params["periods"]["productivity"]["year_final"],
-        }
-
-    # Load schemas in main thread (non-threaded execution)
-    nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
-    if nesting:
-        nesting = LCLegendNesting.Schema().loads(nesting)
-
-    trans_matrix_data = period_params["layer_lc_deg_band"]["metadata"]["trans_matrix"]
-
-    summary_table_stable_kwargs = {
-        "aoi": aoi,
-        "lc_legend_nesting": nesting,
-        "lc_trans_matrix": LCTransitionDefinitionDeg.Schema().loads(trans_matrix_data),
-        "output_job_path": sub_job_output_path,
-        "period_name": period_name,
-        "periods": period_params["periods"],
-        "n_cpus": n_cpus,
-        "target_resolution": target_resolution,
-        "killed_callback": killed_callback,
-        "parallel_backend": parallel_backend,
-        "progress_callback": progress_callback,
-    }
-
-    logger.info("Computing land degradation summary table for period '%s'", period_name)
-    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
-        compute_bbs_from = traj.path
-        in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = (
-            _compute_ld_summary_table(
-                in_dfs=in_dfs,
-                prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
-                compute_bbs_from=compute_bbs_from,
-                **summary_table_stable_kwargs,
-            )
-        )
-    elif prod_mode in (
-        ProductivityMode.JRC_5_CLASS_LPD.value,
-        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
-        ProductivityMode.FWV2_5_CLASS_LPD.value,
-        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
-    ):
-        lpd_df = _prepare_precalculated_lpd_df(period_params)
-        compute_bbs_from = lpd_df.path
-        in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = (
-            _compute_ld_summary_table(
-                in_dfs=in_dfs,
-                prod_mode=prod_mode,
-                compute_bbs_from=compute_bbs_from,
-                **summary_table_stable_kwargs,
-            )
-        )
-    else:
-        raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
-
-    summary_table_output_path = (
-        sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
-    )
-    logger.info(
-        "[sequential] Calling save_summary_table_excel for period '%s' -> %s",
-        period_name,
-        summary_table_output_path,
-    )
-    save_summary_table_excel(
-        summary_table_output_path,
-        summary_table,
-        period_params["periods"],
-        period_params["layer_lc_years"],
-        period_params["layer_soc_years"],
-        summary_table_stable_kwargs["lc_legend_nesting"],
-        summary_table_stable_kwargs["lc_trans_matrix"],
-        period_name,
-    )
-    if summary_table_output_path.exists():
-        logger.info(
-            "[sequential] Excel file created successfully: %s (%d bytes)",
-            summary_table_output_path,
-            summary_table_output_path.stat().st_size,
-        )
-    else:
-        logger.error(
-            "[sequential] Excel file was NOT created at %s",
-            summary_table_output_path,
-        )
-
-    period_dfs, period_vrts = _build_period_rasters(
-        output_path,
-        population_output_path,
-        reproj_path,
-        in_dfs,
-        population_dfs,
-        prod_mode,
-        period_params,
-        job_output_path,
-        sub_job_output_path,
-        period_name,
-    )
-    logger.info("Period '%s' processing complete", period_name)
-    return period_dfs, period_vrts, summary_table, period_name
 
 
 def get_reference_file_for_period(period_params: Dict, prod_mode: str) -> Optional[str]:
@@ -659,7 +528,7 @@ def summarise_land_degradation(
         raise RuntimeError("Cancelled by user.")
 
     if progress_callback is not None:
-        progress_callback(5)
+        progress_callback(2.0)
 
     # Process periods in parallel when there are multiple periods
     if len(ldn_job.params["periods"]) > 1 and effective_n_cpus > 2:
@@ -687,12 +556,30 @@ def summarise_land_degradation(
                 if hasattr(current_thread, "_is_in_thread_pool"):
                     delattr(current_thread, "_is_in_thread_pool")
 
-        # Thread-safe progress aggregator so each concurrently-processed
-        # period can report tile-level progress. Overall progress is the mean
-        # of all periods' fractions (0.0-1.0), mapped into the 5%-85% window.
+        # Period workers only publish fractions; the task thread invokes the
+        # public callback while polling their futures.
         n_parallel_periods = len(ldn_job.params["periods"])
         period_fractions = [0.0] * n_parallel_periods
         progress_lock = threading.Lock()
+        period_weights = []
+        for period in ldn_job.params["periods"]:
+            period_params = period["params"]
+            reference_path = get_reference_file_for_period(
+                period_params, period_params["prod_mode"]
+            )
+            resolution = target_resolution or get_resolution_from_file(reference_path)
+            if reference_path and resolution:
+                bounds = aoi.get_aligned_output_bounds(reference_path)
+                x_resolution, y_resolution = map(abs, resolution)
+                weight = sum(
+                    max(1, round((bbox[2] - bbox[0]) / x_resolution))
+                    * max(1, round((bbox[3] - bbox[1]) / y_resolution))
+                    for bbox in bounds
+                )
+            else:
+                weight = 1
+            period_weights.append(weight)
+        total_period_weight = sum(period_weights)
 
         def _make_parallel_period_cb(period_index):
             if progress_callback is None:
@@ -701,8 +588,6 @@ def summarise_land_degradation(
             def _cb(fraction):
                 with progress_lock:
                     period_fractions[period_index] = max(0.0, min(1.0, fraction))
-                    overall = sum(period_fractions) / n_parallel_periods
-                progress_callback(5 + int(80 * overall))
 
             return _cb
 
@@ -751,9 +636,36 @@ def summarise_land_degradation(
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=len(ldn_job.params["periods"])
         ) as executor:
-            period_results = list(
-                executor.map(process_period_wrapper_with_thread_marker, period_data)
-            )
+            futures = {
+                executor.submit(process_period_wrapper_with_thread_marker, data): index
+                for index, data in enumerate(period_data)
+            }
+            period_results = [None] * n_parallel_periods
+            pending = set(futures)
+            while pending:
+                if killed_callback is not None and killed_callback():
+                    for future in pending:
+                        future.cancel()
+                    raise RuntimeError("Cancelled by user.")
+                done, pending = concurrent.futures.wait(
+                    pending,
+                    timeout=0.25,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                for future in done:
+                    period_results[futures[future]] = future.result()
+                if progress_callback is not None:
+                    with progress_lock:
+                        overall = (
+                            sum(
+                                fraction * weight
+                                for fraction, weight in zip(
+                                    period_fractions, period_weights
+                                )
+                            )
+                            / total_period_weight
+                        )
+                    progress_callback(2 + 83 * overall)
 
         if progress_callback is not None:
             progress_callback(85)
@@ -822,12 +734,12 @@ def summarise_land_degradation(
             # range within the overall 5%-85% progress window
             period_progress_cb = None
             if progress_callback is not None:
-                period_start = 5 + int(80 * period_idx / n_periods)
-                period_end = 5 + int(80 * (period_idx + 1) / n_periods)
+                period_start = 2 + 83 * period_idx / n_periods
+                period_end = 2 + 83 * (period_idx + 1) / n_periods
 
                 def _make_period_cb(start, end):
                     def _cb(fraction):
-                        progress_callback(start + int((end - start) * fraction))
+                        progress_callback(start + (end - start) * fraction)
 
                     return _cb
 
@@ -849,7 +761,7 @@ def summarise_land_degradation(
             typed_period_dfs, typed_period_vrts, summary_table, period_name = result
 
             if progress_callback is not None:
-                progress_callback(5 + int(80 * (period_idx + 1) / n_periods))
+                progress_callback(2 + 83 * (period_idx + 1) / n_periods)
             for datatype in period_dfs_by_type:
                 period_dfs_by_type[datatype].append(typed_period_dfs[datatype])
                 period_vrts_by_type[datatype].append(typed_period_vrts[datatype])
@@ -983,6 +895,12 @@ def summarise_land_degradation(
                 baseline_nesting,
                 n_cpus=effective_n_cpus,
                 parallel_backend=parallel_backend,
+                progress_callback=(
+                    (lambda fraction: progress_callback(85 + 10 * fraction))
+                    if progress_callback is not None
+                    else None
+                ),
+                killed_callback=killed_callback,
             )
         )
         period_vrts_by_type[DataType.INT16].append(reporting_df.path)
@@ -1088,6 +1006,8 @@ def summarise_land_degradation(
 
     ldn_job.end_date = dt.datetime.now(dt.timezone.utc)
     ldn_job.progress = 100
+    if progress_callback is not None:
+        progress_callback(100.0)
 
     return results
 
@@ -1398,24 +1318,11 @@ def _process_block_summary(
     # Population affected by degradation
 
     def _pop_band_to_counts(pop_row):
-        """Extract a population band as people-per-pixel counts.
-
-        Newer datasets store population as density (people per hectare, tagged
-        with a "units" metadata field) so values survive resampling to grids
-        other than WorldPop's native ~100m. Convert those back to counts using
-        each pixel's true area (cell_areas is in sq km; 1 sq km = 100 ha).
-        Older datasets store raw per-pixel counts and are passed through
-        unchanged.
-        """
-        pop_array = in_array[pop_row, :, :].astype(np.float64)
-        nodata = pop_array == config.NODATA_VALUE
+        """Extract valid population pixels as people-per-pixel counts."""
         band_metadata = params.in_df.bands[pop_row].metadata or {}
-        if band_metadata.get("units") == "people per hectare":
-            pop_array = pop_array * cell_areas * 100.0
-            pop_array[nodata] = config.NODATA_VALUE
-        pop_array_masked = pop_array.copy()
-        pop_array_masked[nodata] = 0
-        return pop_array, pop_array_masked
+        return _population_band_to_counts(
+            in_array[pop_row, :, :], cell_areas, band_metadata
+        )
 
     if len(pop_rows_total) == 1:
         assert len(pop_rows_male) == 0 and len(pop_rows_female) == 0
@@ -1495,6 +1402,18 @@ def _process_block_summary(
         ),
         write_arrays,
     )
+
+
+def _population_band_to_counts(pop_array, cell_areas, band_metadata):
+    pop_array = pop_array.astype(np.float64)
+    invalid = ~np.isfinite(pop_array) | (pop_array == config.NODATA_VALUE)
+    if band_metadata.get("units") == "people per hectare":
+        pop_array *= cell_areas * 100.0
+        invalid |= ~np.isfinite(pop_array)
+    pop_array[invalid] = config.NODATA_VALUE
+    pop_array_masked = pop_array.copy()
+    pop_array_masked[invalid] = 0
+    return pop_array, pop_array_masked
 
 
 def _get_n_pop_band_for_type(dfs, pop_type):
@@ -1662,6 +1581,9 @@ class SummarizeTileInputs:
     mask_worker_params: Optional[dict] = None
     deg_worker_function: Optional[Callable] = None
     deg_worker_params: Optional[dict] = None
+    work_counter: Optional[object] = None
+    report_progress: bool = False
+    materialized_path: Optional[Path] = None
 
 
 def _summarize_tile(inputs: SummarizeTileInputs):
@@ -1711,11 +1633,9 @@ def _summarize_tile(inputs: SummarizeTileInputs):
         else:
             model_band_number = in_df.index_for_name(config.LC_DEG_BAND_NAME) + 1
 
-        out_file = inputs.in_file.parent / (
-            inputs.in_file.stem + "_sdg" + inputs.in_file.suffix
-        )
+        out_file = inputs.in_file.parent / (inputs.in_file.stem + "_sdg.tif")
         population_out_file = inputs.in_file.parent / (
-            inputs.in_file.stem + "_population" + inputs.in_file.suffix
+            inputs.in_file.stem + "_population.tif"
         )
         logger.debug("Calculating summary table and saving to %s", out_file)
 
@@ -1746,8 +1666,53 @@ def _summarize_tile(inputs: SummarizeTileInputs):
                     "The custom degradation worker did not create required output(s): "
                     + ", ".join(str(path) for path in missing_outputs)
                 )
+            if inputs.materialized_path is not None:
+                materialized_vrt = Path(inputs.materialized_path)
+                materialized_bands = []
+                source_ds = gdal.Open(str(inputs.in_file))
+                for band_index in range(1, source_ds.RasterCount + 1):
+                    band_path = materialized_vrt.with_name(
+                        f"{materialized_vrt.stem}_band_{band_index}.tif"
+                    )
+                    band_ds = gdal.Translate(
+                        str(band_path),
+                        str(inputs.in_file),
+                        format="GTiff",
+                        bandList=[band_index],
+                        creationOptions=[
+                            "COMPRESS=LZW",
+                            "BIGTIFF=IF_SAFER",
+                            "TILED=YES",
+                        ],
+                    )
+                    if band_ds is None:
+                        raise RuntimeError(
+                            f"Could not materialize source band {band_index} "
+                            f"for tile {tile_name}."
+                        )
+                    band_ds.FlushCache()
+                    band_ds = None
+                    materialized_bands.append(str(band_path))
+                tile_pixels = source_ds.RasterXSize * source_ds.RasterYSize
+                source_ds = None
+                materialized_ds = gdal.BuildVRT(
+                    str(materialized_vrt), materialized_bands, separate=True
+                )
+                if materialized_ds is None:
+                    raise RuntimeError(
+                        f"Could not build materialized input VRT for tile {tile_name}."
+                    )
+                materialized_ds.FlushCache()
+                materialized_ds = None
+                record_work(tile_pixels, inputs.work_counter)
         else:
-            summarizer = worker.DegradationSummary(params, _process_block_summary)
+            summarizer = worker.DegradationSummary(
+                params,
+                _process_block_summary,
+                inputs.work_counter,
+                inputs.report_progress,
+                inputs.materialized_path,
+            )
             result = summarizer.work()
 
         if not result:
@@ -1763,12 +1728,99 @@ def _summarize_tile(inputs: SummarizeTileInputs):
             result = models.accumulate_summarytableld(result)
             result.cast_to_cpython()  # needed for multiprocessing
 
-    return result, (out_file, population_out_file), error_message
+    return (
+        result,
+        (out_file, population_out_file, inputs.materialized_path),
+        error_message,
+    )
+
+
+def _summarize_tile_indexed(indexed_input):
+    index, tile_input = indexed_input
+    return index, _summarize_tile(tile_input)
+
+
+def _aoi_process_with_progress(
+    inputs, n_cpus, parallel_backend, work_counter, killed_callback
+):
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    indexed_inputs = list(enumerate(inputs))
+    outputs = [None] * len(inputs)
+
+    if parallel_backend == "thread":
+        with ThreadPoolExecutor(max_workers=n_cpus) as executor:
+            future_indices = {
+                executor.submit(_summarize_tile, item): index
+                for index, item in indexed_inputs
+            }
+            pending = set(future_indices)
+            while pending:
+                if killed_callback is not None and killed_callback():
+                    for future in pending:
+                        future.cancel()
+                    raise RuntimeError("Cancelled by user.")
+                done, pending = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
+                work_counter.poll()
+                for future in done:
+                    outputs[future_indices[future]] = future.result()
+        work_counter.poll()
+    else:
+        context = multiprocessing.get_context("spawn")
+        pool = context.Pool(
+            n_cpus,
+            initializer=initialize_process_counter,
+            initargs=(work_counter.shared,),
+        )
+        iterator = pool.imap_unordered(
+            _summarize_tile_indexed, indexed_inputs, chunksize=1
+        )
+        started = time.monotonic()
+        completed = 0
+        try:
+            while completed < len(inputs):
+                if killed_callback is not None and killed_callback():
+                    raise RuntimeError("Cancelled by user.")
+                if time.monotonic() - started > TOTAL_PROCESSING_TIMEOUT:
+                    raise TimeoutError("Land degradation tile processing timed out.")
+                try:
+                    index, output = iterator.next(timeout=0.25)
+                except multiprocessing.TimeoutError:
+                    work_counter.poll()
+                    continue
+                outputs[index] = output
+                completed += 1
+                work_counter.poll()
+            pool.close()
+        except Exception:
+            pool.terminate()
+            raise
+        finally:
+            pool.join()
+
+    summary_tables = []
+    output_paths = []
+    for output in outputs:
+        if output[2] is not None:
+            logger.error("Error %s", output[2])
+            return None
+        summary_tables.append(output[0])
+        output_paths.append(output[1])
+    return models.accumulate_summarytableld(summary_tables), output_paths
 
 
 def _aoi_process_multiprocess(
-    inputs, n_cpus, parallel_backend="process", progress_callback=None
+    inputs,
+    n_cpus,
+    parallel_backend="process",
+    progress_callback=None,
+    work_counter=None,
+    killed_callback=None,
 ):
+    if work_counter is not None:
+        return _aoi_process_with_progress(
+            inputs, n_cpus, parallel_backend, work_counter, killed_callback
+        )
     from .. import util
 
     worker_type = "threads" if parallel_backend == "thread" else "processes"
@@ -1982,7 +2034,9 @@ def _aoi_process_multiprocess(
     return summary_table, out_files
 
 
-def _aoi_process_sequential(inputs, killed_callback=None, progress_callback=None):
+def _aoi_process_sequential(
+    inputs, killed_callback=None, progress_callback=None, work_counter=None
+):
     summary_tables = []
     out_files = []
     total_tiles = len(inputs)
@@ -1995,6 +2049,8 @@ def _aoi_process_sequential(inputs, killed_callback=None, progress_callback=None
         tile_num = n + 1
         logger.info(f"Starting tile {tile_num}/{total_tiles}: {item.in_file.name}")
         output = _summarize_tile(item)
+        if work_counter is not None:
+            work_counter.poll()
         completed_tiles = tile_num
         progress_percent = (completed_tiles / total_tiles) * 100
         util.log_progress(
@@ -2038,6 +2094,7 @@ def _process_region(
     deg_worker_params: dict = None,
     parallel_backend: str = "process",
     progress_callback=None,
+    progress_reporter=None,
 ) -> Tuple[Optional[models.SummaryTableLD], str]:
     """Runs summary statistics for a particular area
 
@@ -2113,6 +2170,7 @@ def _process_region(
             effective_cpus,
             output_layers_path,
             parallel_backend=parallel_backend,
+            output_format="VRT",
         )
         tiles = translate_worker.work()
 
@@ -2138,19 +2196,38 @@ def _process_region(
                 mask_worker_params=mask_worker_params,
                 deg_worker_function=deg_worker_function,
                 deg_worker_params=deg_worker_params,
+                report_progress=n_cpus == 1,
+                materialized_path=tile.with_name(f"{tile.stem}_materialized.vrt"),
             )
             for tile in tiles
         ]
+        tile_pixels = 0
+        for tile in tiles:
+            tile_ds = gdal.Open(str(tile))
+            tile_pixels += tile_ds.RasterXSize * tile_ds.RasterYSize
+            tile_ds = None
+
+        if progress_reporter is None:
+            progress_reporter = ProgressReporter(
+                progress_callback, start=0.0, end=1.0, min_step=0.005
+            )
+        shared_counter = WorkCounter.make_shared(multiprocessing.get_context("spawn"))
+        work_counter = WorkCounter(tile_pixels, progress_reporter, shared_counter)
+        for item in inputs:
+            if parallel_backend == "thread" or n_cpus == 1:
+                item.work_counter = work_counter
+
         if n_cpus > 1:
             summary_table, output_paths = _aoi_process_multiprocess(
                 inputs,
                 n_cpus,
                 parallel_backend=parallel_backend,
-                progress_callback=progress_callback,
+                work_counter=work_counter,
+                killed_callback=killed_callback,
             )
         else:
             summary_table, output_paths = _aoi_process_sequential(
-                inputs, killed_callback, progress_callback=progress_callback
+                inputs, killed_callback, work_counter=work_counter
             )
     else:
         error_message = "Error reprojecting layers."
@@ -2158,7 +2235,8 @@ def _process_region(
         tiles = None
         output_paths = None
 
-    return summary_table, tiles, output_paths, error_message
+    materialized_paths = [item.materialized_path for item in inputs] if tiles else None
+    return summary_table, materialized_paths, output_paths, error_message
 
 
 def _compute_ld_summary_table(
@@ -2187,6 +2265,27 @@ def _compute_ld_summary_table(
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
     assert len(wkt_aois) == len(bbs)
 
+    if target_resolution:
+        x_resolution, y_resolution = map(abs, target_resolution)
+    else:
+        resolutions = []
+        for data_file in in_dfs:
+            source_ds = gdal.Open(str(data_file.path))
+            if source_ds is not None:
+                transform = source_ds.GetGeoTransform()
+                resolutions.append((abs(transform[1]), abs(transform[5])))
+                source_ds = None
+        x_resolution = min(item[0] for item in resolutions)
+        y_resolution = min(item[1] for item in resolutions)
+    region_pixel_weights = [
+        max(1, round((bounds[2] - bounds[0]) / x_resolution))
+        * max(1, round((bounds[3] - bounds[1]) / y_resolution))
+        for bounds in bbs
+    ]
+    region_reporters = ProgressReporter(
+        progress_callback, start=0.0, end=1.0, min_step=0.005
+    ).split(region_pixel_weights)
+
     if len(wkt_aois) > 1:
         output_name_pattern = f"{output_job_path.stem}" + "_{index}.tif"
     else:
@@ -2203,14 +2302,15 @@ def _compute_ld_summary_table(
         "target_resolution": target_resolution,
         "killed_callback": killed_callback,
         "parallel_backend": parallel_backend,
-        "progress_callback": progress_callback,
     }
 
     summary_tables = []
     reproj_paths = []
     output_paths = []
 
-    for index, (wkt_aoi, pixel_aligned_bbox) in enumerate(zip(wkt_aois, bbs), start=1):
+    for index, (wkt_aoi, pixel_aligned_bbox, region_reporter) in enumerate(
+        zip(wkt_aois, bbs, region_reporters), start=1
+    ):
         if killed_callback is not None and killed_callback():
             raise RuntimeError("Cancelled by user.")
 
@@ -2228,6 +2328,7 @@ def _compute_ld_summary_table(
             wkt_aoi=wkt_aoi,
             pixel_aligned_bbox=pixel_aligned_bbox,
             output_layers_path=base_output_path,
+            progress_reporter=region_reporter,
             **stable_kwargs,
         )
 
@@ -2246,7 +2347,10 @@ def _compute_ld_summary_table(
     else:
         reproj_path = reproj_paths[0]
 
-    integer_output_paths, population_output_paths = zip(*output_paths)
+    integer_output_paths, population_output_paths, tile_reproj_paths = zip(
+        *output_paths
+    )
+    reproj_paths = list(tile_reproj_paths)
     if len(integer_output_paths) > 1:
         output_path = output_job_path.parent / f"{output_job_path.stem}_tiles_sdg.vrt"
         gdal.BuildVRT(str(output_path), [str(p) for p in integer_output_paths])

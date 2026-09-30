@@ -7,6 +7,7 @@ import numpy as np
 from osgeo import gdal, osr
 
 from .. import util
+from ..progress import record_work
 from ..util_numba import calc_cell_area
 from . import config, models
 
@@ -22,9 +23,15 @@ class DegradationSummary:
             models.DegradationErrorRecodeSummaryParams,
         ],
         processing_function,
+        work_counter=None,
+        report_progress=False,
+        materialized_path=None,
     ):
         self.params = params
         self.processing_function = processing_function
+        self.work_counter = work_counter
+        self.report_progress = report_progress
+        self.materialized_path = materialized_path
 
     def is_killed(self):
         return False
@@ -159,6 +166,43 @@ class DegradationSummary:
 
         # Cache raster bands to avoid repeated access
         src_bands = [src_ds.GetRasterBand(i) for i in range(1, src_ds.RasterCount + 1)]
+        materialized_datasets = []
+        materialized_band_paths = []
+        if self.materialized_path is not None:
+            materialized_vrt = Path(self.materialized_path)
+            driver = gdal.GetDriverByName("GTiff")
+            for band_index, source_band in enumerate(src_bands, start=1):
+                band_path = materialized_vrt.with_name(
+                    f"{materialized_vrt.stem}_band_{band_index}.tif"
+                )
+                band_ds = driver.Create(
+                    str(band_path),
+                    xsize,
+                    ysize,
+                    1,
+                    source_band.DataType,
+                    options=["COMPRESS=LZW", "BIGTIFF=IF_SAFER", "TILED=YES"],
+                )
+                band_ds.SetGeoTransform(src_ds.GetGeoTransform())
+                band_ds.SetProjection(src_ds.GetProjection())
+                destination_band = band_ds.GetRasterBand(1)
+                no_data = source_band.GetNoDataValue()
+                if no_data is not None:
+                    destination_band.SetNoDataValue(no_data)
+                scale = source_band.GetScale()
+                if scale is not None:
+                    destination_band.SetScale(scale)
+                offset = source_band.GetOffset()
+                if offset is not None:
+                    destination_band.SetOffset(offset)
+                description = source_band.GetDescription()
+                if description:
+                    destination_band.SetDescription(description)
+                band_metadata = source_band.GetMetadata()
+                if band_metadata:
+                    destination_band.SetMetadata(band_metadata)
+                materialized_datasets.append(band_ds)
+                materialized_band_paths.append(str(band_path))
         dst_bands = [
             dst_ds.GetRasterBand(i)
             for i in range(1, self.params.n_out_bands - n_population_out_bands + 1)
@@ -196,14 +240,30 @@ class DegradationSummary:
                 win_xsize = min(x_block_size, xsize - x)
 
                 # Use cached bands and more efficient array reading
-                if src_ds.RasterCount == 1:
-                    src_array = src_bands[0].ReadAsArray(
-                        xoff=x, yoff=y, win_xsize=win_xsize, win_ysize=win_ysize
+                if materialized_datasets:
+                    source_arrays = [
+                        band.ReadAsArray(
+                            xoff=x,
+                            yoff=y,
+                            win_xsize=win_xsize,
+                            win_ysize=win_ysize,
+                        )
+                        for band in src_bands
+                    ]
+                    src_array = (
+                        source_arrays[0]
+                        if len(source_arrays) == 1
+                        else np.stack(source_arrays)
                     )
                 else:
-                    src_array = src_ds.ReadAsArray(
-                        xoff=x, yoff=y, xsize=win_xsize, ysize=win_ysize
-                    )
+                    if src_ds.RasterCount == 1:
+                        src_array = src_bands[0].ReadAsArray(
+                            xoff=x, yoff=y, win_xsize=win_xsize, win_ysize=win_ysize
+                        )
+                    else:
+                        src_array = src_ds.ReadAsArray(
+                            xoff=x, yoff=y, xsize=win_xsize, ysize=win_ysize
+                        )
 
                 mask_array = band_mask.ReadAsArray(
                     xoff=x, yoff=y, win_xsize=win_xsize, win_ysize=win_ysize
@@ -233,6 +293,16 @@ class DegradationSummary:
                         data["array"], data["xoff"], data["yoff"]
                     )
 
+                for band_num, source_array in enumerate(
+                    source_arrays if materialized_datasets else []
+                ):
+                    materialized_datasets[band_num].GetRasterBand(1).WriteArray(
+                        source_array, x, y
+                    )
+
+                record_work(win_xsize * win_ysize, self.work_counter)
+                if self.report_progress and self.work_counter is not None:
+                    self.work_counter.poll()
                 n += 1
 
             if self.is_killed():
@@ -253,12 +323,29 @@ class DegradationSummary:
             os.remove(self.params.out_file)
             if population_out_file is not None:
                 os.remove(population_out_file)
+            for band_index in range(len(materialized_datasets)):
+                materialized_datasets[band_index] = None
+            for band_path in materialized_band_paths:
+                Path(band_path).unlink(missing_ok=True)
             return None
         else:
             self.emit_progress(1)
             del dst_ds
             if population_dst_ds is not None:
                 del population_dst_ds
+            for band_index in range(len(materialized_datasets)):
+                band_ds = materialized_datasets[band_index]
+                band_ds.FlushCache()
+                materialized_datasets[band_index] = None
+                band_ds = None
+            if materialized_band_paths:
+                materialized_vrt = gdal.BuildVRT(
+                    str(self.materialized_path),
+                    materialized_band_paths,
+                    separate=True,
+                )
+                materialized_vrt.FlushCache()
+                materialized_vrt = None
             # Filter out None values if processing was interrupted
             out = [item for item in out if item is not None]
             return out

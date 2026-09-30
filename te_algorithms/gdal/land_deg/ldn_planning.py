@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from osgeo import gdal, ogr, osr
 
+from ..progress import ProgressReporter
 from ..util_numba import calc_cell_area
 from . import config, zones
 
@@ -268,6 +269,7 @@ def compute_arr_classification(
     n_blocks_x = math.ceil(xsize / BLOCK_SIZE)
     total_blocks = n_blocks_y * n_blocks_x
     block_count = 0
+    block_reporter = ProgressReporter(progress_callback, start=10, end=100)
 
     for y_off in range(0, ysize, BLOCK_SIZE):
         if killed_callback and killed_callback():
@@ -330,8 +332,7 @@ def compute_arr_classification(
             out_band.WriteArray(arr, x_off, y_off)
 
             block_count += 1
-            if progress_callback:
-                progress_callback(100.0 * block_count / total_blocks)
+            block_reporter.update(block_count / total_blocks)
 
     out_band.FlushCache()
     out_ds.FlushCache()
@@ -340,6 +341,9 @@ def compute_arr_classification(
         del traj_ds, traj_band
     if risk_ds:
         del risk_ds, risk_band_obj
+
+    if not (killed_callback and killed_callback()):
+        block_reporter.finish()
 
     summary = {
         "avoid_km2": avoid_km2,

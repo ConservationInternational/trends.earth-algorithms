@@ -11,6 +11,7 @@ import logging
 import multiprocessing
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
@@ -18,6 +19,12 @@ import numpy as np
 from osgeo import gdal
 
 from .. import util, workers
+from ..progress import (
+    ProgressReporter,
+    WorkCounter,
+    initialize_process_counter,
+    record_work,
+)
 from ..util_numba import calc_cell_area
 from . import config, models
 from .counterbalancing_numba import (
@@ -186,6 +193,8 @@ class CounterbalancingTileInputs:
     multiplier: int
     layer_nodata: List[Optional[int]]
     has_transition_bands: bool = False
+    work_counter: object = None
+    report_progress: bool = False
 
 
 def _summarize_counterbalancing_tile(
@@ -354,6 +363,10 @@ def _summarize_counterbalancing_tile(
                 all_transition_breakdown, block_trans
             )
 
+        record_work(xsize * win_y, inputs.work_counter)
+        if inputs.report_progress and inputs.work_counter is not None:
+            inputs.work_counter.poll()
+
     del gl_ds, lt_ds, tile_ds
 
     summary_table = models.SummaryTableCounterbalancing(
@@ -371,9 +384,94 @@ def _summarize_counterbalancing_tile(
 
 
 def _cb_process_multiprocess(
-    inputs, n_cpus, parallel_backend="process", progress_callback=None
+    inputs,
+    n_cpus,
+    parallel_backend="process",
+    progress_callback=None,
+    work_counter=None,
+    killed_callback=None,
 ):
     """Dispatch counterbalancing tiles to a multiprocessing pool."""
+    if work_counter is not None:
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+        indexed_inputs = list(enumerate(inputs))
+        outputs = [None] * len(inputs)
+        if parallel_backend == "thread":
+            with ThreadPoolExecutor(max_workers=n_cpus) as executor:
+                future_indices = {
+                    executor.submit(_summarize_counterbalancing_tile, item): index
+                    for index, item in indexed_inputs
+                }
+                pending = set(future_indices)
+                while pending:
+                    if killed_callback is not None and killed_callback():
+                        for future in pending:
+                            future.cancel()
+                        raise RuntimeError("Cancelled by user.")
+                    done, pending = wait(
+                        pending, timeout=0.25, return_when=FIRST_COMPLETED
+                    )
+                    work_counter.poll()
+                    for future in done:
+                        outputs[future_indices[future]] = future.result()
+        else:
+            context = multiprocessing.get_context("spawn")
+            pool = context.Pool(
+                n_cpus,
+                initializer=initialize_process_counter,
+                initargs=(work_counter.shared,),
+            )
+            iterator = pool.imap_unordered(
+                _summarize_counterbalancing_tile_indexed,
+                indexed_inputs,
+                chunksize=1,
+            )
+            started = time.monotonic()
+            completed = 0
+            try:
+                while completed < len(inputs):
+                    if killed_callback is not None and killed_callback():
+                        raise RuntimeError("Cancelled by user.")
+                    if time.monotonic() - started > TOTAL_PROCESSING_TIMEOUT:
+                        raise TimeoutError(
+                            "Counterbalancing tile processing timed out."
+                        )
+                    try:
+                        index, output = iterator.next(timeout=0.25)
+                    except multiprocessing.TimeoutError:
+                        work_counter.poll()
+                        continue
+                    outputs[index] = output
+                    completed += 1
+                    work_counter.poll()
+                pool.close()
+            except Exception:
+                pool.terminate()
+                raise
+            finally:
+                pool.join()
+
+        summary_tables = []
+        gl_files = []
+        lt_files = []
+        labels = {}
+        for output in outputs:
+            summary, gl_file, lt_file, spu_labels, error = output
+            if error is not None:
+                logger.error("Error %s", error)
+                return None
+            summary_tables.append(summary)
+            gl_files.append(gl_file)
+            lt_files.append(lt_file)
+            labels.update(spu_labels)
+        return (
+            models.accumulate_summary_table_counterbalancing(summary_tables),
+            gl_files,
+            lt_files,
+            labels,
+        )
+
     current_thread = threading.current_thread()
     is_in_thread_pool = getattr(
         current_thread, "_is_in_thread_pool", False
@@ -489,7 +587,14 @@ def _cb_process_multiprocess(
     return summary_table, gl_out_files, lt_out_files, all_spu_labels
 
 
-def _cb_process_sequential(inputs, progress_callback=None, killed_callback=None):
+def _summarize_counterbalancing_tile_indexed(indexed_input):
+    index, tile_input = indexed_input
+    return index, _summarize_counterbalancing_tile(tile_input)
+
+
+def _cb_process_sequential(
+    inputs, progress_callback=None, killed_callback=None, work_counter=None
+):
     """Process counterbalancing tiles sequentially."""
     summary_tables = []
     gl_out_files = []
@@ -504,6 +609,8 @@ def _cb_process_sequential(inputs, progress_callback=None, killed_callback=None)
             return None
 
         output = _summarize_counterbalancing_tile(item)
+        if work_counter is not None:
+            work_counter.poll()
         summary_tbl, gl_file, lt_file, spu_labels, error_msg = output
 
         if error_msg is not None:
@@ -751,9 +858,24 @@ def compute_counterbalancing(
             multiplier=multiplier,
             layer_nodata=layer_nodata,
             has_transition_bands=has_transition,
+            report_progress=(effective_n_cpus <= 1 or len(tiles) <= 1),
         )
         for tile in tiles
     ]
+
+    total_pixels = 0
+    for tile in tiles:
+        tile_ds = gdal.Open(str(tile))
+        total_pixels += tile_ds.RasterXSize * tile_ds.RasterYSize
+        tile_ds = None
+    work_counter = WorkCounter(
+        total_pixels,
+        ProgressReporter(progress_callback, start=10, end=90),
+        WorkCounter.make_shared(multiprocessing.get_context("spawn")),
+    )
+    if parallel_backend == "thread" or effective_n_cpus <= 1 or len(tiles) <= 1:
+        for item in inputs:
+            item.work_counter = work_counter
 
     if progress_callback is not None:
         progress_callback(10)
@@ -763,10 +885,19 @@ def compute_counterbalancing(
 
     if effective_n_cpus > 1 and len(tiles) > 1:
         result = _cb_process_multiprocess(
-            inputs, effective_n_cpus, parallel_backend, progress_callback
+            inputs,
+            effective_n_cpus,
+            parallel_backend,
+            work_counter=work_counter,
+            killed_callback=killed_callback,
         )
     else:
-        result = _cb_process_sequential(inputs, progress_callback, killed_callback)
+        result = _cb_process_sequential(
+            inputs,
+            progress_callback,
+            killed_callback,
+            work_counter,
+        )
 
     if result is None:
         raise RuntimeError("Error during counterbalancing tile processing.")
@@ -861,6 +992,7 @@ def compute_counterbalancing(
     ach_band.SetNoDataValue(float(config.NODATA_VALUE))
     ach_band.SetScale(0.01)
     ach_band.SetOffset(0.0)
+    achievement_reporter = ProgressReporter(progress_callback, start=95, end=100)
 
     block_ysize = 256
     total_blocks = (proc_ysize + block_ysize - 1) // block_ysize
@@ -885,6 +1017,7 @@ def compute_counterbalancing(
         ach_arr[m_arr == config.MASK_VALUE] = config.NODATA_VALUE
 
         ach_band.WriteArray(ach_arr, 0, y_off)
+        achievement_reporter.update((block_n + 1) / total_blocks)
 
     logger.info("Achievement raster: %d/%d (100%%)", total_blocks, total_blocks)
     del lt_ds, mask_ds, ach_ds
@@ -893,6 +1026,7 @@ def compute_counterbalancing(
         "Counterbalancing assessment complete - %d land types processed",
         len(land_type_results),
     )
+    achievement_reporter.finish()
 
     return (
         summary_table,

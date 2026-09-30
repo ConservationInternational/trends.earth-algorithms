@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import tempfile
+import time
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -11,6 +12,11 @@ from te_schemas.productivity import ProductivityMode
 from te_schemas.results import Band
 
 from .. import util, workers
+from ..progress import (
+    ProgressReporter,
+    WorkCounter,
+    initialize_process_counter,
+)
 from ..util_numba import bizonal_total, zonal_total
 from . import config, models, worker
 from .land_deg_numba import (
@@ -130,6 +136,8 @@ def _process_single_region(region_data):
             mask_worker_params,
             status_worker_function,
             status_worker_params,
+            work_counter,
+            report_progress,
         ) = region_data
 
         logger.info(f"Starting processing of region {index}")
@@ -203,7 +211,12 @@ def _process_single_region(region_data):
                 status_params, _process_block_status, **status_worker_params
             )
         else:
-            summarizer = worker.DegradationSummary(status_params, _process_block_status)
+            summarizer = worker.DegradationSummary(
+                status_params,
+                _process_block_status,
+                work_counter,
+                report_progress,
+            )
             result = summarizer.work()
 
         logger.debug(
@@ -308,6 +321,11 @@ def _process_single_region(region_data):
         return None, None, f"Unexpected error: {e}"
 
 
+def _process_status_region_indexed(indexed_region):
+    index, region = indexed_region
+    return index, _process_single_region(region)
+
+
 def compute_status_summary(
     df,
     prod_mode,
@@ -322,6 +340,8 @@ def compute_status_summary(
     status_worker_params: Union[None, dict] = None,
     n_cpus: Optional[int] = None,
     parallel_backend: str = "process",
+    progress_callback=None,
+    killed_callback=None,
 ):
     """Compute status summary with optional parallel processing for multiple regions"""
 
@@ -334,6 +354,22 @@ def compute_status_summary(
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
     assert len(wkt_aois) == len(bbs)
+
+    status_ds = gdal.Open(str(status_vrt))
+    transform = status_ds.GetGeoTransform()
+    x_resolution, y_resolution = abs(transform[1]), abs(transform[5])
+    status_ds = None
+    pixel_weights = [
+        max(1, round((bounds[2] - bounds[0]) / x_resolution))
+        * max(1, round((bounds[3] - bounds[1]) / y_resolution))
+        for bounds in bbs
+    ]
+    work_counter = WorkCounter(
+        sum(pixel_weights),
+        ProgressReporter(progress_callback, start=0.0, end=1.0, min_step=0.005),
+        WorkCounter.make_shared(multiprocessing.get_context("spawn")),
+    )
+    initialize_process_counter(work_counter.shared)
 
     if len(wkt_aois) > 1:
         status_name_pattern = (
@@ -365,6 +401,8 @@ def compute_status_summary(
             mask_worker_params,
             status_worker_function,
             status_worker_params,
+            work_counter if parallel_backend == "thread" else None,
+            False,
         )
         for index, (wkt_aoi, this_bbs) in enumerate(zip(wkt_aois, bbs), start=1)
     ]
@@ -385,41 +423,64 @@ def compute_status_summary(
             "Using parallel processing with optimized serialization for status processing"
         )
 
+        indexed_regions = list(enumerate(region_data))
+        results = [None] * len(region_data)
         if parallel_backend == "thread":
-            from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
             with ThreadPoolExecutor(max_workers=min(n_cpus, len(wkt_aois))) as executor:
-                results = list(executor.map(_process_single_region, region_data))
+                futures = {
+                    executor.submit(_process_status_region_indexed, item): index
+                    for index, item in indexed_regions
+                }
+                pending = set(futures)
+                while pending:
+                    if killed_callback is not None and killed_callback():
+                        for future in pending:
+                            future.cancel()
+                        raise RuntimeError("Cancelled by user.")
+                    done, pending = wait(
+                        pending, timeout=0.25, return_when=FIRST_COMPLETED
+                    )
+                    work_counter.poll()
+                    for future in done:
+                        index, result = future.result()
+                        results[index] = result
                 logger.info(
                     f"Successfully completed thread-parallel processing of {len(results)} regions"
                 )
         else:
-            with multiprocessing.get_context("spawn").Pool(
-                min(n_cpus, len(wkt_aois))
-            ) as pool:
-                try:
-                    # Use map_async with timeout for better control
-                    async_result = pool.map_async(_process_single_region, region_data)
-
-                    # Wait for results with timeout
-                    results = async_result.get(timeout=STATUS_PROCESSING_TIMEOUT)
-                    logger.info(
-                        f"Successfully completed parallel processing of {len(results)} regions"
-                    )
-                except multiprocessing.TimeoutError:
-                    logger.error(
-                        f"Status processing timed out after {STATUS_PROCESSING_TIMEOUT // 3600} hours"
-                    )
-                    pool.terminate()
-                    pool.join()
-                    raise RuntimeError(
-                        f"Status processing timed out after {STATUS_PROCESSING_TIMEOUT // 3600} hours"
-                    )
-                except Exception as e:
-                    logger.error(f"Error in parallel status processing: {e}")
-                    pool.terminate()
-                    pool.join()
-                    raise RuntimeError(f"Error calculating status: {e}")
+            context = multiprocessing.get_context("spawn")
+            pool = context.Pool(
+                min(n_cpus, len(wkt_aois)),
+                initializer=initialize_process_counter,
+                initargs=(work_counter.shared,),
+            )
+            iterator = pool.imap_unordered(
+                _process_status_region_indexed, indexed_regions, chunksize=1
+            )
+            started = time.monotonic()
+            completed = 0
+            try:
+                while completed < len(region_data):
+                    if killed_callback is not None and killed_callback():
+                        raise RuntimeError("Cancelled by user.")
+                    if time.monotonic() - started > STATUS_PROCESSING_TIMEOUT:
+                        raise TimeoutError("Status processing timed out.")
+                    try:
+                        index, result = iterator.next(timeout=0.25)
+                    except multiprocessing.TimeoutError:
+                        work_counter.poll()
+                        continue
+                    results[index] = result
+                    completed += 1
+                    work_counter.poll()
+                pool.close()
+            except Exception:
+                pool.terminate()
+                raise
+            finally:
+                pool.join()
 
         # Process the simplified results and reconstruct the objects
         logger.info("Reconstructing status objects from parallel results")
@@ -450,7 +511,9 @@ def compute_status_summary(
             logger.info(
                 f"Starting sequential processing of region {i + 1}/{len(region_data)}"
             )
+            region = region[:-2] + (work_counter, True)
             result = _process_single_region(region)
+            work_counter.poll()
 
             if result is None or len(result) != 3:
                 raise RuntimeError(f"Invalid result from region {i + 1}: {result}")

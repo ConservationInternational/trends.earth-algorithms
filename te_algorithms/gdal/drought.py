@@ -5,6 +5,7 @@ import logging
 import math
 import multiprocessing
 import tempfile
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -29,6 +30,12 @@ from te_schemas.results import (
 from .. import __release_date__, __version__
 from . import util, workers, xl
 from .drought_numba import drought_class, jrc_sum_and_count
+from .progress import (
+    ProgressReporter,
+    WorkCounter,
+    initialize_process_counter,
+    record_work,
+)
 from .util_numba import calc_cell_area, cast_numba_int_dict_list_to_cpython, zonal_total
 
 NODATA_VALUE = -32768
@@ -149,6 +156,13 @@ def _expand_dims(array, in_array):
     return array
 
 
+def _sanitize_population_values(population):
+    population = population.astype(np.float64, copy=True)
+    invalid = ~np.isfinite(population) | (population == NODATA_VALUE)
+    population[invalid] = NODATA_VALUE
+    return population, invalid
+
+
 def _process_block(
     params: DroughtSummaryParams, in_array, mask, xoff: int, yoff: int, cell_areas_raw
 ) -> Tuple[SummaryTableDrought, Dict]:
@@ -210,9 +224,10 @@ def _process_block(
             pop_row_male = pop_rows_male[row_num]
             pop_row_female = pop_rows_female[row_num]
 
-            a_pop_male = in_array[pop_row_male, :, :]
-            a_pop_male_recoded = a_pop_male.astype(np.float64)
-            a_pop_male_recoded[a_pop_male == NODATA_VALUE] = 0
+            a_pop_male_recoded, male_invalid = _sanitize_population_values(
+                in_array[pop_row_male, :, :]
+            )
+            a_pop_male_recoded[male_invalid] = 0
 
             if mask_water:
                 a_pop_male_recoded[a_water_mask == 1] = 0
@@ -220,9 +235,10 @@ def _process_block(
                 zonal_total(a_drought_class, a_pop_male_recoded, mask)
             )
 
-            a_pop_female = in_array[pop_row_female, :, :]
-            a_pop_female_recoded = a_pop_female.astype(np.float64)
-            a_pop_female_recoded[a_pop_female == NODATA_VALUE] = 0
+            a_pop_female_recoded, female_invalid = _sanitize_population_values(
+                in_array[pop_row_female, :, :]
+            )
+            a_pop_female_recoded[female_invalid] = 0
 
             if mask_water:
                 a_pop_female_recoded[a_water_mask == 1] = 0
@@ -231,12 +247,14 @@ def _process_block(
             )
 
             a_pop_total_recoded = a_pop_male_recoded + a_pop_female_recoded
+            a_pop_total_recoded[~np.isfinite(a_pop_total_recoded)] = 0
 
         else:
             pop_row_total = pop_rows_total[row_num]
-            a_pop_total = in_array[pop_row_total, :, :]
-            a_pop_total_recoded = a_pop_total.astype(np.float64)
-            a_pop_total_recoded[a_pop_total == NODATA_VALUE] = 0
+            a_pop_total_recoded, total_invalid = _sanitize_population_values(
+                in_array[pop_row_total, :, :]
+            )
+            a_pop_total_recoded[total_invalid] = 0
 
             if mask_water:
                 a_pop_total_recoded[a_water_mask == 1] = 0
@@ -265,19 +283,25 @@ def _process_block(
         max_drought = np.take_along_axis(spis, min_indices, axis=0).squeeze()
 
         if pop_by_sex:
-            pop_male = in_array[pop_rows_male[first_row:last_row], :, :].astype(
-                np.float64
+            pop_male, pop_male_invalid = _sanitize_population_values(
+                in_array[pop_rows_male[first_row:last_row], :, :]
             )
-            pop_female = in_array[pop_rows_female[first_row:last_row], :, :].astype(
-                np.float64
+            pop_female, pop_female_invalid = _sanitize_population_values(
+                in_array[pop_rows_female[first_row:last_row], :, :]
             )
             pop_total = pop_male + pop_female
+            pop_total_invalid = pop_male_invalid | pop_female_invalid
         else:
-            pop_total = in_array[pop_rows_total[first_row:last_row], :, :].astype(
-                np.float64
+            pop_total, pop_total_invalid = _sanitize_population_values(
+                in_array[pop_rows_total[first_row:last_row], :, :]
             )
+        pop_total_invalid |= ~np.isfinite(pop_total)
+        pop_total[pop_total_invalid] = NODATA_VALUE
         pop_total_max_drought = np.take_along_axis(
             pop_total, min_indices, axis=0
+        ).squeeze()
+        pop_total_invalid_max_drought = np.take_along_axis(
+            pop_total_invalid, min_indices, axis=0
         ).squeeze()
 
         if pop_by_sex:
@@ -286,6 +310,12 @@ def _process_block(
             ).squeeze()
             pop_male_max_drought = np.take_along_axis(
                 pop_male, min_indices, axis=0
+            ).squeeze()
+            pop_female_invalid_max_drought = np.take_along_axis(
+                pop_female_invalid, min_indices, axis=0
+            ).squeeze()
+            pop_male_invalid_max_drought = np.take_along_axis(
+                pop_male_invalid, min_indices, axis=0
             ).squeeze()
 
         # Need to add a dimension to max_drought and pop_total_max_drought if
@@ -296,14 +326,25 @@ def _process_block(
         # second dimension of 1
 
         pop_total_max_drought = _expand_dims(pop_total_max_drought, in_array)
+        pop_total_invalid_max_drought = _expand_dims(
+            pop_total_invalid_max_drought, in_array
+        )
         max_drought = _expand_dims(max_drought, in_array)
 
         if pop_by_sex:
             pop_female_max_drought = _expand_dims(pop_female_max_drought, in_array)
             pop_male_max_drought = _expand_dims(pop_male_max_drought, in_array)
+            pop_female_invalid_max_drought = _expand_dims(
+                pop_female_invalid_max_drought, in_array
+            )
+            pop_male_invalid_max_drought = _expand_dims(
+                pop_male_invalid_max_drought, in_array
+            )
 
         pop_total_max_drought[
-            (pop_total_max_drought == NODATA_VALUE) | (max_drought == NODATA_VALUE)
+            (pop_total_max_drought == NODATA_VALUE)
+            | pop_total_invalid_max_drought
+            | (max_drought == NODATA_VALUE)
         ] = NODATA_VALUE
         exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
         pop_total_max_drought[exposed_areas] = -pop_total_max_drought[exposed_areas]
@@ -329,7 +370,9 @@ def _process_block(
 
         if pop_by_sex and period_number == (len(first_rows) - 1):
             pop_female_max_drought[
-                (pop_female_max_drought == NODATA_VALUE) | (max_drought == NODATA_VALUE)
+                (pop_female_max_drought == NODATA_VALUE)
+                | pop_female_invalid_max_drought
+                | (max_drought == NODATA_VALUE)
             ] = NODATA_VALUE
             exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
             pop_female_max_drought[exposed_areas] = -pop_female_max_drought[
@@ -341,7 +384,9 @@ def _process_block(
                 pop_female_max_drought[a_water_mask == 1] = NODATA_VALUE
 
             pop_male_max_drought[
-                (pop_male_max_drought == NODATA_VALUE) | (max_drought == NODATA_VALUE)
+                (pop_male_max_drought == NODATA_VALUE)
+                | pop_male_invalid_max_drought
+                | (max_drought == NODATA_VALUE)
             ] = NODATA_VALUE
             exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
             pop_male_max_drought[exposed_areas] = -pop_male_max_drought[exposed_areas]
@@ -497,9 +542,13 @@ def _have_pop_by_sex(in_dfs):
 
 
 class DroughtSummary:
-    def __init__(self, params: DroughtSummaryParams):
+    def __init__(
+        self, params: DroughtSummaryParams, work_counter=None, report_progress=False
+    ):
         self.params = params
         self.image_info = util.get_image_info(self.params.in_df.path)
+        self.work_counter = work_counter
+        self.report_progress = report_progress
 
     def is_killed(self):
         return False
@@ -555,6 +604,13 @@ class DroughtSummary:
 
                     for key, value in result[1].items():
                         out_ds.GetRasterBand(key).WriteArray(**value)
+
+                record_work(
+                    self.image_info.x_size * line_params.win_ysize,
+                    self.work_counter,
+                )
+                if self.report_progress and self.work_counter is not None:
+                    self.work_counter.poll()
 
             out = _accumulate_drought_summary_tables(out)
         finally:
@@ -682,7 +738,7 @@ def summarise_drought_vulnerability(
     logger.info("Computing drought summary table")
 
     if progress_callback is not None:
-        progress_callback(5)
+        progress_callback(2.0)
 
     # Create a scaled progress callback that maps tile-level progress
     # (0.0 to 1.0) into the 5%-90% window reserved for tile processing
@@ -690,7 +746,7 @@ def summarise_drought_vulnerability(
     if progress_callback is not None:
 
         def tile_progress_cb(fraction):
-            progress_callback(5 + int(85 * fraction))
+            progress_callback(2 + 93 * fraction)
 
     summary_table, out_path = _compute_drought_summary_table(
         aoi=aoi,
@@ -707,7 +763,7 @@ def summarise_drought_vulnerability(
     logger.info("Drought summary table complete")
 
     if progress_callback is not None:
-        progress_callback(90)
+        progress_callback(95.0)
 
     if killed_callback is not None and killed_callback():
         raise RuntimeError("Cancelled by user.")
@@ -801,9 +857,6 @@ def summarise_drought_vulnerability(
 
     logger.info("Drought vulnerability summary complete")
 
-    if progress_callback is not None:
-        progress_callback(95)
-
     results = RasterResults(
         name="drought_vulnerability_summary",
         uri=URI(uri=out_path),
@@ -817,6 +870,9 @@ def summarise_drought_vulnerability(
         },
         data={"report": report_json},
     )
+
+    if progress_callback is not None:
+        progress_callback(100.0)
 
     return results
 
@@ -832,72 +888,92 @@ def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
 
 
 def _aoi_process_multiprocess(
-    inputs, n_cpus, parallel_backend="process", progress_callback=None
+    inputs,
+    n_cpus,
+    parallel_backend="process",
+    progress_callback=None,
+    work_counter=None,
+    killed_callback=None,
 ):
+    indexed_inputs = list(enumerate(inputs))
+    outputs = [None] * len(inputs)
+    completed = 0
+
     if parallel_backend == "thread":
-        from concurrent.futures import ThreadPoolExecutor
-
-        n = 0
-        total_tiles = len(inputs)
-        logger.info(f"Processing {total_tiles} tiles in parallel with {n_cpus} threads")
-
-        results = []
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
         with ThreadPoolExecutor(max_workers=n_cpus) as executor:
-            for output in executor.map(_summarize_tile, inputs):
-                completed_tiles = n + 1
-                progress_percent = (completed_tiles / total_tiles) * 100
-                util.log_progress(
-                    completed_tiles / total_tiles,
-                    message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
-                )
-                if progress_callback is not None:
-                    progress_callback(completed_tiles / total_tiles)
-                error_message = output[1]
-
-                if error_message is not None:
-                    logger.error("Error %s", error_message)
-                    break
-
-                results.append(output[0])
-                n += 1
-
-        return results
-
-    with multiprocessing.get_context("spawn").Pool(n_cpus) as p:
-        n = 0
-        total_tiles = len(inputs)
-        logger.info(
-            f"Processing {total_tiles} tiles in parallel with {n_cpus} processes"
-            " (multiprocessing.Pool)"
+            futures = {
+                executor.submit(_summarize_tile, item): index
+                for index, item in indexed_inputs
+            }
+            pending = set(futures)
+            while pending:
+                if killed_callback is not None and killed_callback():
+                    for future in pending:
+                        future.cancel()
+                    raise RuntimeError("Cancelled by user.")
+                done, pending = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
+                if work_counter is not None:
+                    work_counter.poll()
+                for future in done:
+                    outputs[futures[future]] = future.result()
+                    completed += 1
+        if work_counter is not None:
+            work_counter.poll()
+    else:
+        context = multiprocessing.get_context("spawn")
+        initializer = None
+        initargs = ()
+        if work_counter is not None and work_counter.shared is not None:
+            initializer = initialize_process_counter
+            initargs = (work_counter.shared,)
+        pool = context.Pool(n_cpus, initializer=initializer, initargs=initargs)
+        iterator = pool.imap_unordered(
+            _summarize_drought_tile_indexed, indexed_inputs, chunksize=1
         )
+        started = time.monotonic()
+        try:
+            while completed < len(inputs):
+                if killed_callback is not None and killed_callback():
+                    raise RuntimeError("Cancelled by user.")
+                if time.monotonic() - started > 24 * 60 * 60:
+                    raise TimeoutError("Drought tile processing timed out.")
+                try:
+                    index, output = iterator.next(timeout=0.25)
+                except multiprocessing.TimeoutError:
+                    if work_counter is not None:
+                        work_counter.poll()
+                    continue
+                outputs[index] = output
+                completed += 1
+                if work_counter is not None:
+                    work_counter.poll()
+            pool.close()
+        except Exception:
+            pool.terminate()
+            raise
+        finally:
+            pool.join()
 
-        results = []
-
-        for output in p.imap_unordered(_summarize_tile, inputs):
-            completed_tiles = n + 1
-            progress_percent = (completed_tiles / total_tiles) * 100
-            util.log_progress(
-                completed_tiles / total_tiles,
-                message=f"Completed {completed_tiles}/{total_tiles} tiles ({progress_percent:.1f}%)",
-            )
-            if progress_callback is not None:
-                progress_callback(completed_tiles / total_tiles)
-            error_message = output[1]
-
-            if error_message is not None:
-                logger.error("Error %s", error_message)
-                p.terminate()
-
-                break
-
-            results.append(output[0])
-            n += 1
-
+    results = []
+    for output in outputs:
+        if output[1] is not None:
+            raise RuntimeError(output[1])
+        results.append(output[0])
+    if progress_callback is not None and work_counter is None:
+        progress_callback(1.0)
     return results
 
 
-def _aoi_process_sequential(inputs, killed_callback=None, progress_callback=None):
+def _summarize_drought_tile_indexed(indexed_input):
+    index, tile_input = indexed_input
+    return index, _summarize_tile(tile_input)
+
+
+def _aoi_process_sequential(
+    inputs, killed_callback=None, progress_callback=None, work_counter=None
+):
     results = []
     total_tiles = len(inputs)
     logger.info(f"Processing {total_tiles} tiles sequentially")
@@ -909,6 +985,8 @@ def _aoi_process_sequential(inputs, killed_callback=None, progress_callback=None
         tile_num = n + 1
         logger.info(f"Starting tile {tile_num}/{total_tiles}: {item.tile.name}")
         output = _summarize_tile(item)
+        if work_counter is not None:
+            work_counter.poll()
         completed_tiles = tile_num
         progress_percent = (completed_tiles / total_tiles) * 100
         util.log_progress(
@@ -946,6 +1024,7 @@ def _summarize_over_aoi(
     drought_worker_params: dict = None,
     parallel_backend: str = "process",
     progress_callback=None,
+    progress_reporter=None,
 ) -> Tuple[Optional[SummaryTableDrought], List[Path], str]:
     # Combine all raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(
@@ -1007,6 +1086,7 @@ def _summarize_over_aoi(
             indic_reproj,
             gdal.GDT_Int32,
             parallel_backend=parallel_backend,
+            output_format="VRT",
         )
         tiles = translate_worker.work()
         logger.debug("Tiles are %s", tiles)
@@ -1033,17 +1113,40 @@ def _summarize_over_aoi(
                 mask_worker_params=mask_worker_params,
                 drought_worker_function=drought_worker_function,
                 drought_worker_params=drought_worker_params,
+                report_progress=n_cpus == 1,
             )
             for tile, out_file in zip(tiles, out_files)
         ]
 
+        tile_pixels = 0
+        for tile in tiles:
+            tile_ds = gdal.Open(str(tile))
+            tile_pixels += tile_ds.RasterXSize * tile_ds.RasterYSize
+            tile_ds = None
+        if progress_reporter is None:
+            progress_reporter = ProgressReporter(
+                progress_callback, start=0.0, end=1.0, min_step=0.005
+            )
+        work_counter = WorkCounter(
+            tile_pixels,
+            progress_reporter,
+            WorkCounter.make_shared(multiprocessing.get_context("spawn")),
+        )
+        for item in inputs:
+            if parallel_backend == "thread" or n_cpus == 1:
+                item.work_counter = work_counter
+
         if n_cpus > 1:
             results = _aoi_process_multiprocess(
-                inputs, n_cpus, parallel_backend, progress_callback=progress_callback
+                inputs,
+                n_cpus,
+                parallel_backend,
+                work_counter=work_counter,
+                killed_callback=killed_callback,
             )
         else:
             results = _aoi_process_sequential(
-                inputs, killed_callback, progress_callback=progress_callback
+                inputs, killed_callback, work_counter=work_counter
             )
 
         results = _accumulate_drought_summary_tables(results)
@@ -1065,6 +1168,8 @@ class SummarizeTileInputs:
     mask_worker_params: dict = None
     drought_worker_function: Callable = None
     drought_worker_params: dict = None
+    work_counter: object = None
+    report_progress: bool = False
 
 
 def _summarize_tile(tile_input):
@@ -1116,7 +1221,9 @@ def _summarize_tile(tile_input):
                 params, **tile_input.drought_worker_params
             )
         else:
-            summarizer = DroughtSummary(params)
+            summarizer = DroughtSummary(
+                params, tile_input.work_counter, tile_input.report_progress
+            )
             result = summarizer.process_lines(summarizer.get_line_params())
 
         if not result:
@@ -1166,6 +1273,24 @@ def _compute_drought_summary_table(
     logger.debug(f"len(bbs) is {len(bbs)}")
     assert len(wkt_aois) == len(bbs)
 
+    resolutions = []
+    for data_file in in_dfs:
+        source_ds = gdal.Open(str(data_file.path))
+        if source_ds is not None:
+            transform = source_ds.GetGeoTransform()
+            resolutions.append((abs(transform[1]), abs(transform[5])))
+            source_ds = None
+    x_resolution = min(item[0] for item in resolutions)
+    y_resolution = min(item[1] for item in resolutions)
+    region_weights = [
+        max(1, round((bounds[2] - bounds[0]) / x_resolution))
+        * max(1, round((bounds[3] - bounds[1]) / y_resolution))
+        for bounds in bbs
+    ]
+    region_reporters = ProgressReporter(
+        progress_callback, start=0.0, end=1.0, min_step=0.005
+    ).split(region_weights)
+
     if len(wkt_aois) > 1:
         output_name_pattern = f"{output_job_path.stem}" + "_{index}.tif"
         mask_name_fragment = "Generating mask (part {index} of " + f"{len(bbs)})"
@@ -1180,7 +1305,9 @@ def _compute_drought_summary_table(
     summary_tables = []
     out_paths = []
 
-    for index, (wkt_aoi, pixel_aligned_bbox) in enumerate(zip(wkt_aois, bbs), start=1):
+    for index, (wkt_aoi, pixel_aligned_bbox, region_reporter) in enumerate(
+        zip(wkt_aois, bbs, region_reporters), start=1
+    ):
         if killed_callback is not None and killed_callback():
             raise RuntimeError("Cancelled by user.")
 
@@ -1199,7 +1326,7 @@ def _compute_drought_summary_table(
             n_cpus=n_cpus,
             killed_callback=killed_callback,
             parallel_backend=parallel_backend,
-            progress_callback=progress_callback,
+            progress_reporter=region_reporter,
         )
         out_paths.extend(out_files)
 

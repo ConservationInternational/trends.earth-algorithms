@@ -338,7 +338,6 @@ def cut_tile(params):
                 in_path,
                 format="VRT",
                 srcWin=params.src_win,
-                outputType=params.datatype,
             )
         except Exception as gdal_error:
             logger.error(
