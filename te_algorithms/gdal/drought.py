@@ -1630,12 +1630,12 @@ def _write_drought_pop_total_sheet(sheet, st: SummaryTableDrought, years):
 
     if len(st.annual_population_by_drought_class_female) > 0:
         _write_drought_pop_columns(
-            sheet, st.annual_population_by_drought_class_female, years, initial_row=35
+            sheet, st.annual_population_by_drought_class_female, years, initial_row=43
         )
 
     if len(st.annual_population_by_drought_class_male) > 0:
         _write_drought_pop_columns(
-            sheet, st.annual_population_by_drought_class_male, years, initial_row=63
+            sheet, st.annual_population_by_drought_class_male, years, initial_row=79
         )
 
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet, "L1")
