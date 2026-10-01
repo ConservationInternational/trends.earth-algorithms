@@ -194,6 +194,14 @@ def set_version(c, version=None):
         f"Successfully generated _version.py with version {version_to_write}, git SHA {git_sha}"
     )
 
+    conf_path = "docs/source/conf.py"
+    print(f"Updating release in {conf_path}")
+    _replace(
+        conf_path,
+        re.compile(r'^release = ".*"'),
+        f'release = "{version_to_write}"',
+    )
+
     # Update pyproject.toml dependencies based on even/odd version
     print("Updating pyproject.toml dependencies")
 
