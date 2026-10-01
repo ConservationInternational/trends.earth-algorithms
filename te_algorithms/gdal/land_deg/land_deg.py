@@ -751,7 +751,7 @@ def summarise_land_degradation(
                 aoi,
                 job_output_path,
                 effective_n_cpus,
-                target_resolution,
+                target_resolution=target_resolution,
                 killed_callback=killed_callback,
                 parallel_backend=parallel_backend,
                 progress_callback=period_progress_cb,
