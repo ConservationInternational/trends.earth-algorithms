@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.abspath("../.."))  # Source code dir relative to this
 project = "te_algorithms"
 copyright = f"2017-{date.today().year}, Conservation International"
 author = "Conservation International"
-release = "2.1.17"
+release = "2.3.4"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
