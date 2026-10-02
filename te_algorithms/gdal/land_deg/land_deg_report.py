@@ -775,33 +775,10 @@ def _write_soc_sheet(
             cell.border = xl.thin_border
             cell.number_format = "#,##0.00"
 
-    # Merge table header for SOC change table
-    sheet.merge_cells(
-        start_row=first_data_row - 3,
-        start_column=1,
-        end_row=first_data_row - 3,
-        end_column=11,
-    )
-
-    # Add SOC change in tonnes
     _add_header_cell(sheet, first_data_row - 1, 8, "Final soil organic carbon (tonnes)")
-    _add_header_cell(
-        sheet, first_data_row - 1, 9, "Change in soil organic carbon (tonnes)"
-    )
-    for row in sheet.iter_rows(
-        min_row=first_data_row, max_row=last_data_row, min_col=9, max_col=9
-    ):
-        for cell in row:
-            cell.value = (
-                f"={cell.offset(column=-1).column_letter}{cell.row} -"
-                + f"{cell.offset(column=-2).column_letter}{cell.row}"
-            )
-            cell.alignment = Alignment(horizontal="center")
-            cell.border = xl.thin_border
-            cell.number_format = "#,##0.00"
 
     for row in sheet.iter_rows(
-        min_row=last_data_row + 1, max_row=last_data_row + 1, min_col=5, max_col=9
+        min_row=last_data_row + 1, max_row=last_data_row + 1, min_col=5, max_col=8
     ):
         for cell in row:
             cell.value = (
@@ -811,22 +788,6 @@ def _write_soc_sheet(
             cell.font = Font(italic=True)
             cell.alignment = Alignment(horizontal="center")
             cell.number_format = "#,##0.00"
-
-    # Add SOC change in percent
-    _add_header_cell(
-        sheet, first_data_row - 1, 10, "Change in soil organic carbon (percent)"
-    )
-    for row in sheet.iter_rows(
-        min_row=first_data_row, max_row=last_data_row, min_col=10, max_col=10
-    ):
-        for cell in row:
-            cell.value = (
-                f"={cell.offset(column=-1).column_letter}{cell.row} /"
-                + f"{cell.offset(column=-3).column_letter}{cell.row}"
-            )
-            cell.alignment = Alignment(horizontal="center")
-            cell.border = xl.thin_border
-            cell.number_format = numbers.FORMAT_PERCENTAGE
 
     # Set value for cell showing percent change in SOC
     sheet["G11"].value = (
