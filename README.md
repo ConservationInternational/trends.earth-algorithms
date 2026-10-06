@@ -58,6 +58,11 @@ pip install -e .
 Contributions are welcome. Please report bugs or suggest improvements via the
 [issue tracker](https://github.com/ConservationInternational/trends.earth-algorithms/issues).
 
+Run the complete test suite with `pytest` after installing the test, GDAL, and
+Earth Engine dependencies. Keep dependency mocks scoped to individual tests;
+do not replace or reload `te_schemas` modules during collection, as this breaks
+lazy schema generation and multiprocessing serialization.
+
 ## Related Projects
 
 `Trends.Earth` is built from a set of interconnected repositories:

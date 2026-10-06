@@ -1,42 +1,12 @@
 import json
 import os
 from pathlib import Path
-from typing import List
-from unittest.mock import MagicMock
 
 import marshmallow_dataclass
 import pytest
+from te_schemas.results import RasterResults
 
-# Handle missing dependencies gracefully
-try:
-    from te_schemas.results import RasterResults
-
-    te_schemas_available = True
-except ImportError:
-    te_schemas_available = False
-
-    # Create a mock for testing purposes
-    class MockRasterResults:
-        class Schema:
-            def load(self, data):
-                # Return an object with empty rasters dict to simulate missing data
-                mock_obj = MagicMock()
-                mock_obj.rasters = {}
-                return mock_obj
-
-    RasterResults = MockRasterResults
-
-# Mock missing earthengine-api dependency
-import sys
-
-if "ee" not in sys.modules:
-    sys.modules["ee"] = MagicMock()
-
-# Mock other missing te_schemas modules
-if "te_schemas" not in sys.modules:
-    sys.modules["te_schemas"] = MagicMock()
-    sys.modules["te_schemas.results"] = MagicMock()
-    sys.modules["te_schemas.schemas"] = MagicMock()
+pytest.importorskip("ee")
 
 from te_algorithms.gee.util import GEEImage, TEImageV2
 
@@ -47,20 +17,22 @@ class ee_image_mock:
     Mock of ee.Image to avoid needing to call GEE API during testing
     """
 
-    bands: List[int]
+    bands: list[int | str]
 
-    def select(self, bands: List[int]):
-        self.bands = [item for item in self.bands if item in bands]
-        return self
+    def select(self, bands: list[int]):
+        return ee_image_mock([self.bands[index] for index in bands])
+
+    def rename(self, names: list[str]):
+        if len(names) != len(self.bands):
+            raise ValueError("Band names must match the image band count")
+        return ee_image_mock(list(names))
 
     def getInfo(self):
         return {"bands": [{"id": band} for band in self.bands]}
 
     def addBands(self, image):
         "Add new bands to the image"
-        last_band = max(self.bands)
-        self.bands.extend([*range(last_band + 1, last_band + 1 + len(image.bands))])
-        return self
+        return ee_image_mock(self.bands + image.bands)
 
 
 def _get_json(file):
@@ -70,10 +42,6 @@ def _get_json(file):
 
 
 def _get_TEImageV2(file):
-    if not te_schemas_available:
-        # Return a TEImageV2 with empty images when te_schemas is not available
-        return TEImageV2(images={})
-
     rr = RasterResults.Schema().load(_get_json(file))
     return TEImageV2(
         images={
@@ -102,6 +70,32 @@ def test_teimagev2_rmDuplicates():
     )
 
 
+def test_band_matching_ignores_generated_names_but_preserves_metadata():
+    from te_schemas.results import Band
+
+    bands = [
+        Band(name="Population", metadata={"year": 2019, "type": "male"}),
+        Band(name="Population", metadata={"year": 2019, "type": "male"}),
+        Band(name="Population", metadata={"year": 2020, "type": "male"}),
+        Band(name="Population", metadata={"year": 2019, "type": "female"}),
+    ]
+    image = GEEImage(ee_image_mock(list(range(4))), bands)
+    assert bands[0].metadata["gee_band_name"] != bands[1].metadata["gee_band_name"]
+    query = Band(name="Population", metadata={"year": 2019, "type": "male"})
+    assert image.match_bands([query]) == [0, 1]
+    assert image.match_bands([query], reverse=True) == [2, 3]
+
+    image.rmDuplicates()
+
+    assert [(band.metadata["year"], band.metadata["type"]) for band in image.bands] == [
+        (2019, "male"),
+        (2020, "male"),
+        (2019, "female"),
+    ]
+    assert image.match_bands([query]) == [0]
+    assert [band.metadata["gee_band_name"] for band in image.bands] == image.image.bands
+
+
 def test_teimagev2_getImage_empty_name():
     te_image = _get_TEImageV2("RasterResults_sdg-15-3-1-sub-indicators_1.json")
     assert len(te_image.getImages("non-existing image")) == 0
@@ -110,8 +104,6 @@ def test_teimagev2_getImage_empty_name():
 def test_teimagev2_getImage_empty_filter_field():
     te_image = _get_TEImageV2("RasterResults_sdg-15-3-1-sub-indicators_1.json")
 
-    # The test should work regardless of whether te_schemas is available
-    # because the assertion should be triggered before iterating over images
     with pytest.raises(AssertionError):
         te_image.getImages("non-existing image", "field_name")
 

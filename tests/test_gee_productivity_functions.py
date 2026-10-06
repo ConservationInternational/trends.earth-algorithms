@@ -3,33 +3,20 @@ Comprehensive tests for GEE productivity functions.
 Tests the core productivity algorithms: state, trajectory, performance, and faowocat.
 """
 
-import importlib
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock all external dependencies comprehensively
-ee_mock = MagicMock()
-te_schemas_mock = MagicMock()
-band_info_mock = MagicMock()
+pytest.importorskip("ee")
 
-# Setup mocking before any imports
-sys.modules["ee"] = ee_mock
-sys.modules["te_schemas"] = te_schemas_mock
-sys.modules["te_schemas.schemas"] = te_schemas_mock
-sys.modules["te_schemas.results"] = te_schemas_mock
+from te_algorithms.gee import GEEIOError, productivity
 
-# Setup BandInfo
-te_schemas_mock.schemas = MagicMock()
-te_schemas_mock.schemas.BandInfo = band_info_mock
-te_schemas_mock.results = MagicMock()
-te_schemas_mock.results.Raster = MagicMock()
-te_schemas_mock.results.TiledRaster = MagicMock()
 
-gee_module = importlib.import_module("te_algorithms.gee")
-GEEIOError = gee_module.GEEIOError
-productivity = importlib.import_module("te_algorithms.gee.productivity")
+@pytest.fixture(autouse=True)
+def mock_earth_engine(monkeypatch):
+    ee_mock = MagicMock()
+    monkeypatch.setattr(productivity, "ee", ee_mock)
+    monkeypatch.setattr(productivity.stats, "ee", ee_mock)
 
 
 class TestProductivityState:

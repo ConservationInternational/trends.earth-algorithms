@@ -33,6 +33,13 @@ def _generate_sanitized_band_names(bands):
     return names
 
 
+def _bands_match(left, right):
+    """Compare band identity without the derived Earth Engine label."""
+    return left.name == right.name and {
+        key: value for key, value in left.metadata.items() if key != "gee_band_name"
+    } == {key: value for key, value in right.metadata.items() if key != "gee_band_name"}
+
+
 # Google cloud storage bucket for output
 BUCKET = "ldmt"
 
@@ -447,7 +454,7 @@ class GEEImage:
         """
         Returns the indices of bands that match input.
 
-        Matches on BandInfo name and metadata attributes only.
+        Matches on name and metadata, excluding the generated gee_band_name.
         """
 
         # Find indices in self.bands that match the specified input bands,
@@ -455,17 +462,7 @@ class GEEImage:
         matches = [
             i
             for i, self_band in enumerate(self.bands)
-            if any(
-                [
-                    all(
-                        [
-                            band.name == self_band.name,
-                            band.metadata == self_band.metadata,
-                        ]
-                    )
-                    for band in bands
-                ]
-            )
+            if any(_bands_match(band, self_band) for band in bands)
         ]
         if reverse:
             # returns only band indices for bands that do NOT match
@@ -477,7 +474,7 @@ class GEEImage:
         """
         Removes any bands that are duplicates
 
-        Matches on BandInfo name and metadata attributes only.
+        Matches on name and metadata, excluding the generated gee_band_name.
         """
 
         duplicates = []
@@ -490,12 +487,7 @@ class GEEImage:
                     continue
                 inner_band = self.bands[inner_index]
 
-                if all(
-                    [
-                        outer_band.name == inner_band.name,
-                        outer_band.metadata == inner_band.metadata,
-                    ]
-                ):
+                if _bands_match(outer_band, inner_band):
                     duplicates.append(inner_index)
         if len(duplicates) > 0:
             self.rmBands(duplicates)

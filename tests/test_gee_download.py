@@ -8,20 +8,11 @@ Covers the three logical branches:
      behaviour preserved so existing datasets are unaffected)
 """
 
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Stub out heavy dependencies before any te_algorithms import
-# ---------------------------------------------------------------------------
-if "ee" not in sys.modules:
-    sys.modules["ee"] = MagicMock()
-if "te_schemas" not in sys.modules:
-    sys.modules["te_schemas"] = MagicMock()
-    sys.modules["te_schemas.results"] = MagicMock()
-    sys.modules["te_schemas.schemas"] = MagicMock()
+pytest.importorskip("ee")
 
 from te_algorithms.gee.download import _download_default
 

@@ -4,41 +4,13 @@ These tests verify that marshmallow-dataclass-based models defined in
 te_algorithms correctly serialize and deserialize.  They serve as a
 safety net for marshmallow version upgrades.
 
-NOTE: Other test files in this suite (e.g. test_gee_productivity_functions.py)
-unconditionally replace ``sys.modules["te_schemas"]`` with a MagicMock at
-import time.  Because pytest imports *all* test modules before running any
-tests, by the time our tests execute the real ``te_schemas`` package has
-been evicted from ``sys.modules``.  The cleanup block below detects this
-pollution and forces a fresh import of the real package.
+Schema modules must retain their identity throughout collection and execution
+so lazy schemas and multiprocessing can resolve the original dataclass types.
 """
 
 import importlib
-import sys
-from unittest.mock import MagicMock
 
 import pytest
-
-# ── Guard against sys.modules pollution from other test files ───────
-# If any te_schemas entry is a Mock, remove it so the real package can
-# be re-imported.
-_te_schemas_poisoned = any(
-    isinstance(sys.modules.get(k), MagicMock)
-    for k in list(sys.modules)
-    if k == "te_schemas" or k.startswith("te_schemas.")
-)
-if _te_schemas_poisoned:
-    for _mod in list(sys.modules):
-        if _mod == "te_schemas" or _mod.startswith("te_schemas."):
-            del sys.modules[_mod]
-    # NOTE: We intentionally do NOT remove te_algorithms.* modules here.
-    # Doing so invalidates module references held by other test files
-    # (e.g. test_gee_productivity_functions.py) which causes their
-    # @patch decorators to target a re-imported copy instead of the
-    # original module object.  The te_algorithms.gdal modules that were
-    # already imported keep a reference to the OLD SchemaBase object,
-    # so issubclass checks in tests below use MRO name comparison
-    # instead of identity to tolerate this.
-
 
 # ===================================================================
 # 1. ImageInfo round-trip (te_algorithms.gdal.util)
@@ -133,13 +105,11 @@ class TestSummaryTableLD:
         assert loaded.sdg_summary == {1: 0.5} or loaded.sdg_summary == {"1": 0.5}
 
     def test_is_schema_base(self):
+        from te_schemas import SchemaBase
+
         from te_algorithms.gdal.land_deg.models import SummaryTableLD
 
-        # Use MRO name check instead of issubclass() because module
-        # reimports (after sys.modules cleanup of mocked te_schemas)
-        # can produce a different SchemaBase class object.
-        mro_names = [cls.__name__ for cls in SummaryTableLD.__mro__]
-        assert "SchemaBase" in mro_names
+        assert issubclass(SummaryTableLD, SchemaBase)
 
     def test_dump_method(self):
         obj = self._make_summary()
