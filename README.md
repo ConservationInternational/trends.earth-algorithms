@@ -34,6 +34,8 @@ For further information on `trends.earth-algorithms` see
 
 ## Installation
 
+Python 3.12 or newer is required.
+
 GDAL must be installed before installing `trends.earth-algorithms`. On
 Ubuntu/Debian:
 

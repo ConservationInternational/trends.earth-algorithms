@@ -161,7 +161,11 @@ def get_image_info(path: pathlib.Path):
 
 
 def setup_output_image(
-    in_file: pathlib.Path, out_file: pathlib.Path, n_bands: int, image_info: ImageInfo
+    in_file: pathlib.Path | str,
+    out_file: pathlib.Path | str,
+    n_bands: int,
+    image_info: ImageInfo,
+    datatype: int = gdal.GDT_Int16,
 ):
     driver = gdal.GetDriverByName("GTiff")
     dst_ds = driver.Create(
@@ -169,7 +173,7 @@ def setup_output_image(
         image_info.x_size,
         image_info.y_size,
         n_bands,
-        gdal.GDT_Int16,
+        datatype,
         options=["COMPRESS=LZW"],
     )
     src_ds = gdal.Open(str(in_file))

@@ -25,6 +25,7 @@ from te_schemas.results import (
     Raster,
     RasterFileType,
     RasterResults,
+    TiledRaster,
 )
 
 from .. import __release_date__, __version__
@@ -131,12 +132,40 @@ def _accumulate_drought_summary_tables(
         return out
 
 
+def _get_population_output_path(output_path: Path) -> Path:
+    return output_path.with_name(f"{output_path.stem}_population.tif")
+
+
 @dataclasses.dataclass()
 class DroughtSummaryParams(SchemaBase):
+    """Write indicators to out_file and population to a separate Float32 TIFF."""
+
     in_df: DataFile
     out_file: str
     drought_period: int
     mask_file: str
+    population_out_file: str | None = None
+
+    def __post_init__(self):
+        if self.population_out_file is None:
+            self.population_out_file = str(
+                _get_population_output_path(Path(self.out_file))
+            )
+        if Path(self.population_out_file).resolve() == Path(self.out_file).resolve():
+            raise ValueError("Indicator and population outputs must use different paths")
+
+
+def _get_output_band_indices(
+    n_periods: int, pop_by_sex: bool
+) -> dict[DataType, list[int]]:
+    """Map logical block outputs to physical raster bands (all 1-based)."""
+    indices = {
+        DataType.INT16: [2 * period + 1 for period in range(n_periods)],
+        DataType.FLOAT32: [2 * period + 2 for period in range(n_periods)],
+    }
+    if pop_by_sex:
+        indices[DataType.FLOAT32].extend([2 * n_periods + 1, 2 * n_periods + 2])
+    return indices
 
 
 def _expand_dims(array, in_array):
@@ -338,7 +367,11 @@ def _process_block(
             | pop_total_invalid_max_drought
             | (max_drought == NODATA_VALUE)
         ] = NODATA_VALUE
-        exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
+        exposed_areas = (
+            (max_drought < 0)
+            & (max_drought > NODATA_VALUE)
+            & (pop_total_max_drought != NODATA_VALUE)
+        )
         pop_total_max_drought[exposed_areas] = -pop_total_max_drought[exposed_areas]
         # Set water to NODATA_VALUE as requested by UNCCD for Prais
         if is_water is not None:
@@ -365,7 +398,11 @@ def _process_block(
                 | pop_female_invalid_max_drought
                 | (max_drought == NODATA_VALUE)
             ] = NODATA_VALUE
-            exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
+            exposed_areas = (
+                (max_drought < 0)
+                & (max_drought > NODATA_VALUE)
+                & (pop_female_max_drought != NODATA_VALUE)
+            )
             pop_female_max_drought[exposed_areas] = -pop_female_max_drought[
                 exposed_areas
             ]
@@ -378,7 +415,11 @@ def _process_block(
                 | pop_male_invalid_max_drought
                 | (max_drought == NODATA_VALUE)
             ] = NODATA_VALUE
-            exposed_areas = (max_drought < 0) & (max_drought > NODATA_VALUE)
+            exposed_areas = (
+                (max_drought < 0)
+                & (max_drought > NODATA_VALUE)
+                & (pop_male_max_drought != NODATA_VALUE)
+            )
             pop_male_max_drought[exposed_areas] = -pop_male_max_drought[exposed_areas]
             # Set water to NODATA_VALUE as requested by UNCCD for Prais
             if is_water is not None:
@@ -540,6 +581,13 @@ class DroughtSummary:
         self.image_info = util.get_image_info(self.params.in_df.path)
         self.work_counter = work_counter
         self.report_progress = report_progress
+        n_periods = math.ceil(
+            len(self.params.in_df.indices_for_name(SPI_SPEI_BAND_NAMES))
+            / self.params.drought_period
+        )
+        self.output_band_indices = _get_output_band_indices(
+            n_periods, _have_pop_by_sex([self.params.in_df])
+        )
 
     def is_killed(self):
         return False
@@ -581,7 +629,12 @@ class DroughtSummary:
         return line_params
 
     def process_lines(self, line_params_list):
-        out_ds = self._get_out_ds()
+        output_datasets = self._get_out_datasets()
+        output_bands = {
+            logical_index: (datatype, physical_index)
+            for datatype, indices in self.output_band_indices.items()
+            for physical_index, logical_index in enumerate(indices, start=1)
+        }
         src_ds = gdal.Open(str(self.params.in_df.path))
         mask_ds = gdal.Open(self.params.mask_file)
         mask_band = mask_ds.GetRasterBand(1)
@@ -597,7 +650,10 @@ class DroughtSummary:
                     out.append(result[0])
 
                     for key, value in result[1].items():
-                        out_ds.GetRasterBand(key).WriteArray(**value)
+                        datatype, band_index = output_bands[key]
+                        output_datasets[datatype].GetRasterBand(
+                            band_index
+                        ).WriteArray(**value)
 
                 record_work(
                     self.image_info.x_size * line_params.win_ysize,
@@ -608,37 +664,37 @@ class DroughtSummary:
 
             out = _accumulate_drought_summary_tables(out)
         finally:
-            # Ensure the output dataset is properly closed to flush data to disk
-            if out_ds is not None:
-                out_ds.FlushCache()
-                out_ds = None
-                logger.info(
-                    f"Output dataset closed successfully for file: {self.params.out_file}"
-                )
+            for dataset in output_datasets.values():
+                dataset.FlushCache()
+            output_datasets.clear()
+            dataset = None
+            logger.info("Drought indicator and population output datasets closed")
 
         return out
 
-    def _get_out_ds(self):
-        n_out_bands = int(
-            2
-            * math.ceil(
-                len(self.params.in_df.indices_for_name(SPI_SPEI_BAND_NAMES))
-                / self.params.drought_period
+    def _get_out_datasets(self):
+        assert self.params.population_out_file is not None
+        paths = {
+            DataType.INT16: self.params.out_file,
+            DataType.FLOAT32: self.params.population_out_file,
+        }
+        datatypes = {
+            DataType.INT16: gdal.GDT_Int16,
+            DataType.FLOAT32: gdal.GDT_Float32,
+        }
+        datasets = {}
+        for datatype, path in paths.items():
+            dataset = util.setup_output_image(
+                self.params.in_df.path,
+                path,
+                len(self.output_band_indices[datatype]),
+                self.image_info,
+                datatype=datatypes[datatype],
             )
-        )
-
-        if _have_pop_by_sex([self.params.in_df]):
-            # If have population disaggregated by sex, then the total
-            # population at max drought layer is written for each period except
-            # for the last, which also includes male/female totals - so need
-            # two more out bands
-            n_out_bands += 2
-
-        out_ds = util.setup_output_image(
-            self.params.in_df.path, self.params.out_file, n_out_bands, self.image_info
-        )
-
-        return out_ds
+            for band_index in range(1, dataset.RasterCount + 1):
+                dataset.GetRasterBand(band_index).SetNoDataValue(NODATA_VALUE)
+            datasets[datatype] = dataset
+        return datasets
 
 
 def _get_population_band_instance(population_type, year_initial, year_final):
@@ -742,7 +798,7 @@ def summarise_drought_vulnerability(
         def tile_progress_cb(fraction):
             progress_callback(2 + 93 * fraction)
 
-    summary_table, out_path = _compute_drought_summary_table(
+    summary_table, output_tiles = _compute_drought_summary_table(
         aoi=aoi,
         compute_bbs_from=params["layer_spi_path"],
         output_job_path=job_output_path.parent / f"{job_output_path.stem}.json",
@@ -810,18 +866,60 @@ def summarise_drought_vulnerability(
                 _get_population_band_instance("male", year_initial, year_final)
             )
 
-    out_df = DataFile(out_path.name, out_bands)
+    output_band_indices = _get_output_band_indices(
+        len(year_initials), _have_pop_by_sex(spi_dfs + population_dfs)
+    )
+    rasters: dict[str, Raster | TiledRaster] = {}
+    raster_paths = []
+    for datatype, indices in output_band_indices.items():
+        bands = [out_bands[index - 1] for index in indices]
+        band_names = util.generate_sanitized_band_names(bands)
+        tile_paths = output_tiles[datatype]
+        for tile_path in tile_paths:
+            dataset = gdal.Open(str(tile_path), gdal.GA_Update)
+            for band_index, band_name in enumerate(band_names, start=1):
+                dataset.GetRasterBand(band_index).SetDescription(band_name)
+            dataset.FlushCache()
+            dataset = None
 
-    # Embed band descriptions so they are available when this function is
-    # called outside the QGIS plugin (e.g. from the CLI or unit tests).
-    band_names = util.generate_sanitized_band_names(out_df.bands)
-    _ds = gdal.Open(str(out_path), gdal.GA_Update)
-    if _ds is not None:
-        for _i, _name in enumerate(band_names, start=1):
-            if _i <= _ds.RasterCount:
-                _ds.GetRasterBand(_i).SetDescription(_name)
-        _ds.FlushCache()
-        _ds = None
+        if len(tile_paths) == 1:
+            raster_path = tile_paths[0]
+            raster = Raster(
+                uri=URI(uri=raster_path),
+                bands=bands,
+                datatype=datatype,
+                filetype=RasterFileType.GEOTIFF,
+            )
+        else:
+            raster_path = job_output_path.parent / (
+                f"{job_output_path.stem}_{datatype.value.lower()}.vrt"
+            )
+            mosaic = gdal.BuildVRT(str(raster_path), [str(p) for p in tile_paths])
+            mosaic.FlushCache()
+            mosaic = None
+            raster = TiledRaster(
+                uri=URI(uri=raster_path),
+                tile_uris=[URI(uri=p) for p in tile_paths],
+                bands=bands,
+                datatype=datatype,
+                filetype=RasterFileType.GEOTIFF,
+            )
+        rasters[datatype.value] = raster
+        raster_paths.append(raster_path)
+
+    out_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
+    combined_bands = [band for raster in rasters.values() for band in raster.bands]
+    util.combine_all_bands_into_vrt(
+        raster_paths,
+        out_path,
+        band_names=util.generate_sanitized_band_names(combined_bands),
+    )
+    dataset = gdal.Open(str(out_path), gdal.GA_Update)
+    for band_index in range(1, dataset.RasterCount + 1):
+        dataset.GetRasterBand(band_index).SetNoDataValue(NODATA_VALUE)
+    dataset.FlushCache()
+    dataset = None
+    out_df = DataFile(out_path.name, combined_bands)
 
     logger.info("Saving report JSON, band key, and summary Excel")
     # Also save bands to a key file for ease of use in PRAIS
@@ -854,14 +952,7 @@ def summarise_drought_vulnerability(
     results = RasterResults(
         name="drought_vulnerability_summary",
         uri=URI(uri=out_path),
-        rasters={
-            DataType.INT16.value: Raster(
-                uri=URI(uri=out_path),
-                bands=out_df.bands,
-                datatype=DataType.INT16,
-                filetype=RasterFileType.COG,
-            )
-        },
+        rasters=rasters,
         data={"report": report_json},
     )
 
@@ -993,7 +1084,7 @@ def _aoi_process_sequential(
 
         if error_message is not None:
             logger.error("Error %s", error_message)
-            break
+            raise RuntimeError(error_message)
 
         results.append(output[0])
 
@@ -1019,7 +1110,7 @@ def _summarize_over_aoi(
     parallel_backend: str = "process",
     progress_callback=None,
     progress_reporter=None,
-) -> Tuple[Optional[SummaryTableDrought], List[Path], str]:
+) -> tuple[SummaryTableDrought | None, dict[DataType, list[Path]], str]:
     # Combine all raster into a VRT and crop to the AOI
     indic_vrt = tempfile.NamedTemporaryFile(
         suffix="_drought_indicators.vrt", delete=False
@@ -1042,7 +1133,7 @@ def _summarize_over_aoi(
     logger.info(f"Reprojecting inputs and saving to {indic_reproj}")
 
     error_message = ""
-    out_files = []
+    output_tiles = {DataType.INT16: [], DataType.FLOAT32: []}
 
     if translate_worker_function:
         tiles = translate_worker_function(
@@ -1078,7 +1169,7 @@ def _summarize_over_aoi(
             indic_vrt,
             effective_cpus,
             indic_reproj,
-            gdal.GDT_Int32,
+            gdal.GDT_Float32,
             parallel_backend=parallel_backend,
             output_format="VRT",
         )
@@ -1110,6 +1201,10 @@ def _summarize_over_aoi(
                 report_progress=n_cpus == 1,
             )
             for tile, out_file in zip(tiles, out_files)
+        ]
+        output_tiles[DataType.INT16] = out_files
+        output_tiles[DataType.FLOAT32] = [
+            _get_population_output_path(item.out_file) for item in inputs
         ]
 
         tile_pixels = 0
@@ -1148,7 +1243,7 @@ def _summarize_over_aoi(
         error_message = "Error reprojecting layers."
         results = None
 
-    return results, out_files, error_message
+    return results, output_tiles, error_message
 
 
 @dataclasses.dataclass()
@@ -1221,27 +1316,19 @@ def _summarize_tile(tile_input):
             result = summarizer.process_lines(summarizer.get_line_params())
 
         if not result:
-            if result.is_killed():
-                error_message = (
-                    f"Cancelled calculation of summary table for tile {tile_name}."
-                )
-            else:
-                error_message = f"Error calculating summary table for tile {tile_name}."
-                result = None
+            error_message = f"Error calculating summary table for tile {tile_name}."
+            result = None
         else:
             logger.info("Completed processing tile: %s", tile_name)
             result.cast_to_cpython()
 
-            # Validate that the output file was created successfully
-            if Path(tile_input.out_file).exists():
-                file_size = Path(tile_input.out_file).stat().st_size
-                logger.info(
-                    f"Output file created successfully: {tile_input.out_file} (size: {file_size} bytes)"
-                )
-            else:
-                logger.error(f"Output file was not created: {tile_input.out_file}")
-                error_message = f"Output file was not created for tile {tile_name}."
-                result = None
+            assert params.population_out_file is not None
+            for output_file in (params.out_file, params.population_out_file):
+                if not Path(output_file).exists():
+                    error_message = f"Output file was not created: {output_file}"
+                    logger.error(error_message)
+                    result = None
+                    break
     else:
         error_message = f"Error creating mask for tile {tile_name}."
         result = None
@@ -1259,8 +1346,8 @@ def _compute_drought_summary_table(
     killed_callback=None,
     parallel_backend: str = "process",
     progress_callback=None,
-) -> Tuple[SummaryTableDrought, Path]:
-    """Computes summary table and the output tif file(s)"""
+) -> tuple[SummaryTableDrought, dict[DataType, list[Path]]]:
+    """Compute summary tables and collect physical tiles for each datatype."""
     wkt_aois = aoi.meridian_split(as_extent=False, out_format="wkt")
     logger.debug(f"len(wkt_aois) is {len(wkt_aois)}")
     bbs = aoi.get_aligned_output_bounds(compute_bbs_from)
@@ -1297,7 +1384,7 @@ def _compute_drought_summary_table(
         drought_name_fragment = "Calculating summary table"
 
     summary_tables = []
-    out_paths = []
+    output_tiles = {DataType.INT16: [], DataType.FLOAT32: []}
 
     for index, (wkt_aoi, pixel_aligned_bbox, region_reporter) in enumerate(
         zip(wkt_aois, bbs, region_reporters), start=1
@@ -1322,7 +1409,8 @@ def _compute_drought_summary_table(
             parallel_backend=parallel_backend,
             progress_reporter=region_reporter,
         )
-        out_paths.extend(out_files)
+        for datatype, paths in out_files.items():
+            output_tiles[datatype].extend(paths)
 
         if result is None:
             raise RuntimeError(error_message)
@@ -1331,13 +1419,7 @@ def _compute_drought_summary_table(
 
     summary_table = _accumulate_drought_summary_tables(summary_tables)
 
-    if len(out_paths) > 1:
-        out_path = output_job_path.parent / f"{output_job_path.stem}.vrt"
-        gdal.BuildVRT(str(out_path), [str(p) for p in out_paths])
-    else:
-        out_path = out_paths[0]
-
-    return summary_table, out_path
+    return summary_table, output_tiles
 
 
 def save_summary_table_excel(

@@ -6,7 +6,7 @@
 
 **Repository Stats:**
 - Size: ~1.7MB, 35 Python files
-- Python 3.8-3.13 support
+- Python 3.12-3.14 support
 - Modern packaging (pyproject.toml)
 - MIT licensed
 
@@ -89,7 +89,7 @@ te_algorithms/
 
 ### GitHub Actions Workflows
 1. **ruff.yaml** - Code linting on every push/PR
-2. **test.yaml** - Test suite across Python 3.9-3.13 on Ubuntu
+2. **test.yaml** - Test suite across Python 3.12-3.13 on Ubuntu
 
 ### Known CI Issues & Workarounds
 - Tests require GDAL system packages (automatically installed in CI)
