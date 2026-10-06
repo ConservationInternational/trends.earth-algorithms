@@ -35,21 +35,32 @@ except ImportError:
     )
 
 
-def test_import_does_not_initialize_pycc(monkeypatch):
+@pytest.mark.parametrize("numba_available", [True, False])
+def test_import_does_not_initialize_pycc(monkeypatch, numba_available):
     module_name = "te_algorithms.gdal.land_deg.land_deg_numba"
+    fake_numba = types.ModuleType("numba")
     fake_pycc = types.ModuleType("numba.pycc")
+
+    def jit(*args, **kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
 
     class FailingCC:
         def __init__(self, name):
             raise RuntimeError(f"AOT compiler initialized for {name}")
 
+    fake_numba.jit = jit
     fake_pycc.CC = FailingCC
+    monkeypatch.setitem(sys.modules, "numba", fake_numba if numba_available else None)
     monkeypatch.setitem(sys.modules, "numba.pycc", fake_pycc)
     monkeypatch.delitem(sys.modules, module_name)
 
     imported = importlib.import_module(module_name)
 
-    assert imported.HAVE_NUMBA is True
+    assert imported.HAVE_NUMBA is numba_available
+    assert isinstance(imported.cc, imported.DecoratorSubstitute)
 
 
 class TestRecodeIndicatorErrors:

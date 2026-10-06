@@ -412,7 +412,7 @@ class TestReportWriter(unittest.TestCase):
                     "total_avoided_losses_km2": 1.5,
                 },
             ],
-            "by_zone": [
+            "by_jurisdiction": [
                 {
                     "name": "Region A",
                     "code": 1,
@@ -433,6 +433,19 @@ class TestReportWriter(unittest.TestCase):
         wb = openpyxl.load_workbook(out)
         self.assertIn("Scenario by Land Type", wb.sheetnames)
         self.assertIn("Scenario by Jurisdiction", wb.sheetnames)
+        land_type_sheet = wb["Scenario by Land Type"]
+        jurisdiction_sheet = wb["Scenario by Jurisdiction"]
+        self.assertEqual(land_type_sheet.cell(4, 1).value, "Land Type")
+        self.assertEqual(jurisdiction_sheet.cell(4, 1).value, "Jurisdiction")
+        self.assertEqual(
+            [cell.value for cell in land_type_sheet[5][:6]],
+            ["Cropland", 2.0, 1.0, 0.5, 2.0, 1.5],
+        )
+        self.assertEqual(
+            [cell.value for cell in jurisdiction_sheet[5][:6]],
+            ["Region A", 1.0, 1.0, 0.5, 1.0, 1.5],
+        )
+        wb.close()
 
 
 class TestBauScenarioComparison(unittest.TestCase):

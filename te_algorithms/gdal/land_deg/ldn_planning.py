@@ -1048,7 +1048,7 @@ def apply_scenario(
 
     Returns:
         (summary_dict, output_raster_path). summary_dict includes the national
-        totals plus ``by_land_type`` and ``by_zone`` lists.
+        totals plus ``by_land_type`` and ``by_jurisdiction`` lists.
 
     Phase 1 note: avoided losses are reported as an *upper bound*
     (expected treated area of at-risk/healthy land); weighting by BAU
@@ -1329,7 +1329,7 @@ def project_scenario_against_bau(
     Returns ``None`` when the BAU summary lacks a reporting period (no
     projection is possible). Otherwise returns a dict with national trajectory
     points, the neutrality flag, and — when both sides expose per-zone data —
-    a ``by_zone`` list joining BAU shortfall with scenario contributions.
+    a ``by_jurisdiction`` list joining BAU shortfall with scenario contributions.
     """
     proj_key = f"bau_projection_{target_year}_km2"
     bau_projection = bau_summary.get(proj_key)
