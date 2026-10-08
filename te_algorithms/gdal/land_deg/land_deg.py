@@ -1530,7 +1530,10 @@ def _build_period_rasters(
             if (band.name == config.POPULATION_BAND_NAME)
             == (datatype == DataType.FLOAT32)
         ]
-        typed_reproj_path = Path(util.save_vrt2(reproj_path, band_indices))
+        typed_reproj_path = sub_job_output_path.with_name(
+            f"{sub_job_output_path.stem}_inputs_{datatype.value.lower()}.vrt"
+        )
+        util.save_vrt2(reproj_path, band_indices, output_path=typed_reproj_path)
         typed_reproj_df = DataFile(
             typed_reproj_path,
             [reproj_df.bands[index - 1] for index in band_indices],
@@ -1727,6 +1730,19 @@ def _summarize_tile(inputs: SummarizeTileInputs):
             logger.info("Completed processing tile: %s", tile_name)
             result = models.accumulate_summarytableld(result)
             result.cast_to_cpython()  # needed for multiprocessing
+            if inputs.materialized_path is not None and inputs.in_file.suffix == ".vrt":
+                # Retain the tile filename without retaining its temporary inputs.
+                tile_ds = gdal.Translate(
+                    str(inputs.in_file),
+                    str(inputs.materialized_path),
+                    format="VRT",
+                )
+                if tile_ds is None:
+                    raise RuntimeError(
+                        f"Could not persist materialized inputs for tile {tile_name}."
+                    )
+                tile_ds.FlushCache()
+                tile_ds = None
 
     return (
         result,

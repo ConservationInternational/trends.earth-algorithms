@@ -1,9 +1,11 @@
 import json
 import logging
+import os
 import pathlib
 import shutil
 import tempfile
 from typing import List, Optional
+from xml.sax.saxutils import escape
 
 import marshmallow_dataclass
 from defusedxml.ElementTree import parse
@@ -200,6 +202,23 @@ def get_sourcefiles_in_vrt(vrt):
     return list(set(filenames))
 
 
+def _get_vrt_source_path(
+    in_file: str | pathlib.PurePath,
+    out_file: pathlib.PurePath,
+    is_relative: bool,
+) -> tuple[str, int]:
+    source_path = str(in_file)
+    relative = 0
+    if is_relative and not source_path.startswith("/vsi"):
+        try:
+            source_path = os.path.relpath(source_path, str(out_file.parent))
+            relative = 1
+        except ValueError:
+            # Windows paths on different drives cannot be made relative.
+            pass
+    return escape(source_path), relative
+
+
 def combine_all_bands_into_vrt(
     in_files: List[pathlib.Path],
     out_file: pathlib.Path,
@@ -241,6 +260,7 @@ def combine_all_bands_into_vrt(
 
     for file_num, in_file in enumerate(in_files):
         logger.debug("Adding %s (file number %s)", in_file, file_num)
+        source_path, relative = _get_vrt_source_path(in_file, out_file, is_relative)
         in_ds = gdal.Open(str(in_file))
         this_gt = in_ds.GetGeoTransform()
         logger.debug("this_gt %s", this_gt)
@@ -299,8 +319,8 @@ def combine_all_bands_into_vrt(
 
             md = {}
             md["source_0"] = simple_source_raw.format(
-                is_relative=1 if is_relative else 0,
-                source_path=in_file,
+                is_relative=relative,
+                source_path=source_path,
                 source_band_num=band_num,
                 out_Xsize=out_Xsize,
                 out_Ysize=out_Ysize,
@@ -309,16 +329,6 @@ def combine_all_bands_into_vrt(
 
         in_ds = None
     out_ds = None
-
-    # Use a regex to remove the parent elements from the paths for each band
-    # (have to include them when setting metadata or else GDAL throws an error)
-    fh, new_file = tempfile.mkstemp()
-    new_file = pathlib.Path(new_file)
-    with new_file.open("w", encoding="utf-8") as fh_new, out_file.open() as fh_old:
-        for line in fh_old:
-            fh_new.write(line.replace(str(out_file.parents[0]) + "/", ""))
-    out_file.unlink()
-    shutil.copy(str(new_file), str(out_file))
 
     return True
 
@@ -331,13 +341,24 @@ def save_vrt(source_path: pathlib.Path, source_band_index: int) -> str:
     return temporary_file.name
 
 
-def save_vrt2(source_path: pathlib.Path, source_band_indices: List[int]) -> str:
-    """Supports saving multiple bands"""
-    temporary_file = tempfile.NamedTemporaryFile(suffix=".vrt", delete=False)
-    temporary_file.close()
-    gdal.BuildVRT(temporary_file.name, str(source_path), bandList=source_band_indices)
-
-    return temporary_file.name
+def save_vrt2(
+    source_path: pathlib.Path,
+    source_band_indices: List[int],
+    output_path: pathlib.Path | None = None,
+) -> str:
+    """Select bands into a persistent output path, or a temporary VRT if omitted."""
+    if output_path is None:
+        temporary_file = tempfile.NamedTemporaryFile(suffix=".vrt", delete=False)
+        temporary_file.close()
+        output_path = pathlib.Path(temporary_file.name)
+    dataset = gdal.BuildVRT(
+        str(output_path), str(source_path), bandList=source_band_indices
+    )
+    if dataset is None:
+        raise RuntimeError(f"Could not build band-selection VRT: {output_path}")
+    dataset.FlushCache()
+    dataset = None
+    return str(output_path)
 
 
 def wkt_geom_to_geojson_file_string(wkt):
