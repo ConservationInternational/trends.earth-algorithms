@@ -22,6 +22,7 @@ from . import config, models, worker
 from .land_deg_numba import (
     calc_deg_soc,
     prod5_to_prod3,
+    recode_deg_soc,
     sdg_status_expanded,
     sdg_status_expanded_to_simple,
 )
@@ -992,7 +993,11 @@ def _process_block_status(
     sdg_baseline = in_array[params.band_dict["sdg_baseline_bandnum"] - 1, :, :]
     prod5_baseline = in_array[params.band_dict["prod5_baseline_bandnum"] - 1, :, :]
     lc_deg_baseline = in_array[params.band_dict["lc_deg_baseline_bandnum"] - 1, :, :]
-    soc_deg_baseline = in_array[params.band_dict["soc_deg_baseline_bandnum"] - 1, :, :]
+    # The baseline SOC degradation band holds percent change in SOC, so recode
+    # it to -1/0/1 classes (masking water) as is done for the baseline SDG
+    soc_deg_baseline = recode_deg_soc(
+        in_array[params.band_dict["soc_deg_baseline_bandnum"] - 1, :, :], water
+    )
 
     # Pre-process baseline productivity data
     # Recode zeros in prod5 to config.NODATA_VALUE as the JRC LPD on

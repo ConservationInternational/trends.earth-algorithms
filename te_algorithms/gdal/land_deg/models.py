@@ -88,7 +88,6 @@ class DegradationSummaryParams(SchemaBase):
     trans_matrix: land_cover.LCTransitionDefinitionDeg
     period_name: str
     periods: dict
-    error_recode: Optional[Dict] = dataclasses.field(default_factory=dict)
     population_out_file: Optional[str] = None
     n_population_out_bands: int = 0
 

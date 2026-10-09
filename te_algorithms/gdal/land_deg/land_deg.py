@@ -38,7 +38,6 @@ from .land_deg_numba import (
     calc_prod5,
     prod5_to_prod3,
     recode_deg_soc,
-    recode_indicator_errors,
     recode_state,
     recode_traj,
 )
@@ -1119,12 +1118,6 @@ def _process_block_summary(
     # Recode deg_prod5 as stable, degraded, improved (deg_prod3)
     deg_prod3 = prod5_to_prod3(deg_prod5)
 
-    if "prod" in params.error_recode:
-        prod_error_recode = in_array[
-            params.in_df.index_for_name(config.PROD_DEG_ERROR_RECODE_BAND_NAME), :, :
-        ]
-        recode_indicator_errors(deg_prod3, prod_error_recode)
-
     ###########################################################
     # Calculate LC transition arrays
     lc_deg_band_period = params.periods["land_cover"]
@@ -1271,27 +1264,9 @@ def _process_block_summary(
     deg_soc = in_array[soc_deg_band_idx, :, :]
     deg_soc = recode_deg_soc(deg_soc, water)
 
-    if "soc" in params.error_recode:
-        soc_error_recode = in_array[
-            params.in_df.index_for_name(config.SOC_DEG_ERROR_RECODE_BAND_NAME), :, :
-        ]
-        deg_soc = recode_indicator_errors(deg_soc, soc_error_recode)
-
     deg_lc = in_array[lc_deg_band_idx, :, :]
 
-    if "lc" in params.error_recode:
-        lc_error_recode = in_array[
-            params.in_df.index_for_name(config.LC_DEG_ERROR_RECODE_BAND_NAME), :, :
-        ]
-        deg_lc = recode_indicator_errors(deg_lc, lc_error_recode)
-
     deg_sdg = calc_deg_sdg(deg_prod3, deg_lc, deg_soc)
-
-    if "sdg" in params.error_recode:
-        sdg_error_recode = in_array[
-            params.in_df.index_for_name(config.SDG_DEG_ERROR_RECODE_BAND_NAME), :, :
-        ]
-        deg_sdg = recode_indicator_errors(deg_sdg, sdg_error_recode)
 
     write_arrays.append({"array": deg_sdg, "xoff": xoff, "yoff": yoff})
 

@@ -796,7 +796,7 @@ class TestHelperFunctions(unittest.TestCase):
         # 5-class productivity data: 1,2=degraded, 3,4=stable, 5=improved, 0=nodata
         self.prod_array = np.array([[1, 2, 3, 4], [5, 0, 1, 2]], dtype=np.int16)
 
-        # SOC data: <=-10=degraded, 0=stable, >=10=improved
+        # SOC data (percent change): <=-10=degraded, -10 to 10=stable, >=10=improved
         self.soc_array = np.array(
             [[-50, -10, 0, 10], [20, -32768, -5, 15]], dtype=np.int16
         )
@@ -860,7 +860,16 @@ class TestHelperFunctions(unittest.TestCase):
         result = land_deg_stats._get_stable_mask(
             config.SOC_DEG_BAND_NAME, self.soc_array
         )
-        expected = np.array([[False, False, True, False], [False, False, False, False]])
+        expected = np.array([[False, False, True, False], [False, False, True, False]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_soc_band_thresholds_are_ten_percent(self):
+        """SOC classes split at +/-10% change, not at the -1/0/1 class codes."""
+        soc = np.array([-101, -11, -10, -9, -1, 0, 1, 9, 10, 11, -32768], np.int16)
+        result = land_deg_stats._recode_to_common_classes(
+            config.SOC_DEG_BAND_NAME, soc, self.nodata
+        )
+        expected = np.array([-1, -1, -1, 0, 0, 0, 0, 0, 1, 1, -32768], np.int16)
         np.testing.assert_array_equal(result, expected)
 
     def test_get_improved_mask_sdg_bands(self):
@@ -938,7 +947,7 @@ class TestHelperFunctions(unittest.TestCase):
         result = land_deg_stats._recode_to_common_classes(
             config.SOC_DEG_BAND_NAME, self.soc_array, self.nodata
         )
-        expected = np.array([[-1, -1, 0, 1], [1, -32768, -32768, 1]], dtype=np.int16)
+        expected = np.array([[-1, -1, 0, 1], [1, -32768, 0, 1]], dtype=np.int16)
         np.testing.assert_array_equal(result, expected)
 
     def test_recode_preserves_nodata(self):

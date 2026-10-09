@@ -60,9 +60,11 @@ def _get_stable_mask(band_name, masked):
         config.SDG_BAND_NAME,
         config.LC_DEG_BAND_NAME,
         config.LC_DEG_COMPARISON_BAND_NAME,
-        config.SOC_DEG_BAND_NAME,
     ]:
         return masked == 0
+    elif band_name == config.SOC_DEG_BAND_NAME:
+        # SOC degradation is percent change: stable is a change within +/-10%
+        return np.logical_and(masked > -10, masked < 10)
     elif band_name in [config.SDG_STATUS_BAND_NAME]:
         return masked == 4
     elif band_name in [
