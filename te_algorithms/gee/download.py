@@ -110,6 +110,7 @@ def _download_worldpop(asset, name, temporal_resolution, year_initial, year_fina
 def _get_population(year, asset, add_to_map=False):
     """Return WorldPop population data for a given year"""
     wp = ee.ImageCollection(asset).filterDate(f"{year}-01-01", f"{int(year) + 1}-01-01")
+    native_projection = wp.first().select("male").projection()
 
     wp = (
         wp.select("male")
@@ -117,6 +118,7 @@ def _get_population(year, asset, add_to_map=False):
         .rename(f"Population_{year}_male")
         .addBands(wp.select("female").toBands().rename(f"Population_{year}_female"))
     )
+    wp = _population_counts_to_density(wp, native_projection)
 
     return {
         "image": wp,
@@ -126,6 +128,7 @@ def _get_population(year, asset, add_to_map=False):
                 metadata={
                     "year": year,
                     "type": "male",
+                    "units": "people per hectare",
                 },
                 add_to_map=add_to_map,
             ),
@@ -134,6 +137,7 @@ def _get_population(year, asset, add_to_map=False):
                 metadata={
                     "year": year,
                     "type": "female",
+                    "units": "people per hectare",
                 },
                 add_to_map=add_to_map,
             ),
@@ -181,9 +185,11 @@ def _get_gpw_population(year, asset, add_to_map=False):
     gpw = ee.ImageCollection(asset).filterDate(
         f"{year}-01-01", f"{int(year) + 1}-01-01"
     )
+    native_projection = gpw.first().select("population_count").projection()
 
     # GPW has a 'population_count' band - mosaic in case of multiple images
     gpw_img = gpw.select("population_count").mosaic().rename(f"Population_{year}")
+    gpw_img = _population_counts_to_density(gpw_img, native_projection)
 
     return {
         "image": gpw_img,
@@ -192,12 +198,21 @@ def _get_gpw_population(year, asset, add_to_map=False):
                 "Population (number of people)",
                 metadata={
                     "year": year,
+                    "type": "total",
+                    "units": "people per hectare",
                 },
                 add_to_map=add_to_map,
             ),
         ],
         "datatype": DataType.FLOAT32,
     }
+
+
+def _population_counts_to_density(image, native_projection):
+    """Convert per-pixel counts to people per hectare before reprojection."""
+    return (
+        image.divide(ee.Image.pixelArea()).multiply(10000).reproject(native_projection)
+    )
 
 
 def _download_spi_collection(

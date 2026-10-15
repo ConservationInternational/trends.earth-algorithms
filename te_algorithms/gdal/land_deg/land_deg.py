@@ -24,6 +24,7 @@ from te_schemas.results import (
 )
 
 from .. import util, workers
+from ..population import DENSITY_HA, normalize_population_raster, population_to_counts
 from ..progress import (
     ProgressReporter,
     WorkCounter,
@@ -87,7 +88,7 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
     return lc_dfs
 
 
-def _prepare_population_dfs(params: Dict) -> DataFile:
+def _prepare_population_dfs(params: Dict, directory: Path) -> List[DataFile]:
     population_dfs = []
 
     for population_band, population_band_index, path in zip(
@@ -95,10 +96,15 @@ def _prepare_population_dfs(params: Dict) -> DataFile:
         params["layer_population_band_indexes"],
         params["layer_population_paths"],
     ):
+        band = Band(**population_band)
+        units = (band.metadata or {}).get("units", "people per pixel")
+        output = directory / f"population_{len(population_dfs)}.tif"
+        normalize_population_raster(path, output, units, population_band_index)
+        band.metadata = {**(band.metadata or {}), "units": DENSITY_HA}
         population_dfs.append(
             DataFile(
-                path=util.save_vrt(path, population_band_index),
-                bands=[Band(**population_band)],
+                path=str(output),
+                bands=[band],
             )
         )
 
@@ -179,149 +185,151 @@ def _process_single_period(
         target_resolution: Optional tuple of (xRes, yRes) to ensure consistent
             resolution across periods.
     """
-    period_name = period["name"]
-    period_params = period["params"]
-    logger.info("Preparing input data for period '%s'", period_name)
-    logger.info("Preparing land cover data")
-    lc_dfs = _prepare_land_cover_dfs(period_params)
-    logger.info("Preparing soil organic carbon data")
-    soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
-    logger.info("Preparing population data")
-    population_dfs = _prepare_population_dfs(period_params)
-    logger.debug("len(population_dfs) %s", len(population_dfs))
-    logger.debug("population_dfs %s", population_dfs)
-    sub_job_output_path = (
-        job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
-    )
-    prod_mode = period_params["prod_mode"]
+    with tempfile.TemporaryDirectory(prefix="te_population_") as directory:
+        population_directory = Path(directory)
+        period_name = period["name"]
+        period_params = period["params"]
+        logger.info("Preparing input data for period '%s'", period_name)
+        logger.info("Preparing land cover data")
+        lc_dfs = _prepare_land_cover_dfs(period_params)
+        logger.info("Preparing soil organic carbon data")
+        soc_dfs = _prepare_soil_organic_carbon_dfs(period_params)
+        logger.info("Preparing population data")
+        population_dfs = _prepare_population_dfs(period_params, population_directory)
+        logger.debug("len(population_dfs) %s", len(population_dfs))
+        logger.debug("population_dfs %s", population_dfs)
+        sub_job_output_path = (
+            job_output_path.parent / f"{job_output_path.stem}_{period_name}.json"
+        )
+        prod_mode = period_params["prod_mode"]
 
-    period_params["periods"] = {
-        "land_cover": period_params["layer_lc_deg_years"],
-        "soc": period_params["layer_soc_deg_years"],
-    }
-
-    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        period_params["periods"]["productivity"] = period_params["layer_traj_years"]
-    elif prod_mode in (
-        ProductivityMode.JRC_5_CLASS_LPD.value,
-        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
-        ProductivityMode.FWV2_5_CLASS_LPD.value,
-        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
-    ):
-        period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
-    else:
-        raise Exception(f"Unknown productivity mode {prod_mode}")
-
-    if "period" not in period_params:
-        period_params["period"] = {
-            "name": period_name,
-            "year_initial": period_params["periods"]["productivity"]["year_initial"],
-            "year_final": period_params["periods"]["productivity"]["year_final"],
+        period_params["periods"] = {
+            "land_cover": period_params["layer_lc_deg_years"],
+            "soc": period_params["layer_soc_deg_years"],
         }
 
-    if prepared_schemas is None:
-        nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
-        if nesting:
-            nesting = LCLegendNesting.Schema().loads(nesting)
-        trans_matrix_data = period_params["layer_lc_deg_band"]["metadata"][
-            "trans_matrix"
-        ]
-        lc_trans_matrix = LCTransitionDefinitionDeg.Schema().loads(trans_matrix_data)
-    else:
-        nesting = prepared_schemas["nesting"]
-        lc_trans_matrix = prepared_schemas["lc_trans_matrix"]
+        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+            period_params["periods"]["productivity"] = period_params["layer_traj_years"]
+        elif prod_mode in (
+            ProductivityMode.JRC_5_CLASS_LPD.value,
+            ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+            ProductivityMode.FWV2_5_CLASS_LPD.value,
+            ProductivityMode.CUSTOM_5_CLASS_LPD.value,
+        ):
+            period_params["periods"]["productivity"] = period_params["layer_lpd_years"]
+        else:
+            raise Exception(f"Unknown productivity mode {prod_mode}")
 
-    summary_table_stable_kwargs = {
-        "aoi": aoi,
-        "lc_legend_nesting": nesting,
-        "lc_trans_matrix": lc_trans_matrix,
-        "output_job_path": sub_job_output_path,
-        "period_name": period_name,
-        "periods": period_params["periods"],
-        "n_cpus": n_cpus,
-        "target_resolution": target_resolution,
-        "killed_callback": killed_callback,
-        "parallel_backend": parallel_backend,
-        "progress_callback": progress_callback,
-    }
+        if "period" not in period_params:
+            period_params["period"] = {
+                "name": period_name,
+                "year_initial": period_params["periods"]["productivity"]["year_initial"],
+                "year_final": period_params["periods"]["productivity"]["year_final"],
+            }
 
-    logger.info("Computing land degradation summary table for period '%s'", period_name)
-    if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
-        traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
-        compute_bbs_from = traj.path
-        in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = (
-            _compute_ld_summary_table(
-                in_dfs=in_dfs,
-                prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
-                compute_bbs_from=compute_bbs_from,
-                **summary_table_stable_kwargs,
+        if prepared_schemas is None:
+            nesting = period_params["layer_lc_deg_band"]["metadata"].get("nesting")
+            if nesting:
+                nesting = LCLegendNesting.Schema().loads(nesting)
+            trans_matrix_data = period_params["layer_lc_deg_band"]["metadata"][
+                "trans_matrix"
+            ]
+            lc_trans_matrix = LCTransitionDefinitionDeg.Schema().loads(trans_matrix_data)
+        else:
+            nesting = prepared_schemas["nesting"]
+            lc_trans_matrix = prepared_schemas["lc_trans_matrix"]
+
+        summary_table_stable_kwargs = {
+            "aoi": aoi,
+            "lc_legend_nesting": nesting,
+            "lc_trans_matrix": lc_trans_matrix,
+            "output_job_path": sub_job_output_path,
+            "period_name": period_name,
+            "periods": period_params["periods"],
+            "n_cpus": n_cpus,
+            "target_resolution": target_resolution,
+            "killed_callback": killed_callback,
+            "parallel_backend": parallel_backend,
+            "progress_callback": progress_callback,
+        }
+
+        logger.info("Computing land degradation summary table for period '%s'", period_name)
+        if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
+            traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
+            compute_bbs_from = traj.path
+            in_dfs = lc_dfs + soc_dfs + [traj, perf, state] + population_dfs
+            summary_table, output_path, population_output_path, reproj_path = (
+                _compute_ld_summary_table(
+                    in_dfs=in_dfs,
+                    prod_mode=ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value,
+                    compute_bbs_from=compute_bbs_from,
+                    **summary_table_stable_kwargs,
+                )
             )
-        )
-    elif prod_mode in (
-        ProductivityMode.JRC_5_CLASS_LPD.value,
-        ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
-        ProductivityMode.FWV2_5_CLASS_LPD.value,
-        ProductivityMode.CUSTOM_5_CLASS_LPD.value,
-    ):
-        lpd_df = _prepare_precalculated_lpd_df(period_params)
-        compute_bbs_from = lpd_df.path
-        in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
-        summary_table, output_path, population_output_path, reproj_path = (
-            _compute_ld_summary_table(
-                in_dfs=in_dfs,
-                prod_mode=prod_mode,
-                compute_bbs_from=compute_bbs_from,
-                **summary_table_stable_kwargs,
+        elif prod_mode in (
+            ProductivityMode.JRC_5_CLASS_LPD.value,
+            ProductivityMode.FAO_WOCAT_5_CLASS_LPD.value,
+            ProductivityMode.FWV2_5_CLASS_LPD.value,
+            ProductivityMode.CUSTOM_5_CLASS_LPD.value,
+        ):
+            lpd_df = _prepare_precalculated_lpd_df(period_params)
+            compute_bbs_from = lpd_df.path
+            in_dfs = lc_dfs + soc_dfs + [lpd_df] + population_dfs
+            summary_table, output_path, population_output_path, reproj_path = (
+                _compute_ld_summary_table(
+                    in_dfs=in_dfs,
+                    prod_mode=prod_mode,
+                    compute_bbs_from=compute_bbs_from,
+                    **summary_table_stable_kwargs,
+                )
             )
-        )
-    else:
-        raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
+        else:
+            raise RuntimeError(f"Invalid prod_mode: {prod_mode!r}")
 
-    summary_table_output_path = (
-        sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
-    )
-    logger.info(
-        "Calling save_summary_table_excel for period '%s' -> %s",
-        period_name,
-        summary_table_output_path,
-    )
-    save_summary_table_excel(
-        summary_table_output_path,
-        summary_table,
-        period_params["periods"],
-        period_params["layer_lc_years"],
-        period_params["layer_soc_years"],
-        summary_table_stable_kwargs["lc_legend_nesting"],
-        summary_table_stable_kwargs["lc_trans_matrix"],
-        period_name,
-    )
-    if summary_table_output_path.exists():
+        summary_table_output_path = (
+            sub_job_output_path.parent / f"{sub_job_output_path.stem}.xlsx"
+        )
         logger.info(
-            "Excel file created successfully: %s (%d bytes)",
-            summary_table_output_path,
-            summary_table_output_path.stat().st_size,
-        )
-    else:
-        logger.error(
-            "Excel file was NOT created at %s",
+            "Calling save_summary_table_excel for period '%s' -> %s",
+            period_name,
             summary_table_output_path,
         )
+        save_summary_table_excel(
+            summary_table_output_path,
+            summary_table,
+            period_params["periods"],
+            period_params["layer_lc_years"],
+            period_params["layer_soc_years"],
+            summary_table_stable_kwargs["lc_legend_nesting"],
+            summary_table_stable_kwargs["lc_trans_matrix"],
+            period_name,
+        )
+        if summary_table_output_path.exists():
+            logger.info(
+                "Excel file created successfully: %s (%d bytes)",
+                summary_table_output_path,
+                summary_table_output_path.stat().st_size,
+            )
+        else:
+            logger.error(
+                "Excel file was NOT created at %s",
+                summary_table_output_path,
+            )
 
-    period_dfs, period_vrts = _build_period_rasters(
-        output_path,
-        population_output_path,
-        reproj_path,
-        in_dfs,
-        population_dfs,
-        prod_mode,
-        period_params,
-        job_output_path,
-        sub_job_output_path,
-        period_name,
-    )
-    logger.info("Period '%s' processing complete", period_name)
-    return period_dfs, period_vrts, summary_table, period_name
+        period_dfs, period_vrts = _build_period_rasters(
+            output_path,
+            population_output_path,
+            reproj_path,
+            in_dfs,
+            population_dfs,
+            prod_mode,
+            period_params,
+            job_output_path,
+            sub_job_output_path,
+            period_name,
+        )
+        logger.info("Period '%s' processing complete", period_name)
+        return period_dfs, period_vrts, summary_table, period_name
 
 
 def _process_single_period_with_schemas(
@@ -1330,13 +1338,19 @@ def _process_block_summary(
             deg_sdg, pop_array_female_masked, mask
         )
 
+        invalid_total = (
+            (pop_array_male == config.NODATA_VALUE)
+            | (pop_array_female == config.NODATA_VALUE)
+        )
         pop_array_total = pop_array_male + pop_array_female
+        pop_array_total[invalid_total] = config.NODATA_VALUE
         pop_array_total_masked = pop_array_male_masked + pop_array_female_masked
 
     sdg_zonal_population_total = zonal_total(deg_sdg, pop_array_total_masked, mask)
 
     # Save SO3 array
-    pop_array_total[deg_sdg == -1] = -pop_array_total[deg_sdg == -1]
+    degraded_total = (deg_sdg == -1) & (pop_array_total != config.NODATA_VALUE)
+    pop_array_total[degraded_total] = -pop_array_total[degraded_total]
     # Set water to NODATA_VALUE as requested by UNCCD for Prais. Note this
     # means LC transitions that indicate to/from water as deg/imp will be
     # masked out
@@ -1348,13 +1362,15 @@ def _process_block_summary(
         # means LC transitions that indicate to/from water as deg/imp will be
         # masked out
         pop_array_female[water] = config.NODATA_VALUE
-        pop_array_female[deg_sdg == -1] = -pop_array_female[deg_sdg == -1]
+        degraded_female = (deg_sdg == -1) & (pop_array_female != config.NODATA_VALUE)
+        pop_array_female[degraded_female] = -pop_array_female[degraded_female]
         write_arrays.append({"array": pop_array_female, "xoff": xoff, "yoff": yoff})
         # Set water to NODATA_VALUE as requested by UNCCD for Prais. Note this
         # means LC transitions that indicate to/from water as deg/imp will be
         # masked out
         pop_array_male[water] = config.NODATA_VALUE
-        pop_array_male[deg_sdg == -1] = -pop_array_male[deg_sdg == -1]
+        degraded_male = (deg_sdg == -1) & (pop_array_male != config.NODATA_VALUE)
+        pop_array_male[degraded_male] = -pop_array_male[degraded_male]
         write_arrays.append({"array": pop_array_male, "xoff": xoff, "yoff": yoff})
 
     if params.prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
@@ -1380,12 +1396,10 @@ def _process_block_summary(
 
 
 def _population_band_to_counts(pop_array, cell_areas, band_metadata):
-    pop_array = pop_array.astype(np.float64)
-    invalid = ~np.isfinite(pop_array) | (pop_array == config.NODATA_VALUE)
-    if band_metadata.get("units") == "people per hectare":
-        pop_array *= cell_areas * 100.0
-        invalid |= ~np.isfinite(pop_array)
-    pop_array[invalid] = config.NODATA_VALUE
+    pop_array = population_to_counts(
+        pop_array, cell_areas, band_metadata.get("units", "people per pixel")
+    )
+    invalid = pop_array == config.NODATA_VALUE
     pop_array_masked = pop_array.copy()
     pop_array_masked[invalid] = 0
     return pop_array, pop_array_masked

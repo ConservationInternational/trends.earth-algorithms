@@ -10,7 +10,6 @@ pytest.importorskip("osgeo.gdal", reason="GDAL not available")
 pytest.importorskip("osgeo.osr", reason="OSR not available")
 
 from osgeo import gdal, osr
-
 from te_algorithms.gdal import workers
 from te_algorithms.gdal.land_deg import worker
 from te_algorithms.gdal.land_deg.land_deg import _population_band_to_counts
@@ -41,6 +40,23 @@ def test_population_band_to_counts_masks_non_finite_values():
     assert counts[1, 0] == -32768.0
     assert counts[1, 1] == -32768.0
     np.testing.assert_array_equal(masked_counts, [[100.0, 0.0], [0.0, 0.0]])
+
+
+def test_resampled_population_density_preserves_population_total():
+    # A 300 m source pixel spans 0.09 sq km; 100 30 m pixels span the same area.
+    source_population = 500.0
+    source_area_sq_km = 0.09
+    target_area_sq_km = 0.0009
+    density_per_hectare = source_population / (source_area_sq_km * 100)
+    resampled_density = np.full((10, 10), density_per_hectare)
+
+    target_counts, _ = _population_band_to_counts(
+        resampled_density,
+        np.full((10, 1), target_area_sq_km),
+        {"units": "people per hectare"},
+    )
+
+    assert np.sum(target_counts) == pytest.approx(source_population)
 
 
 def test_degradation_summary_writes_population_as_float32(tmp_path):

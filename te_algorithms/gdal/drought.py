@@ -31,6 +31,12 @@ from te_schemas.results import (
 from .. import __release_date__, __version__
 from . import util, workers, xl
 from .drought_numba import drought_class, jrc_sum_and_count
+from .population import (
+    COUNTS,
+    DENSITY_HA,
+    normalize_population_raster,
+    population_to_counts,
+)
 from .progress import (
     ProgressReporter,
     WorkCounter,
@@ -233,18 +239,29 @@ def _process_block(
         len(pop_rows_male) + len(pop_rows_female)
     )
 
+    def _population_values(rows):
+        return np.array([
+            population_to_counts(
+                in_array[row], cell_areas,
+                (params.in_df.bands[row].metadata or {}).get(
+                    "units", "people per pixel"
+                ),
+            )
+            for row in rows
+        ])
+
     if len(pop_rows_male) >= 1:
         pop_by_sex = True
         pop_male_all, pop_male_invalid_all = _sanitize_population_values(
-            in_array[pop_rows_male, :, :]
+            _population_values(pop_rows_male)
         )
         pop_female_all, pop_female_invalid_all = _sanitize_population_values(
-            in_array[pop_rows_female, :, :]
+            _population_values(pop_rows_female)
         )
     else:
         pop_by_sex = False
         pop_total_all, pop_total_invalid_all = _sanitize_population_values(
-            in_array[pop_rows_total, :, :]
+            _population_values(pop_rows_total)
         )
 
     def _pop_weights(population, invalid):
@@ -718,248 +735,263 @@ def summarise_drought_vulnerability(
     killed_callback=None,
     parallel_backend: str = "process",
     progress_callback=None,
-) -> Job:
-    logger.info("Starting drought vulnerability summary")
-    logger.debug("at top of summarise_drought_vulnerability")
+) -> RasterResults:
+    """Summarise drought while retaining normalized inputs until processing ends."""
+    with tempfile.TemporaryDirectory(prefix="te_drought_population_") as directory:
+        population_directory = Path(directory)
+        logger.info("Starting drought vulnerability summary")
+        logger.debug("at top of summarise_drought_vulnerability")
 
-    try:
-        # Adaptive CPU scaling based on data characteristics
-        import psutil
+        try:
+            # Adaptive CPU scaling based on data characteristics
+            import psutil
 
-        # Check available memory and adjust CPU count accordingly
-        available_memory_gb = psutil.virtual_memory().available / (1024**3)
+            # Check available memory and adjust CPU count accordingly
+            available_memory_gb = psutil.virtual_memory().available / (1024**3)
 
-        # Estimate memory per CPU core needed (rough heuristic)
-        memory_per_core_gb = 4.0  # Conservative estimate for raster processing
-        max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_core_gb))
+            # Estimate memory per CPU core needed (rough heuristic)
+            memory_per_core_gb = 4.0  # Conservative estimate for raster processing
+            max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_core_gb))
 
-        # Use the minimum of requested CPUs and memory-constrained CPUs
-        effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
+            # Use the minimum of requested CPUs and memory-constrained CPUs
+            effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
+            logger.info(
+                f"Using {effective_n_cpus} CPUs (requested: {n_cpus}, "
+                f"memory-limited: {max_cpus_by_memory})"
+            )
+        except ImportError:
+            effective_n_cpus = n_cpus
+
+        params = drought_job.params
+
+        drought_period = 4
+
+        logger.info("Preparing input data for drought vulnerability analysis")
+        spi_dfs = _prepare_dfs(
+            params["layer_spi_path"],
+            params["layer_spi_bands"],
+            params["layer_spi_band_indices"],
+        )
+
+        population_dfs = _prepare_population_dfs(params, population_directory)
+
+        jrc_df = _prepare_dfs(
+            params["layer_jrc_path"],
+            [params["layer_jrc_band"]],
+            [params["layer_jrc_band_index"]],
+        )
+
+        if params.get("layer_water_path") is not None:
+            # Water layers are optional - if not provided then water won't be
+            # masked
+            water_df = _prepare_dfs(
+                params["layer_water_path"],
+                [params["layer_water_band"]],
+                [params["layer_water_band_index"]],
+            )
+        else:
+            water_df = []
+
+        logger.info("Input data preparation complete")
+
+        # Determine whether input is SPI or SPEI based on input band names
+        first_band = Band(**params["layer_spi_bands"][0])
+        if first_band.name == SPEI_BAND_NAME:
+            min_over_period_band_name = SPEI_MIN_OVER_PERIOD_BAND_NAME
+        else:
+            min_over_period_band_name = SPI_MIN_OVER_PERIOD_BAND_NAME
+
+        logger.info("Computing drought summary table")
+
+        if progress_callback is not None:
+            progress_callback(2.0)
+
+        # Create a scaled progress callback that maps tile-level progress
+        # (0.0 to 1.0) into the 5%-90% window reserved for tile processing
+        tile_progress_cb = None
+        if progress_callback is not None:
+
+            def tile_progress_cb(fraction):
+                progress_callback(2 + 93 * fraction)
+
+        summary_table, output_tiles = _compute_drought_summary_table(
+            aoi=aoi,
+            compute_bbs_from=params["layer_spi_path"],
+            output_job_path=job_output_path.parent / f"{job_output_path.stem}.json",
+            in_dfs=spi_dfs + population_dfs + jrc_df + water_df,
+            drought_period=drought_period,
+            n_cpus=effective_n_cpus,
+            killed_callback=killed_callback,
+            parallel_backend=parallel_backend,
+            progress_callback=tile_progress_cb,
+        )
+
+        logger.info("Drought summary table complete")
+
+        if progress_callback is not None:
+            progress_callback(95.0)
+
+        if killed_callback is not None and killed_callback():
+            raise RuntimeError("Cancelled by user.")
+
+        logger.info("Assembling output bands")
+        out_bands = []
         logger.info(
-            f"Using {effective_n_cpus} CPUs (requested: {n_cpus}, "
-            f"memory-limited: {max_cpus_by_memory})"
+            f"Processing for years {params['layer_spi_years'][0]} - "
+            f"{int(params['layer_spi_years'][-1])}"
         )
-    except ImportError:
-        effective_n_cpus = n_cpus
 
-    params = drought_job.params
-
-    drought_period = 4
-
-    logger.info("Preparing input data for drought vulnerability analysis")
-    spi_dfs = _prepare_dfs(
-        params["layer_spi_path"],
-        params["layer_spi_bands"],
-        params["layer_spi_band_indices"],
-    )
-
-    population_dfs = _prepare_dfs(
-        params["layer_population_path"],
-        params["layer_population_bands"],
-        params["layer_population_band_indices"],
-    )
-
-    jrc_df = _prepare_dfs(
-        params["layer_jrc_path"],
-        [params["layer_jrc_band"]],
-        [params["layer_jrc_band_index"]],
-    )
-
-    if params.get("layer_water_path") is not None:
-        # Water layers are optional - if not provided then water won't be
-        # masked
-        water_df = _prepare_dfs(
-            params["layer_water_path"],
-            [params["layer_water_band"]],
-            [params["layer_water_band_index"]],
-        )
-    else:
-        water_df = []
-
-    logger.info("Input data preparation complete")
-
-    # Determine whether input is SPI or SPEI based on input band names
-    first_band = Band(**params["layer_spi_bands"][0])
-    if first_band.name == SPEI_BAND_NAME:
-        min_over_period_band_name = SPEI_MIN_OVER_PERIOD_BAND_NAME
-    else:
-        min_over_period_band_name = SPI_MIN_OVER_PERIOD_BAND_NAME
-
-    logger.info("Computing drought summary table")
-
-    if progress_callback is not None:
-        progress_callback(2.0)
-
-    # Create a scaled progress callback that maps tile-level progress
-    # (0.0 to 1.0) into the 5%-90% window reserved for tile processing
-    tile_progress_cb = None
-    if progress_callback is not None:
-
-        def tile_progress_cb(fraction):
-            progress_callback(2 + 93 * fraction)
-
-    summary_table, output_tiles = _compute_drought_summary_table(
-        aoi=aoi,
-        compute_bbs_from=params["layer_spi_path"],
-        output_job_path=job_output_path.parent / f"{job_output_path.stem}.json",
-        in_dfs=spi_dfs + population_dfs + jrc_df + water_df,
-        drought_period=drought_period,
-        n_cpus=effective_n_cpus,
-        killed_callback=killed_callback,
-        parallel_backend=parallel_backend,
-        progress_callback=tile_progress_cb,
-    )
-
-    logger.info("Drought summary table complete")
-
-    if progress_callback is not None:
-        progress_callback(95.0)
-
-    if killed_callback is not None and killed_callback():
-        raise RuntimeError("Cancelled by user.")
-
-    logger.info("Assembling output bands")
-    out_bands = []
-    logger.info(
-        f"Processing for years {params['layer_spi_years'][0]} - "
-        f"{int(params['layer_spi_years'][-1])}"
-    )
-
-    year_initials = [
-        *range(
-            int(params["layer_spi_years"][0]),
-            int(params["layer_spi_years"][-1]) + 1,
-            drought_period,
-        )
-    ]
-
-    for period_number, year_initial in enumerate(year_initials):
-        if (year_initial + drought_period - 1) > params["layer_spi_years"][-1]:
-            year_final = params["layer_spi_years"][-1]
-        else:
-            year_final = year_initial + drought_period - 1
-
-        out_bands.append(
-            Band(
-                name=min_over_period_band_name,
-                no_data_value=NODATA_VALUE,
-                metadata={
-                    "year_initial": year_initial,
-                    "year_final": year_final,
-                    "lag": int(params["layer_spi_lag"]),
-                },
-                activated=True,
+        year_initials = [
+            *range(
+                int(params["layer_spi_years"][0]),
+                int(params["layer_spi_years"][-1]) + 1,
+                drought_period,
             )
-        )
+        ]
 
-        out_bands.append(
-            _get_population_band_instance("total", year_initial, year_final)
-        )
+        for period_number, year_initial in enumerate(year_initials):
+            if (year_initial + drought_period - 1) > params["layer_spi_years"][-1]:
+                year_final = params["layer_spi_years"][-1]
+            else:
+                year_final = year_initial + drought_period - 1
 
-        if _have_pop_by_sex(spi_dfs + population_dfs) and period_number == (
-            len(year_initials) - 1
-        ):
             out_bands.append(
-                _get_population_band_instance("female", year_initial, year_final)
+                Band(
+                    name=min_over_period_band_name,
+                    no_data_value=NODATA_VALUE,
+                    metadata={
+                        "year_initial": year_initial,
+                        "year_final": year_final,
+                        "lag": int(params["layer_spi_lag"]),
+                    },
+                    activated=True,
+                )
             )
+
             out_bands.append(
-                _get_population_band_instance("male", year_initial, year_final)
+                _get_population_band_instance("total", year_initial, year_final)
             )
 
-    output_band_indices = _get_output_band_indices(
-        len(year_initials), _have_pop_by_sex(spi_dfs + population_dfs)
-    )
-    rasters: dict[str, Raster | TiledRaster] = {}
-    raster_paths = []
-    for datatype, indices in output_band_indices.items():
-        bands = [out_bands[index - 1] for index in indices]
-        band_names = util.generate_sanitized_band_names(bands)
-        tile_paths = output_tiles[datatype]
-        for tile_path in tile_paths:
-            dataset = gdal.Open(str(tile_path), gdal.GA_Update)
-            for band_index, band_name in enumerate(band_names, start=1):
-                dataset.GetRasterBand(band_index).SetDescription(band_name)
-            dataset.FlushCache()
-            dataset = None
+            if _have_pop_by_sex(spi_dfs + population_dfs) and period_number == (
+                len(year_initials) - 1
+            ):
+                out_bands.append(
+                    _get_population_band_instance("female", year_initial, year_final)
+                )
+                out_bands.append(
+                    _get_population_band_instance("male", year_initial, year_final)
+                )
 
-        if len(tile_paths) == 1:
-            raster_path = tile_paths[0]
-            raster = Raster(
-                uri=URI(uri=raster_path),
-                bands=bands,
-                datatype=datatype,
-                filetype=RasterFileType.GEOTIFF,
-            )
-        else:
-            raster_path = job_output_path.parent / (
-                f"{job_output_path.stem}_{datatype.value.lower()}.vrt"
-            )
-            mosaic = gdal.BuildVRT(str(raster_path), [str(p) for p in tile_paths])
-            mosaic.FlushCache()
-            mosaic = None
-            raster = TiledRaster(
-                uri=URI(uri=raster_path),
-                tile_uris=[URI(uri=p) for p in tile_paths],
-                bands=bands,
-                datatype=datatype,
-                filetype=RasterFileType.GEOTIFF,
-            )
-        rasters[datatype.value] = raster
-        raster_paths.append(raster_path)
+        output_band_indices = _get_output_band_indices(
+            len(year_initials), _have_pop_by_sex(spi_dfs + population_dfs)
+        )
+        rasters: dict[str, Raster | TiledRaster] = {}
+        raster_paths = []
+        for datatype, indices in output_band_indices.items():
+            bands = [out_bands[index - 1] for index in indices]
+            band_names = util.generate_sanitized_band_names(bands)
+            tile_paths = output_tiles[datatype]
+            for tile_path in tile_paths:
+                dataset = gdal.Open(str(tile_path), gdal.GA_Update)
+                for band_index, band_name in enumerate(band_names, start=1):
+                    dataset.GetRasterBand(band_index).SetDescription(band_name)
+                dataset.FlushCache()
+                dataset = None
 
-    out_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
-    combined_bands = [band for raster in rasters.values() for band in raster.bands]
-    util.combine_all_bands_into_vrt(
-        raster_paths,
-        out_path,
-        band_names=util.generate_sanitized_band_names(combined_bands),
-    )
-    dataset = gdal.Open(str(out_path), gdal.GA_Update)
-    for band_index in range(1, dataset.RasterCount + 1):
-        dataset.GetRasterBand(band_index).SetNoDataValue(NODATA_VALUE)
-    dataset.FlushCache()
-    dataset = None
-    out_df = DataFile(out_path.name, combined_bands)
+            if len(tile_paths) == 1:
+                raster_path = tile_paths[0]
+                raster = Raster(
+                    uri=URI(uri=raster_path),
+                    bands=bands,
+                    datatype=datatype,
+                    filetype=RasterFileType.GEOTIFF,
+                )
+            else:
+                raster_path = job_output_path.parent / (
+                    f"{job_output_path.stem}_{datatype.value.lower()}.vrt"
+                )
+                mosaic = gdal.BuildVRT(str(raster_path), [str(p) for p in tile_paths])
+                mosaic.FlushCache()
+                mosaic = None
+                raster = TiledRaster(
+                    uri=URI(uri=raster_path),
+                    tile_uris=[URI(uri=p) for p in tile_paths],
+                    bands=bands,
+                    datatype=datatype,
+                    filetype=RasterFileType.GEOTIFF,
+                )
+            rasters[datatype.value] = raster
+            raster_paths.append(raster_path)
 
-    logger.info("Saving report JSON, band key, and summary Excel")
-    # Also save bands to a key file for ease of use in PRAIS
-    key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
-    with open(key_json, "w") as f:
-        json.dump(DataFile.Schema().dump(out_df), f, indent=4)
+        out_path = job_output_path.parent / f"{job_output_path.stem}.vrt"
+        combined_bands = [band for raster in rasters.values() for band in raster.bands]
+        util.combine_all_bands_into_vrt(
+            raster_paths,
+            out_path,
+            band_names=util.generate_sanitized_band_names(combined_bands),
+        )
+        dataset = gdal.Open(str(out_path), gdal.GA_Update)
+        for band_index in range(1, dataset.RasterCount + 1):
+            dataset.GetRasterBand(band_index).SetNoDataValue(NODATA_VALUE)
+        dataset.FlushCache()
+        dataset = None
+        out_df = DataFile(out_path.name, combined_bands)
 
-    summary_json_output_path = (
-        job_output_path.parent / f"{job_output_path.stem}_summary.json"
-    )
-    report_json = save_reporting_json(
-        summary_json_output_path,
-        summary_table,
-        drought_job.params,
-        drought_job.task_name,
-        aoi,
-    )
+        logger.info("Saving report JSON, band key, and summary Excel")
+        # Also save bands to a key file for ease of use in PRAIS
+        key_json = job_output_path.parent / f"{job_output_path.stem}_band_key.json"
+        with open(key_json, "w") as f:
+            json.dump(DataFile.Schema().dump(out_df), f, indent=4)
 
-    summary_table_output_path = (
-        job_output_path.parent / f"{job_output_path.stem}_summary.xlsx"
-    )
-    save_summary_table_excel(
-        summary_table_output_path,
-        summary_table,
-        years=[int(y) for y in params["layer_spi_years"]],
-    )
+        summary_json_output_path = (
+            job_output_path.parent / f"{job_output_path.stem}_summary.json"
+        )
+        report_json = save_reporting_json(
+            summary_json_output_path,
+            summary_table,
+            drought_job.params,
+            drought_job.task_name,
+            aoi,
+        )
 
-    logger.info("Drought vulnerability summary complete")
+        summary_table_output_path = (
+            job_output_path.parent / f"{job_output_path.stem}_summary.xlsx"
+        )
+        save_summary_table_excel(
+            summary_table_output_path,
+            summary_table,
+            years=[int(y) for y in params["layer_spi_years"]],
+        )
 
-    results = RasterResults(
-        name="drought_vulnerability_summary",
-        uri=URI(uri=out_path),
-        rasters=rasters,
-        data={"report": report_json},
-    )
+        logger.info("Drought vulnerability summary complete")
 
-    if progress_callback is not None:
-        progress_callback(100.0)
+        results = RasterResults(
+            name="drought_vulnerability_summary",
+            uri=URI(uri=out_path),
+            rasters=rasters,
+            data={"report": report_json},
+        )
 
-    return results
+        if progress_callback is not None:
+            progress_callback(100.0)
+
+        return results
+
+
+def _prepare_population_dfs(params: dict, directory: Path) -> List[DataFile]:
+    dfs = []
+    for band_dict, band_index in zip(
+        params["layer_population_bands"], params["layer_population_band_indices"]
+    ):
+        band = Band(**band_dict)
+        units = (band.metadata or {}).get("units", COUNTS)
+        output = directory / f"population_{len(dfs)}.tif"
+        normalize_population_raster(
+            params["layer_population_path"], output, units, band_index
+        )
+        band.metadata = {**(band.metadata or {}), "units": DENSITY_HA}
+        dfs.append(DataFile(path=str(output), bands=[band]))
+    return dfs
 
 
 def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:

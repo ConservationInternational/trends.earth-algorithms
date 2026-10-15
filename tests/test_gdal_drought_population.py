@@ -1,5 +1,7 @@
 import json
 import shutil
+from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,9 +11,10 @@ pytest.importorskip("osgeo.gdal")
 pytest.importorskip("marshmallow_dataclass")
 
 from osgeo import gdal, osr
-from te_algorithms.gdal import drought as dr
 from te_schemas.datafile import DataFile
 from te_schemas.results import Band, DataType, RasterFileType, RasterResults, RasterType
+
+from te_algorithms.gdal import drought as dr
 
 
 def _inputs(by_sex, n_years=1, shape=(2, 4)):
@@ -148,6 +151,9 @@ def test_drought_summary_splits_rasters_and_metadata(
 
     monkeypatch.setattr(dr, "_prepare_dfs", lambda *_: [DataFile(source, bands)])
     monkeypatch.setattr(
+        dr, "_prepare_population_dfs", lambda *_: [DataFile(source, bands)]
+    )
+    monkeypatch.setattr(
         dr, "_compute_drought_summary_table", lambda **_: (summary, output_tiles)
     )
     monkeypatch.setattr(dr, "save_reporting_json", lambda *_: {})
@@ -259,6 +265,34 @@ def test_non_drought_population_remains_positive():
     np.testing.assert_array_equal(writes[2]["array"][0, 2:], dr.NODATA_VALUE)
 
 
+@pytest.mark.parametrize("by_sex", [False, True])
+@pytest.mark.parametrize(
+    "units,factor",
+    [
+        ("people per hectare", 100),
+        ("people per square kilometre", 1),
+    ],
+)
+def test_drought_population_density_converts_to_counts(by_sex, units, factor):
+    bands, arrays = _inputs(by_sex)
+    for band in bands:
+        if band.name == dr.POPULATION_BAND_NAME:
+            band.metadata["units"] = units
+    params = dr.DroughtSummaryParams(
+        DataFile("in.vrt", bands), "out.tif", 4, "mask.tif"
+    )
+    _, writes = dr._process_block(
+        params,
+        arrays,
+        np.zeros((2, 4), bool),
+        0,
+        0,
+        np.full((2, 1), 0.001),
+    )
+    expected = -0.25 * 0.001 * factor * (2 if by_sex else 1)
+    assert writes[2]["array"][0, 0] == pytest.approx(expected)
+
+
 def test_missing_one_sex_does_not_mask_the_other_sex():
     bands, arrays = _inputs(True)
     arrays[2, 0, 0] = dr.NODATA_VALUE
@@ -302,6 +336,151 @@ def _job_for_inputs(source, bands):
             "layer_water_band_index": water_index,
         },
     )
+
+
+@pytest.mark.parametrize("by_sex", [False, True])
+@pytest.mark.parametrize("backend", ["thread", "process"])
+@pytest.mark.parametrize("nodata", [dr.NODATA_VALUE, -9999])
+@pytest.mark.parametrize(
+    "units",
+    [None, "people per pixel", "people per hectare", "people per square kilometre"],
+)
+def test_coarse_population_summary_preserves_counts(
+    tmp_path, monkeypatch, by_sex, units, nodata, backend
+):
+    bands, arrays = _inputs(by_sex, shape=(10, 20))
+    arrays[:] = 0
+    arrays[0] = -1500
+    source = tmp_path / "indicators.tif"
+    _write_raster(source, arrays)
+    population_bands = [band for band in bands if band.name == dr.POPULATION_BAND_NAME]
+    population = tmp_path / "population.tif"
+    cell_area_ha = dr.calc_cell_area(2, 1.99, 0.01) / 10000
+    value = 500.25
+    if units == "people per hectare":
+        value /= cell_area_ha
+    elif units == "people per square kilometre":
+        value /= cell_area_ha / 100
+    _write_raster(
+        population,
+        np.array([[[value, nodata]]] * len(population_bands), dtype=np.float32),
+    )
+    dataset = gdal.Open(str(population), gdal.GA_Update)
+    dataset.SetGeoTransform((0, 0.01, 0, 2, 0, -0.01))
+    for index in range(1, dataset.RasterCount + 1):
+        dataset.GetRasterBand(index).SetNoDataValue(nodata)
+    dataset = None
+    for band in population_bands:
+        if units is not None:
+            band.metadata["units"] = units
+    job = _job_for_inputs(source, bands)
+    job.params.update(
+        layer_population_path=str(population),
+        layer_population_bands=[Band.Schema().dump(b) for b in population_bands],
+        layer_population_band_indices=list(range(1, len(population_bands) + 1)),
+    )
+    original_metadata = deepcopy(job.params["layer_population_bands"])
+    aoi = SimpleNamespace(
+        meridian_split=lambda **_: [
+            "POLYGON ((0 1.99, 0.02 1.99, 0.02 2, 0 2, 0 1.99))"
+        ],
+        get_aligned_output_bounds=lambda _: [(0, 1.99, 0.02, 2)],
+    )
+    summaries = []
+    monkeypatch.setattr(
+        dr,
+        "save_reporting_json",
+        lambda _path, summary, *_: summaries.append(summary) or {},
+    )
+    monkeypatch.setattr(dr, "save_summary_table_excel", lambda *_, **__: None)
+    normalized_paths = []
+    prepare = dr._prepare_population_dfs
+
+    def track_population_inputs(params, directory):
+        dfs = prepare(params, directory)
+        for df in dfs:
+            assert df.bands[0].metadata["units"] == "people per hectare"
+            assert Path(df.path).exists()
+            normalized_paths.append(Path(df.path))
+        return dfs
+
+    monkeypatch.setattr(dr, "_prepare_population_dfs", track_population_inputs)
+    result = dr.summarise_drought_vulnerability(
+        job, aoi, tmp_path / "job.json", n_cpus=2, parallel_backend=backend
+    )
+    assert normalized_paths
+    assert all(not path.parent.exists() for path in normalized_paths)
+    expected = 500.25 * (2 if by_sex else 1)
+    assert summaries[0].annual_population_by_drought_class_total[0][2] == pytest.approx(
+        expected, rel=1e-6
+    )
+    for band_index, band in enumerate(result.get_bands(), start=1):
+        if band.name != dr.POP_AT_MAX_DROUGHT_BAND_NAME:
+            continue
+        dataset = gdal.Open(str(result.uri.uri))
+        values = dataset.GetRasterBand(band_index).ReadAsArray()
+        assert values.shape == (10, 20)
+        np.testing.assert_array_equal(values[:, 10:], dr.NODATA_VALUE)
+        expected_band = expected if band.metadata["type"] == "total" else 500.25
+        assert -values[:, :10].sum() == pytest.approx(expected_band, rel=1e-6)
+        dataset = None
+    assert job.params["layer_population_bands"] == original_metadata
+
+
+def test_population_temporary_directory_is_removed_on_failure(tmp_path, monkeypatch):
+    directories = []
+
+    def fail(_params, directory):
+        assert directory.is_dir()
+        directories.append(directory)
+        (directory / "population_0.tif").touch()
+        raise RuntimeError("Cancelled by user.")
+
+    bands, arrays = _inputs(False)
+    source = tmp_path / "source.tif"
+    _write_raster(source, arrays)
+    monkeypatch.setattr(dr, "_prepare_population_dfs", fail)
+    with pytest.raises(RuntimeError, match="Cancelled"):
+        dr.summarise_drought_vulnerability(
+            _job_for_inputs(source, bands), None, tmp_path / "job.json", n_cpus=1
+        )
+    assert len(directories) == 1
+    assert not directories[0].exists()
+
+
+@pytest.mark.parametrize(
+    "units,value,message",
+    [
+        ("unsupported", 1, "Unsupported population units"),
+        ("people per pixel", -1, "non-negative"),
+    ],
+)
+def test_invalid_population_fails_before_drought_resampling(
+    tmp_path, monkeypatch, units, value, message
+):
+    bands, arrays = _inputs(False)
+    arrays[1] = value
+    bands[1].metadata["units"] = units
+    source = tmp_path / "source.tif"
+    _write_raster(source, arrays)
+    directories = []
+    prepare = dr._prepare_population_dfs
+
+    def track_preparation(params, directory):
+        directories.append(directory)
+        return prepare(params, directory)
+
+    def unexpected_summary(**kwargs):
+        pytest.fail("Invalid population must be rejected before summary resampling")
+
+    monkeypatch.setattr(dr, "_prepare_population_dfs", track_preparation)
+    monkeypatch.setattr(dr, "_compute_drought_summary_table", unexpected_summary)
+    with pytest.raises(ValueError, match=message):
+        dr.summarise_drought_vulnerability(
+            _job_for_inputs(source, bands), None, tmp_path / "job.json", n_cpus=1
+        )
+    assert len(directories) == 1
+    assert not directories[0].exists()
 
 
 @pytest.mark.parametrize("by_sex", [False, True])
