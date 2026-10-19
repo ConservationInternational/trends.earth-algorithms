@@ -24,7 +24,12 @@ from te_schemas.results import (
 )
 
 from .. import util, workers
-from ..population import DENSITY_HA, normalize_population_raster, population_to_counts
+from ..population import (
+    COUNTS,
+    DENSITY_HA,
+    normalize_population_raster,
+    population_to_counts,
+)
 from ..progress import (
     ProgressReporter,
     WorkCounter,
@@ -1449,6 +1454,7 @@ def _get_so3_band_instance(population_type, prod_params):
             "deg_year_initial": prod_params["year_initial"],
             "deg_year_final": prod_params["year_final"],
             "type": population_type,
+            "units": COUNTS,
         },
         add_to_map=False,
     )

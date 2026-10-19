@@ -722,6 +722,7 @@ def _get_population_band_instance(population_type, year_initial, year_final):
             "year_initial": year_initial,
             "year_final": year_final,
             "type": population_type,
+            "units": COUNTS,
         },
         activated=True,
     )
