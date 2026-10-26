@@ -168,15 +168,14 @@ class TestGEEImageMockBehavior:
     def test_ee_image_mock_functionality(self):
         """Test that the existing ee_image_mock works correctly."""
         # Recreate the mock class from the existing tests
-        from typing import List
 
         import marshmallow_dataclass
 
         @marshmallow_dataclass.dataclass
         class ee_image_mock:
-            bands: List[int]
+            bands: list[int]
 
-            def select(self, bands: List[int]):
+            def select(self, bands: list[int]):
                 self.bands = [item for item in self.bands if item in bands]
                 return self
 
@@ -206,15 +205,14 @@ class TestGEEImageMockBehavior:
 
     def test_ee_image_mock_add_bands(self):
         """Test addBands functionality of the mock."""
-        from typing import List
 
         import marshmallow_dataclass
 
         @marshmallow_dataclass.dataclass
         class ee_image_mock:
-            bands: List[int]
+            bands: list[int]
 
-            def select(self, bands: List[int]):
+            def select(self, bands: list[int]):
                 self.bands = [item for item in self.bands if item in bands]
                 return self
 

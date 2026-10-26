@@ -6,9 +6,9 @@ import math
 import multiprocessing
 import tempfile
 import time
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
 
 import marshmallow_dataclass
 import numpy as np
@@ -67,11 +67,11 @@ logger = logging.getLogger(__name__)
 
 @marshmallow_dataclass.dataclass
 class SummaryTableDrought(SchemaBase):
-    annual_area_by_drought_class: List[Dict[int, float]]
-    annual_population_by_drought_class_total: List[Dict[int, float]]
-    annual_population_by_drought_class_male: List[Dict[int, float]]
-    annual_population_by_drought_class_female: List[Dict[int, float]]
-    dvi_value_sum_and_count: Tuple[float, int]
+    annual_area_by_drought_class: list[dict[int, float]]
+    annual_population_by_drought_class_total: list[dict[int, float]]
+    annual_population_by_drought_class_male: list[dict[int, float]]
+    annual_population_by_drought_class_female: list[dict[int, float]]
+    dvi_value_sum_and_count: tuple[float, int]
 
     def cast_to_cpython(self):
         self.annual_area_by_drought_class = cast_numba_int_dict_list_to_cpython(
@@ -95,7 +95,7 @@ class SummaryTableDrought(SchemaBase):
 
 
 def _accumulate_drought_summary_tables(
-    tables: List[SummaryTableDrought],
+    tables: list[SummaryTableDrought],
 ) -> SummaryTableDrought:
     if len(tables) == 1:
         return tables[0]
@@ -158,7 +158,9 @@ class DroughtSummaryParams(SchemaBase):
                 _get_population_output_path(Path(self.out_file))
             )
         if Path(self.population_out_file).resolve() == Path(self.out_file).resolve():
-            raise ValueError("Indicator and population outputs must use different paths")
+            raise ValueError(
+                "Indicator and population outputs must use different paths"
+            )
 
 
 def _get_output_band_indices(
@@ -204,7 +206,7 @@ def _sanitize_population_values(population):
 
 def _process_block(
     params: DroughtSummaryParams, in_array, mask, xoff: int, yoff: int, cell_areas_raw
-) -> Tuple[SummaryTableDrought, Dict]:
+) -> tuple[SummaryTableDrought, dict]:
     logger.debug("in_array.shape is %s", in_array.shape)
 
     write_arrays = {}
@@ -240,15 +242,18 @@ def _process_block(
     )
 
     def _population_values(rows):
-        return np.array([
-            population_to_counts(
-                in_array[row], cell_areas,
-                (params.in_df.bands[row].metadata or {}).get(
-                    "units", "people per pixel"
-                ),
-            )
-            for row in rows
-        ])
+        return np.array(
+            [
+                population_to_counts(
+                    in_array[row],
+                    cell_areas,
+                    (params.in_df.bands[row].metadata or {}).get(
+                        "units", "people per pixel"
+                    ),
+                )
+                for row in rows
+            ]
+        )
 
     if len(pop_rows_male) >= 1:
         pop_by_sex = True
@@ -668,9 +673,9 @@ class DroughtSummary:
 
                     for key, value in result[1].items():
                         datatype, band_index = output_bands[key]
-                        output_datasets[datatype].GetRasterBand(
-                            band_index
-                        ).WriteArray(**value)
+                        output_datasets[datatype].GetRasterBand(band_index).WriteArray(
+                            **value
+                        )
 
                 record_work(
                     self.image_info.x_size * line_params.win_ysize,
@@ -755,7 +760,9 @@ def summarise_drought_vulnerability(
             max_cpus_by_memory = max(1, int(available_memory_gb / memory_per_core_gb))
 
             # Use the minimum of requested CPUs and memory-constrained CPUs
-            effective_n_cpus = min(n_cpus, max_cpus_by_memory, multiprocessing.cpu_count())
+            effective_n_cpus = min(
+                n_cpus, max_cpus_by_memory, multiprocessing.cpu_count()
+            )
             logger.info(
                 f"Using {effective_n_cpus} CPUs (requested: {n_cpus}, "
                 f"memory-limited: {max_cpus_by_memory})"
@@ -979,7 +986,7 @@ def summarise_drought_vulnerability(
         return results
 
 
-def _prepare_population_dfs(params: dict, directory: Path) -> List[DataFile]:
+def _prepare_population_dfs(params: dict, directory: Path) -> list[DataFile]:
     dfs = []
     for band_dict, band_index in zip(
         params["layer_population_bands"], params["layer_population_band_indices"]
@@ -995,7 +1002,7 @@ def _prepare_population_dfs(params: dict, directory: Path) -> List[DataFile]:
     return dfs
 
 
-def _prepare_dfs(path, band_str_list, band_indices) -> List[DataFile]:
+def _prepare_dfs(path, band_str_list, band_indices) -> list[DataFile]:
     dfs = []
 
     for band_str, band_index in zip(band_str_list, band_indices):
@@ -1127,7 +1134,7 @@ def _aoi_process_sequential(
 def _summarize_over_aoi(
     wkt_aoi,
     pixel_aligned_bbox,
-    in_dfs: List[DataFile],
+    in_dfs: list[DataFile],
     output_tif_path: Path,
     mask_worker_process_name,
     drought_worker_process_name,
@@ -1285,7 +1292,7 @@ class SummarizeTileInputs:
     out_file: Path
     aoi: str
     drought_period: int
-    in_dfs: List[DataFile]
+    in_dfs: list[DataFile]
     mask_worker_function: Callable = None
     mask_worker_params: dict = None
     drought_worker_function: Callable = None
@@ -1456,7 +1463,7 @@ def _compute_drought_summary_table(
 
 
 def save_summary_table_excel(
-    output_path: Path, summary_table: SummaryTableDrought, years: List[int]
+    output_path: Path, summary_table: SummaryTableDrought, years: list[int]
 ):
     """Save summary table into an xlsx file on disk"""
     template_summary_table_path = (
@@ -1590,7 +1597,7 @@ def save_reporting_json(
     te_summary = reporting.TrendsEarthDroughtSummary(
         metadata=reporting.ReportMetadata(
             title="Trends.Earth Summary Report",
-            date=dt.datetime.now(dt.timezone.utc),
+            date=dt.datetime.now(dt.UTC),
             trends_earth_version=schemas.TrendsEarthVersion(
                 version=__version__,
                 revision=None,
@@ -1630,7 +1637,7 @@ def save_reporting_json(
 
 
 def _render_drought_workbook(
-    template_workbook, summary_table: SummaryTableDrought, years: List[int]
+    template_workbook, summary_table: SummaryTableDrought, years: list[int]
 ):
     _write_drought_area_sheet(
         template_workbook["Area under drought by year"], summary_table, years

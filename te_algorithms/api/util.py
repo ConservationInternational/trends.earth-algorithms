@@ -10,12 +10,10 @@ import re
 import tarfile
 import tempfile
 import time
-import typing
 import unicodedata
 import uuid
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
-from typing import Dict, List, Union
 from urllib.parse import unquote, urlparse
 
 import boto3
@@ -1633,7 +1631,7 @@ def write_job_json_to_s3(job, filename, s3_prefix, s3_bucket, s3_extra_args=None
         )
 
 
-def slugify(value: Union[complex, str], allow_unicode=False):
+def slugify(value: complex | str, allow_unicode=False):
     """
     Create an ASCII or Unicode slug
 
@@ -1683,7 +1681,7 @@ def _download_file(url, out_file):
 
 def _get_raster_tile(
     uri: results.URI, out_file: Path, aws_access_key_id=None, aws_secret_access_key=None
-) -> typing.Optional[Path]:
+) -> Path | None:
     path_exists = out_file.is_file()
     if uri.etag:
         hash_matches = etag_compare(out_file, uri.etag.hash)
@@ -1748,7 +1746,7 @@ def _get_raster_tile(
 
 
 def _get_raster_vrt(
-    tiles: List[Path],
+    tiles: list[Path],
     out_file: Path,
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -1777,9 +1775,9 @@ def _get_job_basename(job: jobs.Job):
 def download_cloud_results(
     job: jobs.Job,
     download_path: Path,
-    aws_access_key_id: Union[str, None] = None,
-    aws_secret_access_key: Union[str, None] = None,
-) -> typing.Optional[Path]:
+    aws_access_key_id: str | None = None,
+    aws_secret_access_key: str | None = None,
+) -> Path | None:
     base_output_path = download_path / f"{_get_job_basename(job)}"
 
     out_rasters = []
@@ -1858,7 +1856,7 @@ def download_cloud_results(
         job.results.uri = list(job.results.rasters.values())[0].uri
 
 
-def get_cloud_results_vrt(job: jobs.Job) -> typing.Optional[Path]:
+def get_cloud_results_vrt(job: jobs.Job) -> Path | None:
     """Returns a vrt pointing to COGs in the cloud"""
     vrt_file_path = None
     vsicurl_paths = []
@@ -1883,7 +1881,7 @@ class BandData:
 
 def get_bands_by_name(
     job: jobs.Job, band_name: str, sort_property: str = "year"
-) -> typing.List[BandData]:
+) -> list[BandData]:
     bands = job.results.get_bands()
 
     bands_and_indices = [
@@ -1904,9 +1902,9 @@ def get_bands_by_name(
 def get_band_by_name(
     job: jobs.Job,
     band_name: str,
-    filters: Union[None, List[Dict]] = None,
+    filters: None | list[dict] = None,
     return_band: bool = False,
-) -> typing.Union[BandData, typing.Tuple[BandData, results.Band]]:
+) -> BandData | tuple[BandData, results.Band]:
     bands = job.results.get_bands()
 
     if filters:
@@ -1949,7 +1947,7 @@ def get_band_by_name(
             return band_data
 
 
-def make_job(params: Dict, script):
+def make_job(params: dict, script):
     final_params = params.copy()
     task_name = final_params.pop("task_name")
     task_notes = final_params.pop("task_notes")
@@ -1959,7 +1957,7 @@ def make_job(params: Dict, script):
         id=uuid.uuid4(),
         params=final_params,
         progress=0,
-        start_date=dt.datetime.now(dt.timezone.utc),
+        start_date=dt.datetime.now(dt.UTC),
         status=jobs.JobStatus.PENDING,
         local_context=local_context,
         task_name=task_name,

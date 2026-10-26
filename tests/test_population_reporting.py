@@ -3,13 +3,14 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from te_algorithms.gdal import drought
-from te_algorithms.gdal.land_deg import config, land_deg, land_deg_report, models
-from te_algorithms.gdal.population import COUNTS, DENSITY_HA, DENSITY_KM2
 from te_schemas import land_cover
 from te_schemas.datafile import DataFile
 from te_schemas.productivity import ProductivityMode
 from te_schemas.results import Band
+
+from te_algorithms.gdal import drought
+from te_algorithms.gdal.land_deg import config, land_deg, land_deg_report, models
+from te_algorithms.gdal.population import COUNTS, DENSITY_HA, DENSITY_KM2
 
 
 @pytest.fixture

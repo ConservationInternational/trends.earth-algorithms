@@ -3,8 +3,8 @@ import json
 import logging
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from osgeo import gdal
@@ -139,7 +139,7 @@ def _process_block(
     xoff: int,
     yoff: int,
     cell_areas_raw,
-) -> Tuple[SummaryTableLDErrorRecode, List[Dict]]:
+) -> tuple[SummaryTableLDErrorRecode, list[dict]]:
     """
     Process a block of data to recode multiple SDG bands and compute zonal statistics.
 
@@ -286,7 +286,7 @@ def _process_block(
 
 
 def _accumulate_summary_tables(
-    tables: List[SummaryTableLDErrorRecode],
+    tables: list[SummaryTableLDErrorRecode],
 ) -> SummaryTableLDErrorRecode:
     if len(tables) == 1:
         return tables[0]
@@ -728,7 +728,7 @@ def recode_errors(params) -> Job:
                 job_output_path.parent / f"{job_output_path.stem}_error_recode.vrt"
             )
             gdal.BuildVRT(str(error_recode_vrt), [str(p) for p in error_recode_paths])
-            rasters: Dict[str, Union[Raster, TiledRaster]] = {
+            rasters: dict[str, Raster | TiledRaster] = {
                 DataType.INT16.value: TiledRaster(
                     tile_uris=[URI(uri=p) for p in error_recode_paths],
                     uri=URI(uri=error_recode_vrt),
@@ -739,7 +739,7 @@ def recode_errors(params) -> Job:
             }
             main_uri = URI(uri=error_recode_vrt)
         else:
-            rasters: Dict[str, Union[Raster, TiledRaster]] = {
+            rasters: dict[str, Raster | TiledRaster] = {
                 DataType.INT16.value: Raster(
                     uri=URI(uri=error_recode_paths[0]),
                     bands=out_bands,
@@ -828,10 +828,10 @@ def _compute_error_recode(
     job_output_path=None,
     aoi=None,
     write_reporting_sdg_tifs=False,
-    mask_worker_function: Optional[Callable] = None,
-    mask_worker_params: Optional[dict] = None,
-    error_recode_worker_function: Optional[Callable] = None,
-    error_recode_worker_params: Optional[dict] = None,
+    mask_worker_function: Callable | None = None,
+    mask_worker_params: dict | None = None,
+    error_recode_worker_function: Callable | None = None,
+    error_recode_worker_params: dict | None = None,
 ):
     reporting_dfs = reporting_dfs or []
 

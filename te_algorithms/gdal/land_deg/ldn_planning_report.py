@@ -10,7 +10,7 @@ import datetime as dt
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
@@ -45,7 +45,7 @@ def _dcell(sheet, row, col, val, fmt=None):
 # ---------------------------------------------------------------------------
 
 
-def _write_arr_sheet(sheet, arr_summary: Dict[str, Any]) -> None:
+def _write_arr_sheet(sheet, arr_summary: dict[str, Any]) -> None:
     sheet.title = "ARR Summary"
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
     sheet.cell(
@@ -88,7 +88,7 @@ def _write_arr_sheet(sheet, arr_summary: Dict[str, Any]) -> None:
 
 
 def _write_hotspot_sheet(
-    sheet, hotspot_zones: Optional[List[Dict[str, Any]]] = None
+    sheet, hotspot_zones: list[dict[str, Any]] | None = None
 ) -> None:
     sheet.title = "Hotspot Ranking"
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
@@ -130,7 +130,7 @@ def _write_hotspot_sheet(
 # ---------------------------------------------------------------------------
 
 
-def _write_bau_sheet(sheet, bau_summary: Dict[str, Any]) -> None:
+def _write_bau_sheet(sheet, bau_summary: dict[str, Any]) -> None:
     sheet.title = "BAU Projection"
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
     sheet.cell(
@@ -256,7 +256,7 @@ def _write_bau_zones_sheet(
 # ---------------------------------------------------------------------------
 
 
-def _write_scenario_sheet(sheet, scenario_summary: Dict[str, Any]) -> None:
+def _write_scenario_sheet(sheet, scenario_summary: dict[str, Any]) -> None:
     sheet.title = "Scenario Balance Sheet"
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
     sheet.cell(
@@ -324,7 +324,7 @@ def _write_scenario_sheet(sheet, scenario_summary: Dict[str, Any]) -> None:
 
 
 def _write_scenario_breakdown_sheet(
-    sheet, title: str, rows: List[Dict[str, Any]], first_col_header: str
+    sheet, title: str, rows: list[dict[str, Any]], first_col_header: str
 ) -> None:
     """Per-land-type scenario breakdown sheet."""
     sheet.title = title
@@ -387,7 +387,7 @@ def _write_scenario_breakdown_sheet(
         sheet.column_dimensions[col_letter].width = width
 
 
-def _write_projection_summary_sheet(sheet, projection: Dict[str, Any]) -> None:
+def _write_projection_summary_sheet(sheet, projection: dict[str, Any]) -> None:
     """BAU-vs-scenario comparison over the planning horizon."""
     sheet.title = "BAU vs Scenario"
     xl.maybe_add_image_to_sheet("trends_earth_logo_bl_300width.png", sheet)
@@ -481,11 +481,11 @@ def _write_projection_summary_sheet(sheet, projection: Dict[str, Any]) -> None:
 
 def save_ldn_planning_excel(
     output_path: Path,
-    arr_summary: Optional[Dict[str, Any]] = None,
-    hotspot_zones: Optional[List[Dict[str, Any]]] = None,
-    bau_summary: Optional[Dict[str, Any]] = None,
-    scenario_summary: Optional[Dict[str, Any]] = None,
-    projection_summary: Optional[Dict[str, Any]] = None,
+    arr_summary: dict[str, Any] | None = None,
+    hotspot_zones: list[dict[str, Any]] | None = None,
+    bau_summary: dict[str, Any] | None = None,
+    scenario_summary: dict[str, Any] | None = None,
+    projection_summary: dict[str, Any] | None = None,
 ) -> None:
     """Save LDN Planning results to an Excel workbook.
 
@@ -561,16 +561,16 @@ def save_ldn_planning_excel(
 def save_ldn_planning_json(
     output_path: Path,
     task_name: str = "LDN Planning",
-    arr_summary: Optional[Dict[str, Any]] = None,
-    hotspot_summary: Optional[Dict[str, Any]] = None,
-    bau_summary: Optional[Dict[str, Any]] = None,
-    scenario_summary: Optional[Dict[str, Any]] = None,
-    projection_summary: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    arr_summary: dict[str, Any] | None = None,
+    hotspot_summary: dict[str, Any] | None = None,
+    bau_summary: dict[str, Any] | None = None,
+    scenario_summary: dict[str, Any] | None = None,
+    projection_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Save LDN Planning results to a JSON file and return the report dict."""
     report = {
         "task_name": task_name,
-        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "generated_at": dt.datetime.now(dt.UTC).isoformat(),
         "te_algorithms_version": __version__,
         "arr": arr_summary,
         "hotspots": hotspot_summary,

@@ -13,7 +13,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from osgeo import gdal
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _get_aoi_bounds(aoi: "AOI") -> Tuple[float, float, float, float]:
+def _get_aoi_bounds(aoi: "AOI") -> tuple[float, float, float, float]:
     """Extract bounding box from AOI geojson as (minx, miny, maxx, maxy)."""
 
     def _collect(obj, result):
@@ -60,10 +60,10 @@ def _get_aoi_bounds(aoi: "AOI") -> Tuple[float, float, float, float]:
 
 
 def prepare_land_type_vrts(
-    layer_paths: List[str],
+    layer_paths: list[str],
     reference_raster: str,
     aoi: Optional["AOI"] = None,
-) -> Tuple[List[str], int, tuple]:
+) -> tuple[list[str], int, tuple]:
     """Create warped VRTs for each land-type layer and compute the multiplier.
 
     When *aoi* is supplied the VRTs (and therefore all downstream
@@ -136,7 +136,7 @@ def prepare_land_type_vrts(
         bounds = (ref_minx, ref_miny, ref_maxx, ref_maxy)
 
     # Create warped VRTs
-    warped_vrts: List[str] = []
+    warped_vrts: list[str] = []
     for lp in layer_paths:
         vrt_path = tempfile.NamedTemporaryFile(suffix="_lt_warp.vrt", delete=False).name
         _ds = gdal.Warp(
@@ -191,7 +191,7 @@ class CounterbalancingTileInputs:
     in_file: Path
     n_land_type_bands: int
     multiplier: int
-    layer_nodata: List[Optional[int]]
+    layer_nodata: list[int | None]
     has_transition_bands: bool = False
     work_counter: object = None
     report_progress: bool = False
@@ -199,12 +199,12 @@ class CounterbalancingTileInputs:
 
 def _summarize_counterbalancing_tile(
     inputs: CounterbalancingTileInputs,
-) -> Tuple[
-    Optional[models.SummaryTableCounterbalancing],
-    Optional[str],
-    Optional[str],
-    Optional[Dict[int, str]],
-    Optional[str],
+) -> tuple[
+    models.SummaryTableCounterbalancing | None,
+    str | None,
+    str | None,
+    dict[int, str] | None,
+    str | None,
 ]:
     """Process a single tile for the counterbalancing assessment.
 
@@ -276,11 +276,11 @@ def _summarize_counterbalancing_tile(
     lt_out_band = lt_ds.GetRasterBand(1)
     lt_out_band.SetNoDataValue(float(config.NODATA_VALUE))
 
-    all_gains: Dict[int, float] = {}
-    all_losses: Dict[int, float] = {}
-    all_spu_labels: Dict[int, str] = {}
-    all_status_breakdown: Dict[int, Dict[int, float]] = {}
-    all_transition_breakdown: Dict[int, Dict[int, float]] = {}
+    all_gains: dict[int, float] = {}
+    all_losses: dict[int, float] = {}
+    all_spu_labels: dict[int, str] = {}
+    all_status_breakdown: dict[int, dict[int, float]] = {}
+    all_transition_breakdown: dict[int, dict[int, float]] = {}
 
     for y in range(0, ysize, block_ysize):
         win_y = min(block_ysize, ysize - y)
@@ -337,7 +337,7 @@ def _summarize_counterbalancing_tile(
 
         # Status breakdown (7-class) per land type
         sb = zonal_class_breakdown(status_arr, lt_arr, cell_area_2d, mask_bool)
-        block_status: Dict[int, Dict[int, float]] = {}
+        block_status: dict[int, dict[int, float]] = {}
         for (lt_code, s_class), area in sb.items():
             block_status.setdefault(int(lt_code), {})[int(s_class)] = float(area)
         all_status_breakdown = util.accumulate_nested_dicts(
@@ -356,7 +356,7 @@ def _summarize_counterbalancing_tile(
             nd16 = np.int16(config.NODATA_VALUE)
             trans_arr[(bl_arr == nd16) | (pd_arr == nd16)] = nd16
             tb = zonal_class_breakdown(trans_arr, lt_arr, cell_area_2d, mask_bool)
-            block_trans: Dict[int, Dict[int, float]] = {}
+            block_trans: dict[int, dict[int, float]] = {}
             for (lt_code, t_code), area in tb.items():
                 block_trans.setdefault(int(lt_code), {})[int(t_code)] = float(area)
             all_transition_breakdown = util.accumulate_nested_dicts(
@@ -492,7 +492,7 @@ def _cb_process_multiprocess(
             summary_tables = []
             gl_out_files = []
             lt_out_files = []
-            all_spu_labels: Dict[int, str] = {}
+            all_spu_labels: dict[int, str] = {}
 
             for n, output in enumerate(
                 executor.map(_summarize_counterbalancing_tile, inputs)
@@ -527,7 +527,7 @@ def _cb_process_multiprocess(
         summary_tables = []
         gl_out_files = []
         lt_out_files = []
-        all_spu_labels: Dict[int, str] = {}
+        all_spu_labels: dict[int, str] = {}
 
         try:
             if is_in_thread_pool:
@@ -599,7 +599,7 @@ def _cb_process_sequential(
     summary_tables = []
     gl_out_files = []
     lt_out_files = []
-    all_spu_labels: Dict[int, str] = {}
+    all_spu_labels: dict[int, str] = {}
     total_tiles = len(inputs)
     logger.info(f"Processing {total_tiles} counterbalancing tiles sequentially")
 
@@ -641,22 +641,22 @@ def _cb_process_sequential(
 def compute_counterbalancing(
     status_path: str,
     status_band_index: int,
-    land_type_layer_paths: List[str],
+    land_type_layer_paths: list[str],
     output_path: str,
     aoi: "AOI",
     n_cpus: int = max(1, multiprocessing.cpu_count() - 1),
     progress_callback=None,
     killed_callback=None,
     parallel_backend: str = "process",
-    baseline_band_index: Optional[int] = None,
-    status_period_band_index: Optional[int] = None,
-) -> Tuple[
+    baseline_band_index: int | None = None,
+    status_period_band_index: int | None = None,
+) -> tuple[
     models.SummaryTableCounterbalancing,
-    List[models.CounterbalancingLandTypeResult],
+    list[models.CounterbalancingLandTypeResult],
     str,
     str,
     str,
-    Dict[int, str],
+    dict[int, str],
 ]:
     """Run the full counterbalancing assessment.
 
@@ -716,7 +716,7 @@ def compute_counterbalancing(
     )
 
     # Collect per-layer nodata values
-    layer_nodata: List[Optional[int]] = []
+    layer_nodata: list[int | None] = []
     for vrt in warped_vrts:
         ds = gdal.Open(vrt)
         nd = ds.GetRasterBand(1).GetNoDataValue()
@@ -922,7 +922,7 @@ def compute_counterbalancing(
 
     all_lt_codes = sorted(set(list(all_gains.keys()) + list(all_losses.keys())))
 
-    land_type_results: List[models.CounterbalancingLandTypeResult] = []
+    land_type_results: list[models.CounterbalancingLandTypeResult] = []
 
     for lt_code in all_lt_codes:
         g = all_gains.get(lt_code, 0.0)
