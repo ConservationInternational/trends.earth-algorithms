@@ -2,7 +2,7 @@ import datetime as dt
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import TYPE_CHECKING
 
 import numpy as np
 from openpyxl import load_workbook
@@ -24,8 +24,8 @@ def save_summary_table_excel(
     output_path: Path,
     summary_table: models.SummaryTableLD,
     periods,
-    land_cover_years: List[int],
-    soil_organic_carbon_years: List[int],
+    land_cover_years: list[int],
+    soil_organic_carbon_years: list[int],
     lc_legend_nesting: land_cover.LCLegendNesting,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
     period_name,
@@ -86,9 +86,9 @@ def _get_population_list_by_degradation_class(pop_by_deg_class, pop_type):
 
 def save_reporting_json(
     output_path: Path,
-    summary_tables: Dict[str, models.SummaryTableLD],
-    summary_table_status: Union[None, models.SummaryTableLDStatus],
-    summary_table_change: Union[None, models.SummaryTableLDChange],
+    summary_tables: dict[str, models.SummaryTableLD],
+    summary_table_status: None | models.SummaryTableLDStatus,
+    summary_table_change: None | models.SummaryTableLDChange,
     params: dict,
     task_name: str,
     aoi: "AOI",
@@ -525,7 +525,7 @@ def save_reporting_json(
     te_summary = reporting.TrendsEarthLandConditionSummary(
         metadata=reporting.ReportMetadata(
             title="Trends.Earth Summary Report",
-            date=dt.datetime.now(dt.timezone.utc),
+            date=dt.datetime.now(dt.UTC),
             trends_earth_version=schemas.TrendsEarthVersion(
                 version=__version__,
                 revision=None,
@@ -563,8 +563,8 @@ def _render_ld_workbook(
     template_workbook,
     summary_table: models.SummaryTableLD,
     periods,
-    lc_years: List[int],
-    soc_years: List[int],
+    lc_years: list[int],
+    soc_years: list[int],
     lc_legend_nesting: land_cover.LCLegendNesting,
     lc_trans_matrix: land_cover.LCTransitionDefinitionDeg,
     period_name,

@@ -1,7 +1,6 @@
 import hashlib
 import json
 import logging
-from typing import Dict
 
 import numpy as np
 from osgeo import gdal, ogr
@@ -504,7 +503,7 @@ def _calc_features_stats(geojson, raster_path, bands, bands_crosstabs=None):
     return stats
 
 
-def _hash_band(band: Dict) -> str:
+def _hash_band(band: dict) -> str:
     """Generate a unique hash for a band based on its properties."""
     return hashlib.md5(
         f"{band['name']}_{band['index']}_"
@@ -512,7 +511,7 @@ def _hash_band(band: Dict) -> str:
     ).hexdigest()
 
 
-def calculate_statistics(params: Dict) -> JsonResults:
+def calculate_statistics(params: dict) -> JsonResults:
     """
     Calculate statistics for land degradation analysis from raster bands and polygon features.
 

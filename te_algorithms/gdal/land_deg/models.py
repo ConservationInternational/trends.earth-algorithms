@@ -1,5 +1,4 @@
 import dataclasses
-from typing import Dict, List, Optional, Tuple
 
 import marshmallow_dataclass
 from te_schemas import SchemaBase, land_cover
@@ -8,18 +7,18 @@ from te_schemas.datafile import DataFile
 
 @marshmallow_dataclass.dataclass
 class SummaryTableLD(SchemaBase):
-    soc_by_lc_annual_totals: List[Dict[int, float]]
-    lc_annual_totals: List[Dict[int, float]]
-    lc_trans_zonal_areas: List[Dict[int, float]]
-    lc_trans_zonal_areas_periods: List[Dict[str, float]]
-    lc_trans_prod_bizonal: Dict[Tuple[int, int], float]
-    sdg_zonal_population_total: Dict[int, float]
-    sdg_zonal_population_male: Dict[int, float]
-    sdg_zonal_population_female: Dict[int, float]
-    sdg_summary: Dict[int, float]
-    prod_summary: Dict[str, Dict[int, float]]
-    lc_summary: Dict[int, float]
-    soc_summary: Dict[str, Dict[int, float]]
+    soc_by_lc_annual_totals: list[dict[int, float]]
+    lc_annual_totals: list[dict[int, float]]
+    lc_trans_zonal_areas: list[dict[int, float]]
+    lc_trans_zonal_areas_periods: list[dict[str, float]]
+    lc_trans_prod_bizonal: dict[tuple[int, int], float]
+    sdg_zonal_population_total: dict[int, float]
+    sdg_zonal_population_male: dict[int, float]
+    sdg_zonal_population_female: dict[int, float]
+    sdg_summary: dict[int, float]
+    prod_summary: dict[str, dict[int, float]]
+    lc_summary: dict[int, float]
+    soc_summary: dict[str, dict[int, float]]
 
     def cast_to_cpython(self):
         # Numba compiled functions return numba types which won't pickle correctly
@@ -52,27 +51,27 @@ class SummaryTableLD(SchemaBase):
 class SummaryTableLDStatus(SchemaBase):
     """Records land degradation status for one or more periods"""
 
-    sdg_summaries: List[Dict[int, float]]
-    prod_summaries: List[Dict[str, Dict[int, float]]]
-    lc_summaries: List[Dict[int, float]]
-    soc_summaries: List[Dict[str, Dict[int, float]]]
+    sdg_summaries: list[dict[int, float]]
+    prod_summaries: list[dict[str, dict[int, float]]]
+    lc_summaries: list[dict[int, float]]
+    soc_summaries: list[dict[str, dict[int, float]]]
 
 
 @marshmallow_dataclass.dataclass
 class SummaryTableLDChange(SchemaBase):
     """Records change in land degradation status between baseline and one or more periods"""
 
-    sdg_crosstabs: List[Dict[tuple, float]]
-    prod_crosstabs: List[Dict[tuple, float]]
-    lc_crosstabs: List[Dict[tuple, float]]
-    soc_crosstabs: List[Dict[tuple, float]]
+    sdg_crosstabs: list[dict[tuple, float]]
+    prod_crosstabs: list[dict[tuple, float]]
+    lc_crosstabs: list[dict[tuple, float]]
+    soc_crosstabs: list[dict[tuple, float]]
 
 
 @marshmallow_dataclass.dataclass
 class SummaryTableLDErrorRecode(SchemaBase):
-    baseline_summary: Dict[int, float]
-    report_summaries: Optional[List[Dict[int, float]]] = None
-    crosstabs: Optional[List] = None  # List of numpy float64[4,4] arrays
+    baseline_summary: dict[int, float]
+    report_summaries: list[dict[int, float]] | None = None
+    crosstabs: list | None = None  # List of numpy float64[4,4] arrays
 
 
 @dataclasses.dataclass()
@@ -88,7 +87,7 @@ class DegradationSummaryParams(SchemaBase):
     trans_matrix: land_cover.LCTransitionDefinitionDeg
     period_name: str
     periods: dict
-    population_out_file: Optional[str] = None
+    population_out_file: str | None = None
     n_population_out_bands: int = 0
 
 
@@ -117,8 +116,8 @@ class DegradationErrorRecodeSummaryParams(SchemaBase):
     write_reporting_sdg_tifs: bool = (
         False  # Whether to write out the reporting period layers
     )
-    baseline_band_num: Optional[int] = None  # Band number for baseline SDG
-    report_band_nums: Optional[List[int]] = None  # Band numbers for reporting periods
+    baseline_band_num: int | None = None  # Band number for baseline SDG
+    report_band_nums: list[int] | None = None  # Band numbers for reporting periods
 
 
 @marshmallow_dataclass.dataclass
@@ -133,8 +132,8 @@ class CounterbalancingLandTypeResult(SchemaBase):
     delta_ldn: float
     ldn_achieved: bool
     ldn_pct: float  # (gains-losses)/total_area*100 (% of total land area)
-    status_breakdown_sqkm: Optional[Dict[int, float]] = None
-    transition_breakdown_sqkm: Optional[Dict[int, float]] = None
+    status_breakdown_sqkm: dict[int, float] | None = None
+    transition_breakdown_sqkm: dict[int, float] | None = None
 
 
 @marshmallow_dataclass.dataclass
@@ -142,13 +141,13 @@ class SummaryTableCounterbalancing(SchemaBase):
     """Accumulated counterbalancing statistics across all land types."""
 
     # Per-land_type gain and loss areas
-    gains_by_land_type: Dict[int, float]
-    losses_by_land_type: Dict[int, float]
+    gains_by_land_type: dict[int, float]
+    losses_by_land_type: dict[int, float]
 
     # Per-land_type area breakdown by status class (7-class)
-    status_breakdown: Optional[Dict[int, Dict[int, float]]] = None
+    status_breakdown: dict[int, dict[int, float]] | None = None
     # Per-land_type baseline→period transition matrix (encoded keys)
-    transition_breakdown: Optional[Dict[int, Dict[int, float]]] = None
+    transition_breakdown: dict[int, dict[int, float]] | None = None
 
     def cast_to_cpython(self):
         self.gains_by_land_type = dict(self.gains_by_land_type)
@@ -164,7 +163,7 @@ class SummaryTableCounterbalancing(SchemaBase):
 
 
 def accumulate_summary_table_counterbalancing(
-    tables: List[SummaryTableCounterbalancing],
+    tables: list[SummaryTableCounterbalancing],
 ) -> SummaryTableCounterbalancing:
     from .. import util
 
@@ -193,7 +192,7 @@ def accumulate_summary_table_counterbalancing(
 
 
 def accumulate_summarytableld(
-    tables: List[SummaryTableLD],
+    tables: list[SummaryTableLD],
 ) -> SummaryTableLD:
     from .. import util  # needed for multiprocessing
 
