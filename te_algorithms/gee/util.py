@@ -1,9 +1,7 @@
 import random
 import re
 import threading
-import typing
 from time import time
-from typing import Union
 
 import backoff
 import ee
@@ -300,9 +298,9 @@ class TEImage:
 
     def getImages(
         self,
-        name_filter: Union[str, list],
-        field: Union[None, str] = None,
-        field_filter: Union[None, str] = None,
+        name_filter: str | list,
+        field: None | str = None,
+        field_filter: None | str = None,
     ):
         "Select certain bands from the image(s), dropping all others"
         if isinstance(name_filter, str):
@@ -408,7 +406,7 @@ class GEEImage:
     def __init__(
         self,
         image: ee.Image,
-        bands: typing.List[results.Band],
+        bands: list[results.Band],
         datatype: results.DataType = results.DataType.INT16,
     ):
         self.image = image
@@ -551,13 +549,13 @@ def teimage_v1_to_teimage_v2(te_image):
 class TEImageV2:
     "A class to store GEE images and band info for export to cloud storage"
 
-    def __init__(self, images: typing.Dict[str, GEEImage] = {}):
+    def __init__(self, images: dict[str, GEEImage] = {}):
         self.images = images
 
     def add_image(
         self,
         image: ee.Image,
-        bands: typing.List[results.Band],
+        bands: list[results.Band],
         datatype: results.DataType = results.DataType.INT16,
     ):
         gee_image = GEEImage(image, bands, datatype)
@@ -582,9 +580,9 @@ class TEImageV2:
 
     def getImages(
         self,
-        name_filter: Union[str, list],
-        field: Union[None, str] = None,
-        field_filter: Union[None, str] = None,
+        name_filter: str | list,
+        field: None | str = None,
+        field_filter: None | str = None,
     ):
         "Select certain bands from the image(s), dropping all others"
         if isinstance(name_filter, str):

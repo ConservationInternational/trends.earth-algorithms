@@ -4,7 +4,6 @@ import os
 import pathlib
 import shutil
 import tempfile
-from typing import List, Optional
 from xml.sax.saxutils import escape
 
 import marshmallow_dataclass
@@ -220,12 +219,12 @@ def _get_vrt_source_path(
 
 
 def combine_all_bands_into_vrt(
-    in_files: List[pathlib.Path],
+    in_files: list[pathlib.Path],
     out_file: pathlib.Path,
     is_relative=True,
     aws_access_key_id=None,
     aws_secret_access_key=None,
-    band_names: Optional[List[str]] = None,
+    band_names: list[str] | None = None,
 ):
     """creates a vrt file combining all bands of in_files
 
@@ -343,7 +342,7 @@ def save_vrt(source_path: pathlib.Path, source_band_index: int) -> str:
 
 def save_vrt2(
     source_path: pathlib.Path,
-    source_band_indices: List[int],
+    source_band_indices: list[int],
     output_path: pathlib.Path | None = None,
 ) -> str:
     """Select bands into a persistent output path, or a temporary VRT if omitted."""
