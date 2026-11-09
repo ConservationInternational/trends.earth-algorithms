@@ -4,9 +4,9 @@ import logging
 import math
 import multiprocessing
 import os
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Callable, Optional
 
 import numpy as np
 from osgeo import gdal
@@ -412,7 +412,7 @@ class CutTiles:
     n_cpus: int = min(
         multiprocessing.cpu_count() - 1, 8
     )  # Cap at 8 CPUs max, not min 16
-    out_file: Optional[Path] = None
+    out_file: Path | None = None
     datatype: int = gdal.GDT_Int16
     parallel_backend: str = "process"
     output_format: str = "GTiff"

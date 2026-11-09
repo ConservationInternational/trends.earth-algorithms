@@ -41,7 +41,7 @@ import math
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from osgeo import gdal, ogr
@@ -79,7 +79,7 @@ _NAME_FIELD_CANDIDATES = (
 # ---------------------------------------------------------------------------
 
 
-def _ref_bounds(ref_gt: Tuple, xsize: int, ysize: int) -> Tuple:
+def _ref_bounds(ref_gt: tuple, xsize: int, ysize: int) -> tuple:
     """(minx, miny, maxx, maxy) for a north-up geotransform."""
     minx = ref_gt[0]
     maxy = ref_gt[3]
@@ -91,7 +91,7 @@ def _ref_bounds(ref_gt: Tuple, xsize: int, ysize: int) -> Tuple:
 def align_raster_to_ref(
     src_path: str,
     band_index: int,
-    ref_gt: Tuple,
+    ref_gt: tuple,
     ref_proj: str,
     xsize: int,
     ysize: int,
@@ -144,9 +144,9 @@ def align_raster_to_ref(
 
 
 def combine_arrays_to_zones(
-    arrays: List[np.ndarray],
-    nodata_values: List[int],
-) -> Tuple[np.ndarray, Dict[int, str]]:
+    arrays: list[np.ndarray],
+    nodata_values: list[int],
+) -> tuple[np.ndarray, dict[int, str]]:
     """Combine aligned categorical arrays into sequential zone ids.
 
     Each unique combination of input values becomes one zone. Combinations are
@@ -184,7 +184,7 @@ def combine_arrays_to_zones(
         combined += arr.astype(np.int64) * (multiplier**power)
 
     zone_ids = np.zeros(shape, dtype=np.int32)
-    labels: Dict[int, str] = {}
+    labels: dict[int, str] = {}
     unique_codes = np.unique(combined[valid]) if np.any(valid) else np.array([])
     for seq_id, raw in enumerate(sorted(int(c) for c in unique_codes), start=1):
         zone_ids[valid & (combined == raw)] = seq_id
@@ -201,13 +201,13 @@ def combine_arrays_to_zones(
 
 
 def combine_rasters_to_zones(
-    raster_paths: List[str],
-    ref_gt: Tuple,
+    raster_paths: list[str],
+    ref_gt: tuple,
     ref_proj: str,
     xsize: int,
     ysize: int,
-    band_indices: Optional[List[int]] = None,
-) -> Tuple[np.ndarray, Dict[int, str], List[str]]:
+    band_indices: list[int] | None = None,
+) -> tuple[np.ndarray, dict[int, str], list[str]]:
     """Align and combine multiple rasters into a sequential zone-id array.
 
     Loads the full output into memory â€” only use when the reference grid is
@@ -240,11 +240,11 @@ def combine_rasters_to_zones(
 
 def rasterize_vector_zones(
     zones_path: str,
-    ref_gt: Tuple,
+    ref_gt: tuple,
     ref_proj: str,
     xsize: int,
     ysize: int,
-) -> Tuple[np.ndarray, Dict[int, str]]:
+) -> tuple[np.ndarray, dict[int, str]]:
     """Rasterize polygon features to sequential zone ids on the reference grid.
 
     Returns (zone_ids int32 [1..N, 0 = outside], {id: feature_name}).
@@ -260,7 +260,7 @@ def rasterize_vector_zones(
     zid_ds.SetProjection(ref_proj)
     zid_ds.GetRasterBand(1).Fill(0)
 
-    id_to_name: Dict[int, str] = {}
+    id_to_name: dict[int, str] = {}
     defn = zones_lyr.GetLayerDefn()
     name_field = None
     for candidate in _NAME_FIELD_CANDIDATES:
@@ -295,13 +295,13 @@ def rasterize_vector_zones(
 
 def load_zones_raster(
     zones_raster_path: str,
-    ref_gt: Tuple,
+    ref_gt: tuple,
     ref_proj: str,
     xsize: int,
     ysize: int,
-    label_key: Optional[Dict[Any, str]] = None,
+    label_key: dict[Any, str] | None = None,
     band_index: int = 1,
-) -> Tuple[np.ndarray, Dict[int, str]]:
+) -> tuple[np.ndarray, dict[int, str]]:
     """Load a saved zones raster aligned to the reference grid.
 
     Args:
@@ -316,7 +316,7 @@ def load_zones_raster(
     arr = arr.astype(np.int32)
     arr[arr < 0] = 0  # nodata -> outside
 
-    id_to_name: Dict[int, str] = {}
+    id_to_name: dict[int, str] = {}
     present = (int(c) for c in np.unique(arr) if int(c) != 0)
     for code in present:
         name = None
@@ -327,15 +327,15 @@ def load_zones_raster(
 
 
 def resolve_zone_ids(
-    ref_gt: Tuple,
+    ref_gt: tuple,
     ref_proj: str,
     xsize: int,
     ysize: int,
-    zones_path: Optional[str] = None,
-    zones_raster_path: Optional[str] = None,
-    zones_raster_labels: Optional[Dict[Any, str]] = None,
+    zones_path: str | None = None,
+    zones_raster_path: str | None = None,
+    zones_raster_labels: dict[Any, str] | None = None,
     zones_raster_band_index: int = 1,
-) -> Tuple[Optional[np.ndarray], Dict[int, str]]:
+) -> tuple[np.ndarray | None, dict[int, str]]:
     """Resolve any supported zone source to (zone_id_array, {id: name}).
 
     Precedence: saved zones raster > uploaded vector > none. Returns
@@ -387,13 +387,13 @@ def _approx_band_max(path: str, band_index: int) -> int:
 
 
 def create_zones(
-    raster_paths: List[str],
+    raster_paths: list[str],
     output_path: str,
-    band_indices: Optional[List[int]] = None,
-    aoi_bounds: Optional[Tuple[float, float, float, float]] = None,
+    band_indices: list[int] | None = None,
+    aoi_bounds: tuple[float, float, float, float] | None = None,
     progress_callback=None,
     killed_callback=None,
-) -> Tuple[str, Dict[int, str], List[str]]:
+) -> tuple[str, dict[int, str], list[str]]:
     """Combine categorical rasters into a reusable Int32 zones raster.
 
     **Memory-safe and streaming** — works for any input size including
@@ -496,7 +496,7 @@ def create_zones(
 
     # ── Nodata values from source rasters ───────────────────────────────────
     n = len(raster_paths)
-    nodata_values: List[int] = []
+    nodata_values: list[int] = []
     for path, bidx in zip(raster_paths, band_indices):
         src_ds = gdal.Open(str(path))
         nd = src_ds.GetRasterBand(bidx).GetNoDataValue() if src_ds else None
@@ -538,7 +538,7 @@ def create_zones(
     # encountered.  Each source block is read exactly once via a fresh
     # gdal.Warp-to-MEM call, which is stateless and always returns correct
     # data regardless of GDAL block-cache state.
-    raw_to_seq: Dict[int, int] = {}
+    raw_to_seq: dict[int, int] = {}
     next_id = 1
     layer_names = [Path(p).stem for p in raster_paths]
 
@@ -603,9 +603,9 @@ def create_zones(
     del out_band, out_ds
 
     # ── Build labels from accumulated mapping ────────────────────────────────
-    labels: Dict[int, str] = {}
+    labels: dict[int, str] = {}
     for raw, seq in raw_to_seq.items():
-        parts: List[str] = []
+        parts: list[str] = []
         remainder = raw
         for i in range(n):
             div = multiplier ** (n - 1 - i)
@@ -644,7 +644,7 @@ def create_zones(
     return str(output_path), labels, layer_names
 
 
-def read_zones_key(zones_raster_path: str) -> Optional[Dict[str, Any]]:
+def read_zones_key(zones_raster_path: str) -> dict[str, Any] | None:
     """Load the ``<raster>.key.json`` sidecar if present."""
     key_path = str(zones_raster_path) + ".key.json"
     if not os.path.exists(key_path):
@@ -657,12 +657,12 @@ def read_zones_key(zones_raster_path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def labels_from_key(key: Optional[Dict[str, Any]]) -> Dict[int, str]:
+def labels_from_key(key: dict[str, Any] | None) -> dict[int, str]:
     """Extract an {id: label} mapping from a zones key dict."""
     if not key:
         return {}
     units = key.get("units", {})
-    out: Dict[int, str] = {}
+    out: dict[int, str] = {}
     for k, v in units.items():
         try:
             out[int(k)] = v.get("label", str(k)) if isinstance(v, dict) else str(v)
