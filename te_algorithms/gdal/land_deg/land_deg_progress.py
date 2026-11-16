@@ -2,7 +2,7 @@ import logging
 import multiprocessing
 import tempfile
 import time
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from collections.abc import Callable
 
 import numpy as np
 from osgeo import gdal
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def _accumulate_ld_summary_tables_status(
-    tables: List[models.SummaryTableLDStatus],
+    tables: list[models.SummaryTableLDStatus],
 ) -> models.SummaryTableLDStatus:
     """Used for combining summary tables from multiple blocks of an image"""
     if len(tables) == 1:
@@ -84,7 +84,7 @@ def _accumulate_ld_summary_tables_status(
 
 
 def _accumulate_ld_summary_tables_change(
-    tables: List[models.SummaryTableLDChange],
+    tables: list[models.SummaryTableLDChange],
 ) -> models.SummaryTableLDChange:
     """Used for combining summary tables from multiple blocks of an image"""
     if len(tables) == 1:
@@ -335,11 +335,11 @@ def compute_status_summary(
     compute_bbs_from,
     periods,
     nesting: LCLegendNesting,
-    mask_worker_function: Union[None, Callable] = None,
-    mask_worker_params: Union[None, dict] = None,
-    status_worker_function: Union[None, Callable] = None,
-    status_worker_params: Union[None, dict] = None,
-    n_cpus: Optional[int] = None,
+    mask_worker_function: None | Callable = None,
+    mask_worker_params: None | dict = None,
+    status_worker_function: None | Callable = None,
+    status_worker_params: None | dict = None,
+    n_cpus: int | None = None,
     parallel_backend: str = "process",
     progress_callback=None,
     killed_callback=None,
@@ -972,7 +972,7 @@ def _process_block_status(
     xoff: int,
     yoff: int,
     cell_areas_raw,
-) -> Tuple[Tuple[models.SummaryTableLDStatus, models.SummaryTableLDChange], List[Dict]]:
+) -> tuple[tuple[models.SummaryTableLDStatus, models.SummaryTableLDChange], list[dict]]:
     """Optimized status block processing with cached array operations"""
     cell_areas = np.repeat(cell_areas_raw, mask.shape[1], axis=1).astype(np.float64)
 
