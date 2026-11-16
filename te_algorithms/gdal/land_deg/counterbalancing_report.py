@@ -10,7 +10,7 @@ import datetime as dt
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
@@ -49,7 +49,7 @@ def _add_data_cell(sheet, row, col, value, fmt=None):
 
 def save_counterbalancing_excel(
     output_path: Path,
-    land_type_results: List[models.CounterbalancingLandTypeResult],
+    land_type_results: list[models.CounterbalancingLandTypeResult],
     summary_table: models.SummaryTableCounterbalancing,
 ):
     """Save counterbalancing results into an Excel workbook."""
@@ -69,7 +69,7 @@ def save_counterbalancing_excel(
 
 
 def _write_summary_sheet(
-    sheet, land_type_results: List[models.CounterbalancingLandTypeResult]
+    sheet, land_type_results: list[models.CounterbalancingLandTypeResult]
 ):
     """Overview sheet: gains, losses, delta per land type."""
     sheet.title = "Counterbalancing Summary"
@@ -137,7 +137,7 @@ def _write_summary_sheet(
 
 def save_counterbalancing_json(
     output_path: Path,
-    land_type_results: List[models.CounterbalancingLandTypeResult],
+    land_type_results: list[models.CounterbalancingLandTypeResult],
     task_name: str,
     aoi: "AOI",
     land_type_labels: dict = None,
@@ -158,7 +158,7 @@ def save_counterbalancing_json(
         "metadata": {
             "algorithm_version": version,
             "release_date": release_date,
-            "report_date": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "report_date": dt.datetime.now(dt.UTC).isoformat(),
             "task_name": task_name,
         },
         "land_type_results": [
