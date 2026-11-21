@@ -316,9 +316,15 @@ def _write_scenario_sheet(sheet, scenario_summary: Dict[str, Any]) -> None:
         _dcell(sheet, r, 2, round(val, 2), "#,##0.00")
 
     note_row = total_start + len(totals) + 2
-    sheet.cell(
-        row=note_row, column=1, value=scenario_summary.get("net_balance_note", "")
-    ).alignment = Alignment(wrap_text=True)
+    note = " ".join(
+        value
+        for value in (
+            scenario_summary.get("net_balance_note", ""),
+            scenario_summary.get("net_balance_interpretation", ""),
+        )
+        if value
+    )
+    sheet.cell(row=note_row, column=1, value=note).alignment = Alignment(wrap_text=True)
     sheet.column_dimensions["A"].width = 40
     sheet.column_dimensions["B"].width = 16
 
@@ -372,6 +378,14 @@ def _write_scenario_breakdown_sheet(
             round(item.get("total_avoided_losses_km2", 0) or 0, 2),
             "#,##0.00",
         )
+    sheet.cell(
+        row=6 + len(rows),
+        column=1,
+        value=(
+            "Projected effects only; avoided-loss estimates are upper bounds and "
+            "do not establish like-for-like LDN achievement."
+        ),
+    ).alignment = Alignment(wrap_text=True)
 
     note_row = 5 + len(rows) + 1
     sheet.cell(
@@ -423,7 +437,10 @@ def _write_projection_summary_sheet(sheet, projection: Dict[str, Any]) -> None:
             projection.get("remaining_shortfall_km2"),
         ),
         ("Shortfall gap closed (%)", projection.get("gap_closed_pct")),
-        ("Neutrality achieved at target year", projection.get("neutral")),
+        (
+            "Simplified aggregate neutrality indicator (not like-for-like)",
+            projection.get("neutral"),
+        ),
     ]
     _hcell(sheet, 3, 1, "Metric")
     _hcell(sheet, 3, 2, "Value")
@@ -454,7 +471,7 @@ def _write_projection_summary_sheet(sheet, projection: Dict[str, Any]) -> None:
             "Scenario Contribution (km\u00b2)",
             f"Scenario-Adjusted {target_year} (km\u00b2)",
             "Gap Closed (%)",
-            "Neutral",
+            "Aggregate-neutrality indicator (not like-for-like)",
         ]
         for col, h in enumerate(headers, 1):
             _hcell(sheet, start, col, h)
@@ -551,11 +568,11 @@ def save_ldn_planning_excel(
     try:
         wb.save(str(output_path))
         logger.info("LDN Planning table saved to %s", output_path)
-    except OSError:
-        logger.error(
-            "Error saving LDN Planning table — check %s is not already open.",
-            output_path,
-        )
+    except OSError as error:
+        raise RuntimeError(
+            f"Could not save LDN Planning table to {output_path}. "
+            "Check that the file is accessible and not already open."
+        ) from error
 
 
 def save_ldn_planning_json(
@@ -584,6 +601,8 @@ def save_ldn_planning_json(
             json.dumps(report, default=str, indent=2), encoding="utf-8"
         )
         logger.info("LDN Planning JSON saved to %s", output_path)
-    except OSError:
-        logger.error("Error saving LDN Planning JSON to %s", output_path)
+    except OSError as error:
+        raise RuntimeError(
+            f"Could not save LDN Planning JSON to {output_path}."
+        ) from error
     return report

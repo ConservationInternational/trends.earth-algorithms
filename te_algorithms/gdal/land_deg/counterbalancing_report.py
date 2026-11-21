@@ -60,12 +60,11 @@ def save_counterbalancing_excel(
     try:
         wb.save(str(output_path))
         logger.info("Counterbalancing table saved to %s", output_path)
-    except OSError:
-        logger.error(
-            "Error saving counterbalancing table - check that %s is accessible "
-            "and not already open.",
-            output_path,
-        )
+    except OSError as error:
+        raise RuntimeError(
+            f"Could not save counterbalancing table to {output_path}. "
+            "Check that the file is accessible and not already open."
+        ) from error
 
 
 def _write_summary_sheet(
@@ -113,7 +112,9 @@ def _write_summary_sheet(
 
     # Totals row
     total_delta = total_gains - total_losses
-    sheet.cell(row=row, column=1, value="Total").font = Font(bold=True, italic=True)
+    sheet.cell(
+        row=row, column=1, value="Total (aggregate arithmetic balance)"
+    ).font = Font(bold=True, italic=True)
     sheet.cell(row=row, column=1).border = xl.thin_border
     _add_data_cell(sheet, row, 2, total_gains, "#,##0.00")
     sheet.cell(row=row, column=2).font = Font(italic=True, bold=True)
@@ -123,11 +124,19 @@ def _write_summary_sheet(
     sheet.cell(row=row, column=4).font = Font(italic=True, bold=True)
     cell = sheet.cell(row=row, column=5)
     all_achieved = total_delta >= 0
-    cell.value = "Yes" if all_achieved else "No"
+    cell.value = f"Aggregate balance ≥ 0: {'Yes' if all_achieved else 'No'}"
     cell.alignment = _center_alignment
     cell.border = xl.thin_border
     cell.font = Font(
         bold=True, italic=True, color="006500" if all_achieved else "9b2779"
+    )
+    sheet.cell(
+        row=row + 1,
+        column=1,
+        value=(
+            "Aggregate gains minus losses is arithmetic only, not a like-for-like "
+            "LDN determination. Assess achievement for each land type above."
+        ),
     )
 
     # Auto-size columns
@@ -172,6 +181,18 @@ def save_counterbalancing_json(
             }
             for lt in land_type_results
         ],
+        "aggregate_balance_sqkm": sum(
+            lt.gains_area_sqkm - lt.losses_area_sqkm for lt in land_type_results
+        ),
+        "all_land_types_achieved": (
+            all(lt.ldn_achieved for lt in land_type_results)
+            if land_type_results
+            else None
+        ),
+        "aggregate_interpretation": (
+            "Aggregate gains minus losses is arithmetic only and is not a "
+            "like-for-like LDN determination; assess each eligible land type."
+        ),
     }
 
     # Add spatial unit key so users can decode which original layer values
@@ -198,10 +219,9 @@ def save_counterbalancing_json(
         with open(str(output_path), "w") as f:
             json.dump(report, f, indent=2)
         logger.info("Counterbalancing JSON report saved to %s", output_path)
-    except OSError:
-        logger.error(
-            "Error saving counterbalancing JSON - check that %s is accessible",
-            output_path,
-        )
+    except OSError as error:
+        raise RuntimeError(
+            f"Could not save counterbalancing JSON report to {output_path}."
+        ) from error
 
     return report

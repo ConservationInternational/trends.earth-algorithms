@@ -16,7 +16,7 @@ pytest.importorskip("osgeo.gdal", reason="GDAL not available")
 pytest.importorskip("osgeo.ogr", reason="OGR not available")
 pytest.importorskip("osgeo.osr", reason="OSR not available")
 
-from osgeo import gdal, osr
+from osgeo import gdal, ogr, osr
 
 from te_algorithms.gdal.land_deg import ldn_planning
 
@@ -40,6 +40,50 @@ def _write_raster(arr: np.ndarray, path: str, nodata: int = -32768) -> None:
     band = ds.GetRasterBand(1)
     band.SetNoDataValue(nodata)
     band.WriteArray(arr)
+    ds.FlushCache()
+    del ds
+
+
+def _write_grid(
+    arr: np.ndarray,
+    path: str,
+    geotransform: tuple,
+    epsg: int,
+    nodata: int = -32768,
+) -> None:
+    gdal.UseExceptions()
+    driver = gdal.GetDriverByName("GTiff")
+    ysize, xsize = arr.shape
+    ds = driver.Create(path, xsize, ysize, 1, gdal.GDT_Int16)
+    ds.SetGeoTransform(geotransform)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(epsg)
+    ds.SetProjection(srs.ExportToWkt())
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(nodata)
+    band.WriteArray(arr)
+    ds.FlushCache()
+    del ds
+
+
+def _write_float_grid(
+    arr: np.ndarray,
+    path: str,
+    geotransform: tuple,
+    epsg: int,
+    nodata: float = -9999.0,
+) -> None:
+    gdal.UseExceptions()
+    driver = gdal.GetDriverByName("GTiff")
+    ysize, xsize = arr.shape
+    ds = driver.Create(path, xsize, ysize, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform(geotransform)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(epsg)
+    ds.SetProjection(srs.ExportToWkt())
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(nodata)
+    band.WriteArray(arr.astype(np.float32))
     ds.FlushCache()
     del ds
 
@@ -168,6 +212,150 @@ class TestARRClassification(unittest.TestCase):
         self.assertAlmostEqual(summary["total_km2"], 0.0, places=3)
         self.assertGreater(summary["nodata_km2"], 0)
 
+    def test_auto_rejects_all_one_status_but_explicit_encoding_works(self):
+        arr = np.ones((5, 5), dtype=np.int16)
+        path = self._status_path(arr)
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            ldn_planning.compute_arr_classification(path)
+
+        output = os.path.join(self.tmpdir, "arr_one_3class.tif")
+        summary, _ = ldn_planning.compute_arr_classification(
+            path, output_path=output, status_type="3class"
+        )
+        self.assertGreater(summary["avoid_km2"], 0)
+
+        output_7class = os.path.join(self.tmpdir, "arr_one_7class.tif")
+        summary, _ = ldn_planning.compute_arr_classification(
+            path, output_path=output_7class, status_type="7class"
+        )
+        self.assertGreater(summary["reverse_km2"], 0)
+
+    def test_shifted_trajectory_is_aligned_and_risk_nodata_is_unknown(self):
+        status_path = os.path.join(self.tmpdir, "status_align.tif")
+        risk_path = os.path.join(self.tmpdir, "risk_align.tif")
+        output_path = os.path.join(self.tmpdir, "arr_align.tif")
+        _write_grid(
+            np.zeros((4, 4), dtype=np.int16),
+            status_path,
+            (0, 0.1, 0, 5, 0, -0.1),
+            4326,
+        )
+        risk = np.full((4, 4), 1, dtype=np.int16)
+        risk[1, 1] = -32768
+        _write_grid(
+            risk,
+            risk_path,
+            (0.05, 0.1, 0, 5, 0, -0.1),
+            4326,
+        )
+        summary, _ = ldn_planning.compute_arr_classification(
+            status_path,
+            risk_layer_path=risk_path,
+            output_path=output_path,
+            status_type="3class",
+        )
+        result_ds = gdal.Open(output_path)
+        result = result_ds.GetRasterBand(1).ReadAsArray()
+        result_ds = None
+        self.assertEqual(result[1, 1], ldn_planning.ARR_NODATA)
+        reason_ds = gdal.Open(output_path)
+        self.assertEqual(
+            reason_ds.GetRasterBand(2).ReadAsArray()[1, 1],
+            ldn_planning.ARR_REASON_MISSING_REQUIRED_INPUT,
+        )
+        reason_ds = None
+        self.assertGreater(summary["reduce_km2"], 0)
+        self.assertGreater(summary["nodata_km2"], 0)
+
+    def test_float_risk_uses_strict_configured_threshold_and_reason_codes(self):
+        status_path = os.path.join(self.tmpdir, "status_threshold.tif")
+        risk_path = os.path.join(self.tmpdir, "risk_threshold.tif")
+        output_path = os.path.join(self.tmpdir, "arr_threshold.tif")
+        geotransform = (0, 0.1, 0, 5, 0, -0.1)
+        _write_grid(np.zeros((2, 2), dtype=np.int16), status_path, geotransform, 4326)
+        _write_float_grid(
+            np.array([[0.25, 0.75], [0.5, 0.6]]),
+            risk_path,
+            geotransform,
+            4326,
+        )
+        summary, _ = ldn_planning.compute_arr_classification(
+            status_path,
+            risk_layer_path=risk_path,
+            output_path=output_path,
+            status_type="3class",
+            risk_threshold=0.5,
+        )
+        result_ds = gdal.Open(output_path)
+        class_arr = result_ds.GetRasterBand(1).ReadAsArray()
+        reason_arr = result_ds.GetRasterBand(2).ReadAsArray()
+        result_ds = None
+        self.assertEqual(np.count_nonzero(class_arr == ldn_planning.ARR_REDUCE), 2)
+        self.assertEqual(summary["reason_band_index"], 2)
+        self.assertEqual(
+            summary["reason_counts"][ldn_planning.ARR_REASON_RISK_POSITIVE], 2
+        )
+        self.assertEqual(reason_arr[0, 1], ldn_planning.ARR_REASON_RISK_POSITIVE)
+
+    def test_arr_cancellation_removes_partial_output(self):
+        status_path = self._status_path(np.zeros((5, 5), dtype=np.int16))
+        output_path = os.path.join(self.tmpdir, "cancelled_arr.tif")
+        with self.assertRaisesRegex(RuntimeError, "cancelled"):
+            ldn_planning.compute_arr_classification(
+                status_path,
+                output_path=output_path,
+                killed_callback=lambda: True,
+            )
+        self.assertFalse(os.path.exists(output_path))
+
+    def test_aoi_masks_arr_and_projected_cell_area_is_physical(self):
+        status_path = os.path.join(self.tmpdir, "status_aoi.tif")
+        aoi_path = os.path.join(self.tmpdir, "aoi.gpkg")
+        output_path = os.path.join(self.tmpdir, "arr_aoi.tif")
+        _write_grid(
+            np.zeros((2, 2), dtype=np.int16),
+            status_path,
+            (0, 0.1, 0, 5, 0, -0.1),
+            4326,
+        )
+        driver = ogr.GetDriverByName("GPKG")
+        ds = driver.CreateDataSource(aoi_path)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        layer = ds.CreateLayer("aoi", srs=srs, geom_type=ogr.wkbPolygon)
+        ring = ogr.Geometry(ogr.wkbLinearRing)
+        for x, y in [(0, 5), (0.1, 5), (0.1, 4.9), (0, 4.9), (0, 5)]:
+            ring.AddPoint(x, y)
+        polygon = ogr.Geometry(ogr.wkbPolygon)
+        polygon.AddGeometry(ring)
+        feature = ogr.Feature(layer.GetLayerDefn())
+        feature.SetGeometry(polygon)
+        layer.CreateFeature(feature)
+        ds = None
+
+        summary, _ = ldn_planning.compute_arr_classification(
+            status_path,
+            output_path=output_path,
+            status_type="3class",
+            aoi_path=aoi_path,
+        )
+        result_ds = gdal.Open(output_path)
+        result = result_ds.GetRasterBand(1).ReadAsArray()
+        result_ds = None
+        self.assertEqual(np.count_nonzero(result == ldn_planning.ARR_AVOID), 1)
+        self.assertAlmostEqual(summary["total_km2"], summary["avoid_km2"], places=5)
+
+        projected = osr.SpatialReference()
+        projected.ImportFromEPSG(3857)
+        areas = ldn_planning._compute_pixel_areas_km2(
+            (0, 1000, 0, 1000, 0, -1000),
+            0,
+            1,
+            1,
+            projected.ExportToWkt(),
+        )
+        self.assertAlmostEqual(float(areas[0, 0]), 1.0, delta=0.01)
+
 
 # ---------------------------------------------------------------------------
 # BAU rate tests
@@ -232,6 +420,52 @@ class TestBAURate(unittest.TestCase):
         summary = ldn_planning.compute_bau_rate(p, 1)
         self.assertIsNone(summary["annual_change_km2"])
         self.assertIsNone(summary["degraded_area_reporting_km2"])
+
+    def test_explicit_baseline_and_reporting_encoding_and_aoi(self):
+        path = os.path.join(self.tmpdir, "bau_all_improved.tif")
+        _write_grid(
+            np.ones((2, 2), dtype=np.int16),
+            path,
+            (0, 0.1, 0, 5, 0, -0.1),
+            4326,
+        )
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            ldn_planning.compute_bau_rate(path, 1, path, 1)
+
+        aoi = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[0, 5], [0.1, 5], [0.1, 4.9], [0, 4.9], [0, 5]]
+                        ],
+                    },
+                    "properties": {},
+                }
+            ],
+        }
+
+        class AoiStub:
+            def get_geojson(self):
+                return aoi
+
+        summary = ldn_planning.compute_bau_rate(
+            path,
+            1,
+            path,
+            1,
+            status_baseline_type="3class",
+            status_reporting_type="3class",
+            aoi=AoiStub(),
+        )
+        self.assertAlmostEqual(summary["degraded_area_baseline_km2"], 0.0)
+        expected_area = ldn_planning._compute_pixel_areas_km2(
+            (0, 0.1, 0, 5, 0, -0.1), 0, 1, 1
+        )[0, 0]
+        self.assertAlmostEqual(summary["total_area_km2"], expected_area, places=5)
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +562,100 @@ class TestApplyScenario(unittest.TestCase):
         )
         self.assertAlmostEqual(summary["total_gains_km2"], 0.0, places=3)
         self.assertAlmostEqual(summary["total_avoided_losses_km2"], 0.0, places=3)
+
+    def test_raster_mask_target_and_effectiveness_validation(self):
+        selected_mask = os.path.join(self.tmpdir, "selected.tif")
+        _write_raster(
+            np.array(
+                [
+                    [3, 0, 0, 0, 0],
+                    [0, 3, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ],
+                dtype=np.int16,
+            ),
+            selected_mask,
+            nodata=-32768,
+        )
+        target = {
+            "selected_mask_path": selected_mask,
+            "band": 1,
+            "intervention": "reverse",
+            "effectiveness": 0.0,
+        }
+        summary, _ = ldn_planning.apply_scenario(
+            self.arr_path,
+            targets=[target],
+            output_path=os.path.join(self.tmpdir, "mask_scenario.tif"),
+        )
+        self.assertAlmostEqual(summary["total_gains_km2"], 0.0)
+        self.assertGreater(summary["per_target"][0]["area_treated_km2"], 0)
+        target["effectiveness"] = 1.5
+        with self.assertRaisesRegex(ValueError, "effectiveness"):
+            ldn_planning.apply_scenario(
+                self.arr_path,
+                targets=[target],
+                output_path=os.path.join(self.tmpdir, "invalid_eff.tif"),
+            )
+        target["effectiveness"] = 1.0
+        target["intervention"] = "reduce"
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            ldn_planning.apply_scenario(
+                self.arr_path,
+                targets=[target],
+                output_path=os.path.join(self.tmpdir, "mismatched_mask.tif"),
+            )
+
+    def test_polygon_crs_and_aoi_are_transformed_to_arr_grid(self):
+        polygon = ogr.CreateGeometryFromWkt(self._full_wkt())
+        source_srs = osr.SpatialReference()
+        source_srs.ImportFromEPSG(4326)
+        target_srs = osr.SpatialReference()
+        target_srs.ImportFromEPSG(3857)
+        source_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        target_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        polygon.Transform(osr.CoordinateTransformation(source_srs, target_srs))
+        aoi = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[0, 5], [0.1, 5], [0.1, 4.9], [0, 4.9], [0, 5]]
+                        ],
+                    },
+                    "properties": {},
+                }
+            ],
+        }
+
+        class AoiStub:
+            def get_geojson(self):
+                return aoi
+
+        summary, _ = ldn_planning.apply_scenario(
+            self.arr_path,
+            targets=[
+                {
+                    "wkt_geometry": polygon.ExportToWkt(),
+                    "geometry_crs": target_srs.ExportToWkt(),
+                    "intervention": "reverse",
+                    "effectiveness": 1.0,
+                }
+            ],
+            output_path=os.path.join(self.tmpdir, "scenario_crs_aoi.tif"),
+            aoi=AoiStub(),
+        )
+        self.assertGreater(summary["gains_km2_reverse"], 0)
+        self.assertAlmostEqual(
+            summary["gains_km2_reverse"],
+            summary["per_target"][0]["gains_km2"],
+            places=5,
+        )
 
 
 # ---------------------------------------------------------------------------

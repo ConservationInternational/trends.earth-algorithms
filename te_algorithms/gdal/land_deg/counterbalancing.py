@@ -638,6 +638,18 @@ def _cb_process_sequential(
     return summary_table, gl_out_files, lt_out_files, all_spu_labels
 
 
+def _counterbalancing_land_type_codes(
+    summary_table: models.SummaryTableCounterbalancing,
+) -> List[int]:
+    """Include land types with valid neutral pixels but no gains or losses."""
+    codes = set(summary_table.gains_by_land_type) | set(
+        summary_table.losses_by_land_type
+    )
+    if summary_table.status_breakdown:
+        codes.update(summary_table.status_breakdown)
+    return sorted(codes)
+
+
 def compute_counterbalancing(
     status_path: str,
     status_band_index: int,
@@ -920,7 +932,7 @@ def compute_counterbalancing(
     all_gains = summary_table.gains_by_land_type
     all_losses = summary_table.losses_by_land_type
 
-    all_lt_codes = sorted(set(list(all_gains.keys()) + list(all_losses.keys())))
+    all_lt_codes = _counterbalancing_land_type_codes(summary_table)
 
     land_type_results: List[models.CounterbalancingLandTypeResult] = []
 
