@@ -389,6 +389,7 @@ def compute_prioritization(
     aoi=None,
     progress_callback=None,
     killed_callback=None,
+    land_type_labels: Optional[Mapping[int, str]] = None,
 ) -> Tuple[Dict[str, Any], str]:
     """Compute complete-case weighted scores independently within each ARR class.
 
@@ -877,7 +878,11 @@ def compute_prioritization(
         "scoring_policy": "complete_case_weighted_mean",
         "classes": class_summary,
         "criteria": criterion_summary,
-        "by_land_type": grouped_summary(land_acc, "land_type_id"),
+        "by_land_type": grouped_summary(
+            land_acc,
+            "land_type_id",
+            {int(k): str(v) for k, v in (land_type_labels or {}).items()},
+        ),
         "by_jurisdiction": grouped_summary(zone_acc, "jurisdiction_id", zone_labels),
         "provenance": metadata,
     }

@@ -154,6 +154,30 @@ def _write_arr_sheet(sheet, arr_summary: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _write_land_types_sheet(sheet, summary: Dict[str, Any]) -> None:
+    sheet.append(["Source layers", ", ".join(summary.get("layer_names", []))])
+    sheet.append(["Land types", summary.get("n_land_types", 0)])
+    sheet.append(["Total area (km²)", summary.get("total_area_km2", 0.0)])
+    sheet.append([])
+    sheet.append(["Land type", "Label", "Pixels", "Area (km²)", "Share of area"])
+    for cell in sheet[sheet.max_row]:
+        cell.font = _bold
+    for row in summary.get("land_types", []):
+        sheet.append(
+            [
+                row["land_type_id"],
+                row["label"],
+                row["pixels"],
+                row["area_km2"],
+                row["fraction"],
+            ]
+        )
+        sheet.cell(row=sheet.max_row, column=2).data_type = "s"
+        sheet.cell(row=sheet.max_row, column=5).number_format = "0.0%"
+    sheet.column_dimensions["A"].width = 18
+    sheet.column_dimensions["B"].width = 24
+
+
 def _write_hotspot_sheet(
     sheet, hotspot_zones: Optional[List[Dict[str, Any]]] = None
 ) -> None:
@@ -571,6 +595,7 @@ def save_ldn_planning_excel(
     scenario_summary: Optional[Dict[str, Any]] = None,
     projection_summary: Optional[Dict[str, Any]] = None,
     scenario_comparison: Optional[Dict[str, Any]] = None,
+    land_types_summary: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Save LDN Planning results to an Excel workbook.
 
@@ -590,6 +615,8 @@ def save_ldn_planning_excel(
 
     if arr_summary is not None:
         _write_arr_sheet(_next_sheet("ARR Summary"), arr_summary)
+    if land_types_summary is not None:
+        _write_land_types_sheet(_next_sheet("Land Types"), land_types_summary)
     if hotspot_zones is not None:
         _write_hotspot_sheet(_next_sheet("Hotspot Ranking"), hotspot_zones)
     if bau_summary is not None:
@@ -660,6 +687,7 @@ def save_ldn_planning_json(
     scenario_summary: Optional[Dict[str, Any]] = None,
     projection_summary: Optional[Dict[str, Any]] = None,
     extra_data: Optional[Dict[str, Any]] = None,
+    land_types_summary: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Save LDN Planning results to a JSON file and return the report dict."""
     report = {
@@ -672,6 +700,8 @@ def save_ldn_planning_json(
         "scenario": scenario_summary,
         "projection": projection_summary,
     }
+    if land_types_summary is not None:
+        report["land_types"] = land_types_summary
     if extra_data is not None:
         report.update(extra_data)
     output_path = Path(output_path)

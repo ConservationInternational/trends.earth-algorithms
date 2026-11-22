@@ -621,6 +621,33 @@ class TestApplyScenario(unittest.TestCase):
                 output_path=os.path.join(self.tmpdir, "mismatched_mask.tif"),
             )
 
+    def test_multi_class_mask_targets_use_only_their_class(self):
+        selected_mask = os.path.join(self.tmpdir, "selected_multi.tif")
+        values = np.zeros((5, 5), dtype=np.int16)
+        values[0, 0] = values[1, 1] = 3
+        values[4, 4] = 1
+        _write_raster(values, selected_mask, nodata=-32768)
+        targets = [
+            {
+                "selected_mask_path": selected_mask,
+                "intervention": intervention,
+                "effectiveness": 1.0,
+            }
+            for intervention in ("reverse", "avoid")
+        ]
+        summary, _ = ldn_planning.apply_scenario(
+            self.arr_path,
+            targets=targets,
+            output_path=os.path.join(self.tmpdir, "multi_mask.tif"),
+        )
+        reverse, avoid = summary["per_target"]
+        self.assertGreater(reverse["area_treated_km2"], 0)
+        self.assertGreater(avoid["area_treated_km2"], 0)
+        # Two Reverse pixels and one Avoid pixel; geographic areas vary slightly.
+        self.assertAlmostEqual(
+            reverse["area_treated_km2"] / avoid["area_treated_km2"], 2, delta=0.01
+        )
+
     def test_polygon_crs_and_aoi_are_transformed_to_arr_grid(self):
         polygon = ogr.CreateGeometryFromWkt(self._full_wkt())
         source_srs = osr.SpatialReference()
@@ -787,6 +814,55 @@ class TestReportWriter(unittest.TestCase):
             ["Region A", 1.0, 1.0, 0.5, 1.0, 1.5],
         )
         wb.close()
+
+    def test_land_types_summary_and_report(self):
+        from pathlib import Path
+
+        import openpyxl
+
+        from te_algorithms.gdal.land_deg.ldn_planning_report import (
+            save_ldn_planning_excel,
+            save_ldn_planning_json,
+        )
+
+        values = np.zeros((10, 10), dtype=np.int16)
+        values[:4] = 1
+        values[4:9] = 2
+        values[9, :5] = 7
+        path = os.path.join(self.tmpdir, "land_types.tif")
+        _write_raster(values, path, nodata=-32768)
+        summary = ldn_planning.summarize_land_types(
+            path, {1: "1_1", 2: "1_2", 3: "2_2"}, ["cover", "soil"], block_rows=3
+        )
+        rows = {row["land_type_id"]: row for row in summary["land_types"]}
+        self.assertEqual(summary["layer_names"], ["cover", "soil"])
+        self.assertEqual(summary["n_land_types"], 4)
+        self.assertEqual([rows[key]["pixels"] for key in (1, 2, 3, 7)], [40, 50, 0, 5])
+        self.assertEqual(rows[2]["values"], ["1", "2"])
+        self.assertEqual(rows[7]["label"], "7")
+        self.assertAlmostEqual(
+            sum(row["area_km2"] for row in rows.values()), summary["total_area_km2"]
+        )
+        self.assertAlmostEqual(sum(row["fraction"] for row in rows.values()), 1.0)
+        self.assertAlmostEqual(
+            summary["total_area_km2"],
+            ldn_planning._compute_pixel_areas_km2(
+                (0.0, 0.1, 0.0, 5.0, 0.0, -0.1), 0, 10, 10
+            )[values != 0].sum(),
+        )
+
+        json_path = Path(self.tmpdir) / "land_types.json"
+        report = save_ldn_planning_json(json_path, land_types_summary=summary)
+        self.assertEqual(json.loads(json_path.read_text())["land_types"], summary)
+        self.assertEqual(report["land_types"], summary)
+        excel_path = Path(self.tmpdir) / "land_types.xlsx"
+        save_ldn_planning_excel(excel_path, land_types_summary=summary)
+        workbook = openpyxl.load_workbook(excel_path)
+        sheet = workbook["Land Types"]
+        self.assertEqual(
+            [cell.value for cell in sheet[6][:3]], [1, "1_1", 40]
+        )
+        workbook.close()
 
 
 class TestBauScenarioComparison(unittest.TestCase):

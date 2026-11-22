@@ -747,6 +747,67 @@ def compute_arr_classification(
     return summary, output_path
 
 
+def summarize_land_types(
+    land_types_path: str,
+    labels: Dict[int, str],
+    layer_names: Optional[List[str]] = None,
+    block_rows: int = 256,
+) -> Dict[str, Any]:
+    """Summarize the physical area of each land type in a land-types raster.
+
+    Reads the raster in row blocks. Land type ``0`` and NoData are excluded.
+    Types present in the raster but missing from ``labels`` are reported with
+    their numeric id as the label.
+    """
+    ds, band = _open_band(land_types_path)
+    gt = ds.GetGeoTransform()
+    projection = ds.GetProjection()
+    nodata = band.GetNoDataValue()
+    pixels: Dict[int, int] = {}
+    areas: Dict[int, float] = {}
+    for y_off in range(0, ds.RasterYSize, block_rows):
+        rows = min(block_rows, ds.RasterYSize - y_off)
+        values = band.ReadAsArray(0, y_off, ds.RasterXSize, rows)
+        valid = values != 0
+        if nodata is not None:
+            valid &= values != nodata
+        if not np.any(valid):
+            continue
+        pixel_areas = _compute_pixel_areas_km2(
+            gt, y_off, rows, ds.RasterXSize, projection
+        )
+        ids, inverse = np.unique(values[valid], return_inverse=True)
+        block_areas = np.bincount(inverse, weights=pixel_areas[valid])
+        block_pixels = np.bincount(inverse)
+        for land_type, area, count in zip(ids, block_areas, block_pixels):
+            land_type = int(land_type)
+            areas[land_type] = areas.get(land_type, 0.0) + float(area)
+            pixels[land_type] = pixels.get(land_type, 0) + int(count)
+    del band, ds
+
+    total = sum(areas.values())
+    land_types = []
+    for land_type in sorted(set(labels) | set(areas)):
+        label = labels.get(land_type, str(land_type))
+        area = areas.get(land_type, 0.0)
+        land_types.append(
+            {
+                "land_type_id": land_type,
+                "label": label,
+                "values": label.split("_"),
+                "pixels": pixels.get(land_type, 0),
+                "area_km2": area,
+                "fraction": area / total if total else 0.0,
+            }
+        )
+    return {
+        "layer_names": list(layer_names or []),
+        "n_land_types": len(land_types),
+        "total_area_km2": total,
+        "land_types": land_types,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 2. Hotspot prioritization
 # ---------------------------------------------------------------------------
@@ -1664,8 +1725,11 @@ def apply_scenario(
                 "reduce": ARR_REDUCE,
                 "reverse": ARR_REVERSE,
             }
-            if intervention != "auto" and (
-                valid_mask_values - {0, expected_classes[intervention]}
+            # One candidate mask may hold several classes; each class target
+            # uses only its own pixels but must select at least one of them.
+            if (
+                intervention != "auto"
+                and expected_classes[intervention] not in valid_mask_values
             ):
                 raise ValueError(
                     f"Target {t_idx} intervention does not match its selected mask class."

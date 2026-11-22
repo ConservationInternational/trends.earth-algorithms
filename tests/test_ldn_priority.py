@@ -209,6 +209,30 @@ def test_compute_scores_complete_case_coverage_and_provenance(tmp_path):
     coverage_ds = None
 
 
+def test_land_type_summary_uses_supplied_labels(tmp_path):
+    arr_path, _, criteria = _inputs(tmp_path)
+    land_type_path = tmp_path / "land_types.tif"
+    _write_raster(
+        land_type_path,
+        np.array([[1, 2, 2], [1, 1, 3]], dtype=np.int16),
+        dtype=gdal.GDT_Int16,
+    )
+    summary, _ = ldn_priority.compute_prioritization(
+        str(arr_path),
+        criteria,
+        str(tmp_path / "labelled.tif"),
+        land_type_path=str(land_type_path),
+        land_type_labels={"1": "Forest_Clay", 2: "Crop_Sand"},
+    )
+    names = {
+        (row["arr_class"], row["land_type_id"]): row["name"]
+        for row in summary["by_land_type"]
+    }
+    assert names[("avoid", 1)] == "Forest_Clay"
+    assert names[("avoid", 2)] == "Crop_Sand"
+    assert names[("reverse", 3)] == "3"
+
+
 def test_zero_weight_missing_criterion_does_not_reduce_coverage(tmp_path):
     arr_path, _, criteria = _inputs(tmp_path)
     missing_path = tmp_path / "missing_criterion.tif"
