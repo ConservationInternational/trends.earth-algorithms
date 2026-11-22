@@ -1917,6 +1917,68 @@ def apply_scenario(
 # ---------------------------------------------------------------------------
 
 
+def compare_scenarios(params, projection):
+    """Compare a projection with the saved, input-compatible scenario in params."""
+    previous = params.get("comparison")
+    if not previous:
+        return None
+    prior_projection = previous.get("projection")
+    if projection is None or prior_projection is None:
+        raise ValueError(
+            "Both scenarios need reporting-period projections for comparison."
+        )
+    old = previous["parameters"]
+    if not params.get("input_checksums") or not old.get("input_checksums"):
+        raise ValueError(
+            "Scenario comparison requires recorded input checksums in both jobs."
+        )
+    for key in (
+        "arr_layer_path",
+        "arr_band_index",
+        "status_baseline_path",
+        "status_baseline_band_index",
+        "status_reporting_path",
+        "status_reporting_band_index",
+        "status_baseline_type",
+        "status_reporting_type",
+        "year_initial",
+        "year_final",
+        "target_year",
+        "land_type_path",
+        "land_type_band_index",
+        "land_type_labels",
+        "jurisdictions_path",
+        "input_checksums",
+        "aoi_checksum",
+    ):
+        if old.get(key) != params.get(key):
+            raise ValueError(f"Scenario comparison requires the same inputs: {key}")
+    rows = []
+    for key in (
+        "scenario_gains_km2",
+        "scenario_avoided_losses_km2",
+        "scenario_degraded_km2",
+        "remaining_shortfall_km2",
+        "gap_closed_pct",
+    ):
+        current = projection[key]
+        prior = prior_projection[key]
+        rows.append(
+            {
+                "metric": key,
+                "previous": prior,
+                "current": current,
+                "difference": current - prior,
+            }
+        )
+    return {
+        "previous_job_id": previous["job_id"],
+        "previous_task_name": previous["task_name"],
+        "metrics": rows,
+        "note": "Planning estimates with upper-bound avoided losses, not observed neutrality.",
+    }
+
+
 def project_scenario_against_bau(
     bau_summary: Dict[str, Any],
     scenario_summary: Dict[str, Any],

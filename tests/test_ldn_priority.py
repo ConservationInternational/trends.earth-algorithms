@@ -10,7 +10,8 @@ pytest.importorskip("osgeo.ogr")
 
 from osgeo import gdal, ogr, osr
 
-from te_algorithms.gdal.land_deg import ldn_priority
+from te_algorithms.gdal import util
+from te_algorithms.gdal.land_deg import ldn_priority, ldn_priority_inputs
 
 
 def _write_raster(path, values, dtype=gdal.GDT_Float32, nodata=-32768):
@@ -66,6 +67,82 @@ def _inputs(tmp_path):
         _criterion(values_path, "reverse"),
     ]
     return arr_path, values_path, criteria
+
+
+def test_input_sampling_categories_and_selection_estimates(tmp_path):
+    path = tmp_path / "scores.tif"
+    _write_raster(path, np.array([[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]]))
+    info = util.inspect_source(str(path))
+    assert info["raster"]["bands"][0]["data_type"] == "Float32"
+    stats = util.observed_band_stats(str(path), 1)
+    assert stats["minimum"] == pytest.approx(0.1)
+    categories = util.discover_categories(str(path), "raster")
+    assert len(categories["counts"]) == 10
+    threshold = ldn_priority_inputs.estimate_selection(
+        str(path), 1, "threshold", 0.75, 0, 10
+    )
+    assert threshold["selected_fraction"] == pytest.approx(0.3)
+    assert threshold["selected_area_km2"] == pytest.approx(3)
+    area = ldn_priority_inputs.estimate_selection(str(path), 1, "area", 0, 2, 10)
+    assert area["selected_area_km2"] == 2
+    assert area["binding_score"] == pytest.approx(0.82)
+    uncapped = ldn_priority_inputs.estimate_selection(str(path), 1, "area", 0, 50, 10)
+    assert uncapped["selected_area_km2"] == 10
+    assert uncapped["binding_score"] is None
+
+
+def test_vector_sampling_counts_nulls_and_keeps_category_tie_order(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "categories.gpkg"
+    dataset = ogr.GetDriverByName("GPKG").CreateDataSource(str(path))
+    layer = dataset.CreateLayer("categories", geom_type=ogr.wkbNone)
+    layer.CreateField(ogr.FieldDefn("value", ogr.OFTInteger))
+    for value in (3, 2, None, 1):
+        feature = ogr.Feature(layer.GetLayerDefn())
+        if value is not None:
+            feature.SetField("value", value)
+        layer.CreateFeature(feature)
+    dataset = None
+    stats = util.observed_field_stats(str(path), "value")
+    assert stats["null_count"] == 1
+    assert stats["mean"] == 2
+    monkeypatch.setattr(util, "MAX_DISCOVERED_CATEGORIES", 2)
+    categories = util.discover_categories(str(path), "vector", field="value")
+    assert list(categories["counts"]) == [3.0, 2.0]
+    assert categories["truncated"]
+    with pytest.raises(ValueError, match="input_kind"):
+        util.discover_categories(str(path), "other")
+
+
+def test_sample_limits_nodata_and_first_vector_layer(tmp_path, monkeypatch):
+    path = tmp_path / "raster.tif"
+    _write_raster(path, [[1, -32768], [float("nan"), 2]])
+    sample = util.sampled_raster_values(str(path), 1)
+    assert sample["values"].tolist() == [1, 2]
+    assert not sample["sampled"]
+    monkeypatch.setattr(util, "STATS_SAMPLE_PIXELS", 1)
+    assert util.sampled_raster_values(str(path), 1)["sampled"]
+
+    path = tmp_path / "layers.gpkg"
+    dataset = ogr.GetDriverByName("GPKG").CreateDataSource(str(path))
+    for name, values in (("first", [1, 2, 3]), ("second", [99])):
+        layer = dataset.CreateLayer(name, geom_type=ogr.wkbNone)
+        layer.CreateField(ogr.FieldDefn("value", ogr.OFTInteger))
+        for value in values:
+            feature = ogr.Feature(layer.GetLayerDefn())
+            feature.SetField("value", value)
+            layer.CreateFeature(feature)
+    dataset = None
+    monkeypatch.setattr(util, "VECTOR_STATS_FEATURE_LIMIT", 2)
+    sample = util.sampled_field_values(str(path), "value")
+    assert sample["values"].tolist() == [1, 2]
+    assert sample["sampled"]
+    stats = util.observed_field_stats(str(path), "value")
+    assert stats["mean"] == 1.5
+    assert stats["sampled"]
+    with pytest.raises(ValueError, match="no field"):
+        util.sampled_field_values(str(path), "missing")
 
 
 def test_validate_criteria_normalizes_weights_and_rejects_all_zero(tmp_path):

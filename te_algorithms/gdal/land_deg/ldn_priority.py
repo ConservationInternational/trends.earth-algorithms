@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 from osgeo import gdal, ogr, osr
 
+from ...common.checksum import file_checksum
 from . import config, ldn_planning
 
 logger = logging.getLogger(__name__)
@@ -180,11 +181,7 @@ def _sha256(path: str) -> str:
 
     file_digests = []
     for file_path in files:
-        digest = hashlib.sha256()
-        with open(file_path, "rb") as source:
-            for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                digest.update(chunk)
-        file_digests.append((file_path, digest.digest()))
+        file_digests.append((file_path, bytes.fromhex(file_checksum(file_path))))
     if len(file_digests) == 1:
         return file_digests[0][1].hex()
 

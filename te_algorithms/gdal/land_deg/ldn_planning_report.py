@@ -25,6 +25,73 @@ _h_align = Alignment(horizontal="center", wrap_text=True)
 _c_align = Alignment(horizontal="center")
 
 
+def save_priority_reports(path: Path, summary: dict, params: dict) -> dict:
+    """Write the priority or candidate summary and its settings to JSON and Excel."""
+    path = Path(path)
+    report = {"summary": summary, "parameters": params}
+    with open(path.with_suffix(".json"), "w", encoding="utf-8") as target:
+        json.dump(report, target, indent=2, allow_nan=False)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Planning priorities"
+    sheet.append(["Metric", "Value"])
+
+    def write_values(sheet, value, prefix=""):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                write_values(sheet, child, f"{prefix}.{key}" if prefix else str(key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value, start=1):
+                write_values(sheet, child, f"{prefix}[{index}]")
+        else:
+            sheet.append([prefix, value])
+            for cell in sheet[sheet.max_row]:
+                if isinstance(cell.value, str):
+                    cell.data_type = "s"
+
+    write_values(sheet, summary)
+    sheet.append(
+        ["Interpretation", "Relative preferences, not measured gains or probabilities."]
+    )
+    settings = workbook.create_sheet("Settings and provenance")
+    settings.append(["Setting", "Value"])
+    write_values(settings, params)
+    for sheet in workbook:
+        sheet.freeze_panes = "A2"
+        sheet.column_dimensions["A"].width = 55
+        sheet.column_dimensions["B"].width = 70
+    workbook.save(path.with_suffix(".xlsx"))
+    return report
+
+
+def load_hotspot_zones(vector_path: str) -> list:
+    """Read ranked hotspot features for the tabular report."""
+    from osgeo import ogr
+
+    dataset = ogr.Open(str(vector_path), 0)
+    if dataset is None:
+        raise ValueError(f"Cannot open hotspot results: {vector_path}")
+    layer = dataset.GetLayer(0)
+    if layer is None:
+        raise ValueError(f"Hotspot results contain no layer: {vector_path}")
+    zones = []
+    for feature in layer:
+        zones.append(
+            {
+                "fid": feature.GetFID(),
+                "zone_id": feature.GetField("zone_id")
+                if feature.GetFieldIndex("zone_id") >= 0
+                else feature.GetFID(),
+                "total_pixels": feature.GetField("total_pixels"),
+                "deg_pixels": feature.GetField("deg_pixels"),
+                "deg_area_km2": feature.GetField("deg_area_km2"),
+                "deg_fraction": feature.GetField("deg_fraction"),
+                "priority_rank": feature.GetField("priority_rank"),
+            }
+        )
+    return zones
+
+
 def _hcell(sheet, row, col, val):
     c = sheet.cell(row=row, column=col, value=val)
     c.font = _bold
@@ -503,6 +570,7 @@ def save_ldn_planning_excel(
     bau_summary: Optional[Dict[str, Any]] = None,
     scenario_summary: Optional[Dict[str, Any]] = None,
     projection_summary: Optional[Dict[str, Any]] = None,
+    scenario_comparison: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Save LDN Planning results to an Excel workbook.
 
@@ -564,6 +632,14 @@ def save_ldn_planning_excel(
         _write_projection_summary_sheet(
             _next_sheet("BAU vs Scenario"), projection_summary
         )
+    if scenario_comparison is not None:
+        sheet = _next_sheet("Scenario comparison")
+        sheet.append(["Metric", "Previous", "Current", "Difference"])
+        for row in scenario_comparison["metrics"]:
+            sheet.append(
+                [row[key] for key in ("metric", "previous", "current", "difference")]
+            )
+        sheet.append([scenario_comparison["note"]])
 
     try:
         wb.save(str(output_path))
@@ -583,6 +659,7 @@ def save_ldn_planning_json(
     bau_summary: Optional[Dict[str, Any]] = None,
     scenario_summary: Optional[Dict[str, Any]] = None,
     projection_summary: Optional[Dict[str, Any]] = None,
+    extra_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Save LDN Planning results to a JSON file and return the report dict."""
     report = {
@@ -595,10 +672,18 @@ def save_ldn_planning_json(
         "scenario": scenario_summary,
         "projection": projection_summary,
     }
+    if extra_data is not None:
+        report.update(extra_data)
     output_path = Path(output_path)
     try:
         output_path.write_text(
-            json.dumps(report, default=str, indent=2), encoding="utf-8"
+            json.dumps(
+                report,
+                default=str if extra_data is None else None,
+                indent=2,
+                allow_nan=extra_data is None,
+            ),
+            encoding="utf-8",
         )
         logger.info("LDN Planning JSON saved to %s", output_path)
     except OSError as error:

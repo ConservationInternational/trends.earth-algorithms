@@ -5,3 +5,6 @@ te_algorithms.common
    :maxdepth: 6
 
    soc
+
+.. automodule:: te_algorithms.common.checksum
+   :members:

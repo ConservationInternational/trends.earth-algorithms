@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import pathlib
 import shutil
@@ -8,12 +9,14 @@ from typing import List, Optional
 from xml.sax.saxutils import escape
 
 import marshmallow_dataclass
+import numpy as np
 from defusedxml.ElementTree import parse
 from osgeo import gdal, ogr, osr
 
 from ..common.band_names import (
     generate_sanitized_band_names,  # noqa: F401 - re-exported
 )
+from ..common.checksum import file_checksum
 from .util_numba import _accumulate_dicts
 
 try:
@@ -24,6 +27,226 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 gdal.UseExceptions()
+
+MAX_DISCOVERED_CATEGORIES = 60
+STATS_SAMPLE_PIXELS = 512
+VECTOR_STATS_FEATURE_LIMIT = 10000
+
+
+def geojson_bounds(geojson: dict) -> tuple[float, float, float, float]:
+    """Return (minx, miny, maxx, maxy) for GeoJSON geometries or features.
+
+    Coordinates are returned without reprojection. Empty, unparseable, or
+    non-finite geometries are rejected; topology is not validated.
+    """
+    geometry_type = geojson.get("type", "")
+    if geometry_type == "FeatureCollection":
+        geometries = [
+            (feature or {}).get("geometry") for feature in geojson.get("features", [])
+        ]
+    elif geometry_type == "Feature":
+        geometries = [geojson.get("geometry")]
+    else:
+        geometries = [geojson]
+    envelopes = []
+    for geometry in geometries:
+        if not geometry:
+            raise ValueError("GeoJSON contains an empty geometry.")
+        ogr_geometry = ogr.CreateGeometryFromJson(json.dumps(geometry))
+        if ogr_geometry is None or ogr_geometry.IsEmpty():
+            raise ValueError("GeoJSON contains an invalid or empty geometry.")
+        envelope = ogr_geometry.GetEnvelope()
+        if not all(math.isfinite(value) for value in envelope):
+            raise ValueError("GeoJSON contains non-finite coordinates.")
+        envelopes.append(envelope)
+    if not envelopes:
+        raise ValueError(f"Could not extract bounds from GeoJSON ({geometry_type}).")
+    return (
+        min(envelope[0] for envelope in envelopes),
+        min(envelope[2] for envelope in envelopes),
+        max(envelope[1] for envelope in envelopes),
+        max(envelope[3] for envelope in envelopes),
+    )
+
+
+def dataset_checksums(path):
+    """Return SHA-256 digests keyed by the dataset's GDAL-reported local paths."""
+    dataset = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_VECTOR)
+    if dataset is None:
+        raise ValueError(f"Cannot open spatial input: {path}")
+    files = dataset.GetFileList()
+    if not files:
+        raise ValueError(f"Spatial input has no reproducible local files: {path}")
+    return {filename: file_checksum(filename) for filename in sorted(files)}
+
+
+def inspect_source(path: str) -> dict:
+    """Identify bands or layers and fields, preferring raster when both exist."""
+    info: dict = {"raster": None, "vector": None}
+    try:
+        dataset = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_VECTOR)
+    except RuntimeError as error:
+        raise ValueError(f"Cannot open spatial input: {path}") from error
+    if dataset is None:
+        raise ValueError(f"Cannot open spatial input: {path}")
+    if dataset.RasterCount > 0:
+        bands = []
+        for index in range(1, dataset.RasterCount + 1):
+            band = dataset.GetRasterBand(index)
+            bands.append(
+                {
+                    "band_index": index,
+                    "description": band.GetDescription() or f"Band {index}",
+                    "data_type": gdal.GetDataTypeName(band.DataType),
+                    "no_data_value": band.GetNoDataValue(),
+                }
+            )
+        info["raster"] = {"bands": bands}
+        return info
+    if dataset.GetLayerCount():
+        layers = []
+        for index in range(dataset.GetLayerCount()):
+            layer = dataset.GetLayer(index)
+            definition = layer.GetLayerDefn()
+            numeric_fields = []
+            for field_index in range(definition.GetFieldCount()):
+                field = definition.GetFieldDefn(field_index)
+                if field.GetType() in (ogr.OFTReal, ogr.OFTInteger, ogr.OFTInteger64):
+                    alias = field.GetAlternativeName() or ""
+                    label = field.GetName() + (f" ({alias})" if alias else "")
+                    numeric_fields.append({"name": field.GetName(), "label": label})
+            layers.append(
+                {
+                    "name": layer.GetName(),
+                    "feature_count": layer.GetFeatureCount(),
+                    "numeric_fields": numeric_fields,
+                }
+            )
+        info["vector"] = {"layers": layers}
+    return info
+
+
+def observed_band_stats(path: str, band_index: int) -> dict:
+    """Return GDAL approximate statistics; ``sampled`` is a size-based estimate."""
+    dataset = gdal.Open(str(path))
+    if dataset is None:
+        raise ValueError(f"Cannot open raster: {path}")
+    band = dataset.GetRasterBand(band_index)
+    if band is None:
+        raise ValueError(f"Raster has no band {band_index}: {path}")
+    stats = band.ComputeStatistics(True)
+    sampled = dataset.RasterXSize * dataset.RasterYSize > STATS_SAMPLE_PIXELS**2
+    return {
+        "minimum": stats[0],
+        "maximum": stats[1],
+        "mean": stats[2],
+        "sampled": sampled,
+        "no_data_value": band.GetNoDataValue(),
+    }
+
+
+def observed_field_stats(path: str, field: str) -> dict:
+    """Return stats for up to 10,000 features from the first vector layer."""
+    dataset = ogr.Open(str(path), 0)
+    if dataset is None:
+        raise ValueError(f"Cannot open vector: {path}")
+    layer = dataset.GetLayer(0)
+    index = layer.GetLayerDefn().GetFieldIndex(field)
+    if index < 0:
+        raise ValueError(f"Vector has no field named {field!r}.")
+    values = []
+    nulls = 0
+    scanned = 0
+    for feature in layer:
+        scanned += 1
+        if scanned > VECTOR_STATS_FEATURE_LIMIT:
+            break
+        if feature.IsFieldSetAndNotNull(index):
+            values.append(float(feature.GetField(index)))
+        else:
+            nulls += 1
+    del dataset
+    if not values:
+        raise ValueError(f"Field {field!r} has no non-null numeric values.")
+    return {
+        "minimum": min(values),
+        "maximum": max(values),
+        "mean": sum(values) / len(values),
+        "null_count": nulls,
+        "sampled": scanned > VECTOR_STATS_FEATURE_LIMIT,
+    }
+
+
+def sampled_raster_values(path: str, band_index: int) -> dict:
+    """Return finite non-nodata values from a raster resampled to at most 512x512."""
+    dataset = gdal.Open(str(path))
+    if dataset is None:
+        raise ValueError(f"Cannot open raster: {path}")
+    band = dataset.GetRasterBand(band_index)
+    if band is None:
+        raise ValueError(f"Raster has no band {band_index}: {path}")
+    xsize = min(dataset.RasterXSize, STATS_SAMPLE_PIXELS)
+    ysize = min(dataset.RasterYSize, STATS_SAMPLE_PIXELS)
+    sampled = (xsize, ysize) != (dataset.RasterXSize, dataset.RasterYSize)
+    values = band.ReadAsArray(buf_xsize=xsize, buf_ysize=ysize).astype(np.float64)
+    nodata = band.GetNoDataValue()
+    del dataset
+    flat = values[np.isfinite(values)]
+    if nodata is not None:
+        flat = flat[flat != nodata]
+    return {"values": flat, "sampled": sampled}
+
+
+def sampled_field_values(path: str, field: str) -> dict:
+    """Return non-null values from up to 10,000 features of the first layer."""
+    dataset = ogr.Open(str(path), 0)
+    if dataset is None:
+        raise ValueError(f"Cannot open vector: {path}")
+    layer = dataset.GetLayer(0)
+    index = layer.GetLayerDefn().GetFieldIndex(field)
+    if index < 0:
+        raise ValueError(f"Vector has no field named {field!r}.")
+    values = []
+    scanned = 0
+    for feature in layer:
+        scanned += 1
+        if scanned > VECTOR_STATS_FEATURE_LIMIT:
+            break
+        if feature.IsFieldSetAndNotNull(index):
+            values.append(float(feature.GetField(index)))
+    del dataset
+    return {
+        "values": np.array(values, dtype=np.float64),
+        "sampled": scanned > VECTOR_STATS_FEATURE_LIMIT,
+    }
+
+
+def discover_categories(
+    path: str, input_kind: str, band_index: int = 1, field: str = ""
+) -> dict:
+    """Count sampled categories, keeping at most the 60 most frequent."""
+    if input_kind == "vector":
+        sample = sampled_field_values(path, field)
+        counts = {}
+        for value in sample["values"]:
+            value = float(value)
+            counts[value] = counts.get(value, 0) + 1
+    elif input_kind == "raster":
+        sample = sampled_raster_values(path, band_index)
+        unique, unique_counts = np.unique(sample["values"], return_counts=True)
+        counts = {
+            float(value): int(count) for value, count in zip(unique, unique_counts)
+        }
+    else:
+        raise ValueError("input_kind must be 'raster' or 'vector'.")
+    truncated = len(counts) > MAX_DISCOVERED_CATEGORIES
+    if truncated:
+        counts = dict(
+            sorted(counts.items(), key=lambda item: -item[1])[
+                :MAX_DISCOVERED_CATEGORIES
+            ]
+        )
+    return {"counts": counts, "sampled": sample["sampled"], "truncated": truncated}
 
 
 def log_system_resources(
