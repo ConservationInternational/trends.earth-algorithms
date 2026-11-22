@@ -859,9 +859,7 @@ class TestReportWriter(unittest.TestCase):
         save_ldn_planning_excel(excel_path, land_types_summary=summary)
         workbook = openpyxl.load_workbook(excel_path)
         sheet = workbook["Land Types"]
-        self.assertEqual(
-            [cell.value for cell in sheet[6][:3]], [1, "1_1", 40]
-        )
+        self.assertEqual([cell.value for cell in sheet[6][:3]], [1, "1_1", 40])
         workbook.close()
 
 
