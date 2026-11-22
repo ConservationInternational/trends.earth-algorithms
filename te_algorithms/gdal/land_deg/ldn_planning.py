@@ -813,6 +813,7 @@ def compute_hotspots(
     output_raster_path: Optional[str] = None,
     progress_callback=None,
     killed_callback=None,
+    status_type: str = "auto",
 ) -> Tuple[Dict[str, Any], str, str]:
     """Rank zones by degraded fraction (degradation hotspot prioritization).
 
@@ -830,6 +831,7 @@ def compute_hotspots(
         output_raster_path: Output path for degraded-fraction raster (.tif).
         progress_callback: Optional callable(pct: float).
         killed_callback: Optional callable() → bool.
+        status_type: ``3class``, ``7class``, or ``auto`` to infer from values.
 
     Returns:
         (summary_dict, vector_path, raster_path)
@@ -854,7 +856,7 @@ def compute_hotspots(
     if nodata_val is None:
         nodata_val = float(config.NODATA_VALUE)
 
-    status_type = _detect_status_type(status_ds, status_band_index)
+    status_type = _detect_status_type(status_ds, status_band_index, status_type)
     degraded_set = (
         _STATUS_7CLASS_DEGRADED if status_type == "7class" else _STATUS_3CLASS_DEGRADED
     )

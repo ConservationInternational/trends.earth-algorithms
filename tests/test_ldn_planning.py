@@ -88,6 +88,19 @@ def _write_float_grid(
     del ds
 
 
+def test_hotspots_uses_declared_encoding_for_ambiguous_values(tmp_path):
+    status_path = str(tmp_path / "status.tif")
+    _write_raster(np.ones((2, 2), dtype=np.int16), status_path)
+    for status_type, expected in (("3class", 0.0), ("7class", 1.0)):
+        summary, _, _ = ldn_planning.compute_hotspots(
+            status_path,
+            status_type=status_type,
+            output_vector_path=str(tmp_path / f"{status_type}.gpkg"),
+            output_raster_path=str(tmp_path / f"{status_type}.tif"),
+        )
+        assert summary["mean_degraded_fraction"] == pytest.approx(expected)
+
+
 # ---------------------------------------------------------------------------
 # ARR classification tests
 # ---------------------------------------------------------------------------
