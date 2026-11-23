@@ -2000,8 +2000,26 @@ def apply_scenario(
 # ---------------------------------------------------------------------------
 
 
+def _single_geojson_checksum(path, checksums):
+    if (
+        not isinstance(path, str)
+        or not path.lower().endswith(".geojson")
+        or not isinstance(checksums, dict)
+        or len(checksums) != 1
+    ):
+        return None
+    checksum = checksums.get(path)
+    if (
+        not isinstance(checksum, str)
+        or len(checksum) != 64
+        or any(char not in "0123456789abcdef" for char in checksum.lower())
+    ):
+        return None
+    return checksum.lower()
+
+
 def compare_scenarios(params, projection):
-    """Compare a projection with the saved, input-compatible scenario in params."""
+    """Compare a projection with a saved scenario using recorded input provenance."""
     previous = params.get("comparison")
     if not previous:
         return None
@@ -2009,7 +2027,14 @@ def compare_scenarios(params, projection):
     if projection is None or prior_projection is None:
         raise ValueError("Both scenarios need BAU projections for comparison.")
     old = previous["parameters"]
-    if not params.get("input_checksums") or not old.get("input_checksums"):
+    checksums = params.get("input_checksums")
+    old_checksums = old.get("input_checksums")
+    if (
+        not isinstance(checksums, dict)
+        or not checksums
+        or not isinstance(old_checksums, dict)
+        or not old_checksums
+    ):
         raise ValueError(
             "Scenario comparison requires recorded input checksums in both jobs."
         )
@@ -2028,12 +2053,57 @@ def compare_scenarios(params, projection):
         "land_type_path",
         "land_type_band_index",
         "land_type_labels",
-        "jurisdictions_path",
-        "input_checksums",
         "aoi_checksum",
     ):
         if old.get(key) != params.get(key):
             raise ValueError(f"Scenario comparison requires the same inputs: {key}")
+
+    path = params.get("jurisdictions_path")
+    old_path = old.get("jurisdictions_path")
+    jurisdiction_checksums = checksums.get("jurisdictions_path")
+    old_jurisdiction_checksums = old_checksums.get("jurisdictions_path")
+    for boundary_path, boundary_checksums in (
+        (path, jurisdiction_checksums),
+        (old_path, old_jurisdiction_checksums),
+    ):
+        if boundary_path and (
+            not isinstance(boundary_checksums, dict)
+            or not boundary_checksums.get(boundary_path)
+        ):
+            raise ValueError(
+                "Scenario comparison requires recorded jurisdiction checksums "
+                "in both jobs."
+            )
+    if old_path != path:
+        old_checksum = _single_geojson_checksum(old_path, old_jurisdiction_checksums)
+        checksum = _single_geojson_checksum(path, jurisdiction_checksums)
+        if old_checksum is None or checksum is None:
+            raise ValueError(
+                "Scenario comparison requires the same inputs: jurisdictions_path"
+            )
+        if old_checksum != checksum:
+            raise ValueError(
+                "Scenario comparison requires matching jurisdiction boundary checksums."
+            )
+        old_checksums = {
+            key: value
+            for key, value in old_checksums.items()
+            if key != "jurisdictions_path"
+        }
+        checksums = {
+            key: value
+            for key, value in checksums.items()
+            if key != "jurisdictions_path"
+        }
+    elif path and old_jurisdiction_checksums != jurisdiction_checksums:
+        raise ValueError(
+            "Scenario comparison requires matching jurisdiction boundary checksums."
+        )
+    if old_checksums != checksums:
+        raise ValueError(
+            "Scenario comparison requires the same inputs: input_checksums"
+        )
+
     rows = []
     for key in (
         "scenario_gains_km2",

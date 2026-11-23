@@ -1,5 +1,6 @@
 """Tests for reusable LDN planning input and reporting utilities."""
 
+import copy
 import hashlib
 import json
 
@@ -134,6 +135,131 @@ def test_scenario_comparison_requires_matching_provenance():
     ):
         with pytest.raises(ValueError, match=key):
             ldn_planning.compare_scenarios(dict(params, **{key: value}), projection)
+
+
+def test_scenario_comparison_uses_geojson_jurisdiction_checksums(tmp_path):
+    boundary = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"shapeName": "District"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+                },
+            }
+        ],
+    }
+    old_path = tmp_path / "old_admin_zones.geojson"
+    new_path = tmp_path / "new_admin_zones.geojson"
+    for path in (old_path, new_path):
+        path.write_text(json.dumps(boundary))
+
+    projection = dict.fromkeys(
+        (
+            "scenario_gains_km2",
+            "scenario_avoided_losses_km2",
+            "scenario_degraded_km2",
+            "remaining_shortfall_km2",
+            "gap_closed_pct",
+        ),
+        0,
+    )
+    old = {
+        "arr_layer_path": "arr.tif",
+        "jurisdictions_path": str(old_path),
+        "input_checksums": {
+            "arr_layer_path": {"arr.tif": "unchanged"},
+            "jurisdictions_path": util.dataset_checksums(old_path),
+        },
+    }
+    params = {
+        **old,
+        "jurisdictions_path": str(new_path),
+        "input_checksums": {
+            "arr_layer_path": {"arr.tif": "unchanged"},
+            "jurisdictions_path": util.dataset_checksums(new_path),
+        },
+        "comparison": {
+            "job_id": "old",
+            "task_name": "old scenario",
+            "projection": projection,
+            "parameters": old,
+        },
+    }
+    original = copy.deepcopy(params)
+    old_path.unlink()
+    assert (
+        ldn_planning.compare_scenarios(params, projection)["previous_job_id"] == "old"
+    )
+    assert params == original
+
+    boundary["features"][0]["properties"]["shapeName"] = "Changed"
+    new_path.write_text(json.dumps(boundary))
+    changed = copy.deepcopy(params)
+    changed["input_checksums"]["jurisdictions_path"] = util.dataset_checksums(new_path)
+    with pytest.raises(ValueError, match="jurisdiction boundary checksums"):
+        ldn_planning.compare_scenarios(changed, projection)
+
+    for invalid_checksums in (
+        {},
+        {"unrelated.geojson": "a" * 64},
+        {str(new_path): ""},
+        {str(new_path): "x" * 64},
+    ):
+        unverified = copy.deepcopy(params)
+        unverified["input_checksums"]["jurisdictions_path"] = invalid_checksums
+        with pytest.raises(ValueError):
+            ldn_planning.compare_scenarios(unverified, projection)
+
+    multifile = copy.deepcopy(params)
+    multifile["input_checksums"]["jurisdictions_path"]["other-file"] = "a" * 64
+    with pytest.raises(ValueError, match="jurisdictions_path"):
+        ldn_planning.compare_scenarios(multifile, projection)
+
+    geopackage = copy.deepcopy(params)
+    geopackage["jurisdictions_path"] = str(tmp_path / "new.gpkg")
+    geopackage["input_checksums"]["jurisdictions_path"] = {
+        geopackage["jurisdictions_path"]: "a" * 64
+    }
+    old_geopackage = geopackage["comparison"]["parameters"]
+    old_geopackage["jurisdictions_path"] = str(tmp_path / "old.gpkg")
+    old_geopackage["input_checksums"]["jurisdictions_path"] = {
+        old_geopackage["jurisdictions_path"]: "a" * 64
+    }
+    with pytest.raises(ValueError, match="jurisdictions_path"):
+        ldn_planning.compare_scenarios(geopackage, projection)
+
+    same_shapefile = copy.deepcopy(params)
+    shapefile = str(tmp_path / "districts.shp")
+    shapefile_checksums = {
+        shapefile: "a" * 64,
+        str(tmp_path / "districts.dbf"): "b" * 64,
+    }
+    same_shapefile["jurisdictions_path"] = shapefile
+    same_shapefile["input_checksums"]["jurisdictions_path"] = shapefile_checksums
+    old_shapefile = same_shapefile["comparison"]["parameters"]
+    old_shapefile["jurisdictions_path"] = shapefile
+    old_shapefile["input_checksums"]["jurisdictions_path"] = shapefile_checksums.copy()
+    assert ldn_planning.compare_scenarios(same_shapefile, projection)
+    same_shapefile["input_checksums"]["jurisdictions_path"][
+        str(tmp_path / "districts.dbf")
+    ] = "c" * 64
+    with pytest.raises(ValueError, match="jurisdiction boundary checksums"):
+        ldn_planning.compare_scenarios(same_shapefile, projection)
+
+    changed_arr = copy.deepcopy(params)
+    changed_arr["input_checksums"]["arr_layer_path"]["arr.tif"] = "changed"
+    with pytest.raises(ValueError, match="input_checksums"):
+        ldn_planning.compare_scenarios(changed_arr, projection)
+
+    missing = copy.deepcopy(params)
+    missing["comparison"]["parameters"]["jurisdictions_path"] = str(new_path)
+    missing["comparison"]["parameters"]["input_checksums"].pop("jurisdictions_path")
+    missing["input_checksums"].pop("jurisdictions_path")
+    with pytest.raises(ValueError, match="checksum"):
+        ldn_planning.compare_scenarios(missing, projection)
 
 
 def test_reports_preserve_shapes_and_escape_formulas(tmp_path):
