@@ -6,8 +6,9 @@ import multiprocessing
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING
 
 import numpy as np
 from osgeo import gdal
@@ -61,7 +62,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
+def _prepare_land_cover_dfs(params: dict) -> list[DataFile]:
     lc_path = params["layer_lc_path"]
     lc_dfs = [
         DataFile(
@@ -93,7 +94,7 @@ def _prepare_land_cover_dfs(params: Dict) -> List[DataFile]:
     return lc_dfs
 
 
-def _prepare_population_dfs(params: Dict, directory: Path) -> List[DataFile]:
+def _prepare_population_dfs(params: dict, directory: Path) -> list[DataFile]:
     population_dfs = []
 
     for population_band, population_band_index, path in zip(
@@ -116,7 +117,7 @@ def _prepare_population_dfs(params: Dict, directory: Path) -> List[DataFile]:
     return population_dfs
 
 
-def _prepare_soil_organic_carbon_dfs(params: Dict) -> List[DataFile]:
+def _prepare_soil_organic_carbon_dfs(params: dict) -> list[DataFile]:
     soc_path = params["layer_soc_path"]
     soc_dfs = [
         DataFile(
@@ -139,7 +140,7 @@ def _prepare_soil_organic_carbon_dfs(params: Dict) -> List[DataFile]:
     return soc_dfs
 
 
-def _prepare_trends_earth_mode_dfs(params: Dict) -> Tuple[DataFile, DataFile, DataFile]:
+def _prepare_trends_earth_mode_dfs(params: dict) -> tuple[DataFile, DataFile, DataFile]:
     traj_vrt_df = DataFile(
         path=util.save_vrt(
             params["layer_traj_path"],
@@ -165,7 +166,7 @@ def _prepare_trends_earth_mode_dfs(params: Dict) -> Tuple[DataFile, DataFile, Da
     return traj_vrt_df, perf_vrt_df, state_vrt_df
 
 
-def _prepare_precalculated_lpd_df(params: Dict) -> DataFile:
+def _prepare_precalculated_lpd_df(params: dict) -> DataFile:
     return DataFile(
         path=util.save_vrt(params["layer_lpd_path"], params["layer_lpd_band_index"]),
         bands=[Band(**params["layer_lpd_band"])],
@@ -228,7 +229,9 @@ def _process_single_period(
         if "period" not in period_params:
             period_params["period"] = {
                 "name": period_name,
-                "year_initial": period_params["periods"]["productivity"]["year_initial"],
+                "year_initial": period_params["periods"]["productivity"][
+                    "year_initial"
+                ],
                 "year_final": period_params["periods"]["productivity"]["year_final"],
             }
 
@@ -239,7 +242,9 @@ def _process_single_period(
             trans_matrix_data = period_params["layer_lc_deg_band"]["metadata"][
                 "trans_matrix"
             ]
-            lc_trans_matrix = LCTransitionDefinitionDeg.Schema().loads(trans_matrix_data)
+            lc_trans_matrix = LCTransitionDefinitionDeg.Schema().loads(
+                trans_matrix_data
+            )
         else:
             nesting = prepared_schemas["nesting"]
             lc_trans_matrix = prepared_schemas["lc_trans_matrix"]
@@ -258,7 +263,9 @@ def _process_single_period(
             "progress_callback": progress_callback,
         }
 
-        logger.info("Computing land degradation summary table for period '%s'", period_name)
+        logger.info(
+            "Computing land degradation summary table for period '%s'", period_name
+        )
         if prod_mode == ProductivityMode.TRENDS_EARTH_5_CLASS_LPD.value:
             traj, perf, state = _prepare_trends_earth_mode_dfs(period_params)
             compute_bbs_from = traj.path
@@ -363,7 +370,7 @@ def _process_single_period_with_schemas(
     )
 
 
-def get_reference_file_for_period(period_params: Dict, prod_mode: str) -> Optional[str]:
+def get_reference_file_for_period(period_params: dict, prod_mode: str) -> str | None:
     """Get the reference file path based on productivity mode.
 
     Args:
@@ -385,7 +392,7 @@ def get_reference_file_for_period(period_params: Dict, prod_mode: str) -> Option
     return None
 
 
-def get_resolution_from_file(file_path: str) -> Optional[Tuple[float, float]]:
+def get_resolution_from_file(file_path: str) -> tuple[float, float] | None:
     """Extract resolution from a GDAL-compatible raster file.
 
     Args:
@@ -406,7 +413,7 @@ def get_resolution_from_file(file_path: str) -> Optional[Tuple[float, float]]:
     return None
 
 
-def collect_resolutions_from_periods(periods: List[Dict]) -> List[Tuple[float, float]]:
+def collect_resolutions_from_periods(periods: list[dict]) -> list[tuple[float, float]]:
     """Collect resolutions from all periods.
 
     Args:
@@ -433,8 +440,8 @@ def collect_resolutions_from_periods(periods: List[Dict]) -> List[Tuple[float, f
 
 
 def select_highest_resolution(
-    resolutions: List[Tuple[float, float]],
-) -> Optional[Tuple[float, float]]:
+    resolutions: list[tuple[float, float]],
+) -> tuple[float, float] | None:
     """Select the highest resolution (smallest pixel size) from a list of resolutions.
 
     Args:
@@ -460,7 +467,7 @@ def select_highest_resolution(
     return target_resolution
 
 
-def determine_target_resolution(periods: List[Dict]) -> Optional[Tuple[float, float]]:
+def determine_target_resolution(periods: list[dict]) -> tuple[float, float] | None:
     """Determine the target resolution to use for consistent processing across all periods.
 
     This function collects resolutions from all periods and selects the highest resolution
@@ -1016,7 +1023,7 @@ def summarise_land_degradation(
         logger.exception("Full exception details:")
         raise
 
-    ldn_job.end_date = dt.datetime.now(dt.timezone.utc)
+    ldn_job.end_date = dt.datetime.now(dt.UTC)
     ldn_job.progress = 100
     if progress_callback is not None:
         progress_callback(100.0)
@@ -1031,7 +1038,7 @@ def _process_block_summary(
     xoff: int,
     yoff: int,
     cell_areas_raw,
-) -> Tuple[models.SummaryTableLD, Dict]:
+) -> tuple[models.SummaryTableLD, dict]:
     # Create the key used to recode lc classes from raw codes to ordinal codes,
     # needed for transition calculations
     class_codes = sorted([c.code for c in params.nesting.child.key])
@@ -1343,9 +1350,8 @@ def _process_block_summary(
             deg_sdg, pop_array_female_masked, mask
         )
 
-        invalid_total = (
-            (pop_array_male == config.NODATA_VALUE)
-            | (pop_array_female == config.NODATA_VALUE)
+        invalid_total = (pop_array_male == config.NODATA_VALUE) | (
+            pop_array_female == config.NODATA_VALUE
         )
         pop_array_total = pop_array_male + pop_array_female
         pop_array_total[invalid_total] = config.NODATA_VALUE
@@ -1569,19 +1575,19 @@ def _build_period_rasters(
 class SummarizeTileInputs:
     in_file: Path
     wkt_aoi: str
-    in_dfs: List[DataFile]
+    in_dfs: list[DataFile]
     prod_mode: str
     lc_legend_nesting: LCLegendNesting
     lc_trans_matrix: LCTransitionDefinitionDeg
     period_name: str
     periods: dict
-    mask_worker_function: Optional[Callable] = None
-    mask_worker_params: Optional[dict] = None
-    deg_worker_function: Optional[Callable] = None
-    deg_worker_params: Optional[dict] = None
-    work_counter: Optional[object] = None
+    mask_worker_function: Callable | None = None
+    mask_worker_params: dict | None = None
+    deg_worker_function: Callable | None = None
+    deg_worker_params: dict | None = None
+    work_counter: object | None = None
     report_progress: bool = False
-    materialized_path: Optional[Path] = None
+    materialized_path: Path | None = None
 
 
 def _summarize_tile(inputs: SummarizeTileInputs):
@@ -2087,7 +2093,7 @@ def _aoi_process_sequential(
 def _process_region(
     wkt_aoi,
     pixel_aligned_bbox,
-    in_dfs: List[DataFile],
+    in_dfs: list[DataFile],
     output_layers_path: Path,
     prod_mode: str,
     lc_legend_nesting: LCLegendNesting,
@@ -2106,7 +2112,7 @@ def _process_region(
     parallel_backend: str = "process",
     progress_callback=None,
     progress_reporter=None,
-) -> Tuple[Optional[models.SummaryTableLD], str]:
+) -> tuple[models.SummaryTableLD | None, str]:
     """Runs summary statistics for a particular area
 
     Args:
@@ -2265,7 +2271,7 @@ def _compute_ld_summary_table(
     killed_callback=None,
     parallel_backend: str = "process",
     progress_callback=None,
-) -> Tuple[models.SummaryTableLD, Path, Path]:
+) -> tuple[models.SummaryTableLD, Path, Path]:
     """Computes summary table and the output tif file(s)
 
     Args:

@@ -6,8 +6,9 @@ import logging
 import math
 import os
 import sqlite3
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 from osgeo import gdal, ogr, osr
@@ -41,7 +42,7 @@ def _finite_number(value: Any, label: str) -> float:
     return number
 
 
-def validate_criteria(criteria: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+def validate_criteria(criteria: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Validate and normalize class-specific criterion settings.
 
     Criteria are weighted independently within each ARR class. Missing fields,
@@ -53,7 +54,7 @@ def validate_criteria(criteria: Sequence[Mapping[str, Any]]) -> List[Dict[str, A
     if not criteria:
         raise ValueError("At least one criterion is required for prioritization.")
     normalized = []
-    weights: Dict[str, float] = {}
+    weights: dict[str, float] = {}
     for index, item in enumerate(criteria):
         if not isinstance(item, Mapping):
             raise ValueError(f"Criterion {index} must be a mapping.")
@@ -193,7 +194,7 @@ def _sha256(path: str) -> str:
     return manifest.hexdigest()
 
 
-def _valid_values(values: np.ndarray, nodata: Optional[float]) -> np.ndarray:
+def _valid_values(values: np.ndarray, nodata: float | None) -> np.ndarray:
     valid = np.isfinite(values) & (values != NODATA)
     if nodata is not None:
         if math.isnan(nodata):
@@ -205,9 +206,9 @@ def _valid_values(values: np.ndarray, nodata: Optional[float]) -> np.ndarray:
 def _prepare_vector(
     path: str,
     target_projection: str,
-    field: Optional[str] = None,
+    field: str | None = None,
     use_fid: bool = False,
-) -> Tuple[List[Tuple[ogr.Geometry, float, str]], str]:
+) -> tuple[list[tuple[ogr.Geometry, float, str]], str]:
     datasource = ogr.Open(path, 0)
     if datasource is None:
         raise RuntimeError(f"Cannot open vector source: {path}")
@@ -265,8 +266,8 @@ def _prepare_vector(
 
 
 def _rasterize_vector_block(
-    features: Sequence[Tuple[ogr.Geometry, float, str]],
-    gt: Tuple,
+    features: Sequence[tuple[ogr.Geometry, float, str]],
+    gt: tuple,
     projection: str,
     x_off: int,
     y_off: int,
@@ -347,7 +348,7 @@ def _create_multiband_raster(
     return output
 
 
-def _metadata_criterion(item: Mapping[str, Any]) -> Dict[str, Any]:
+def _metadata_criterion(item: Mapping[str, Any]) -> dict[str, Any]:
     return {
         key: item.get(key)
         for key in (
@@ -370,7 +371,7 @@ def _metadata_criterion(item: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _aoi_checksum(aoi) -> Optional[str]:
+def _aoi_checksum(aoi) -> str | None:
     if aoi is None:
         return None
     geojson = aoi.get_geojson() if hasattr(aoi, "get_geojson") else aoi
@@ -383,14 +384,14 @@ def compute_prioritization(
     criteria: Sequence[Mapping[str, Any]],
     output_path: str,
     arr_band_index: int = 1,
-    exclusion_path: Optional[str] = None,
-    land_type_path: Optional[str] = None,
-    zones_path: Optional[str] = None,
+    exclusion_path: str | None = None,
+    land_type_path: str | None = None,
+    zones_path: str | None = None,
     aoi=None,
     progress_callback=None,
     killed_callback=None,
-    land_type_labels: Optional[Mapping[int, str]] = None,
-) -> Tuple[Dict[str, Any], str]:
+    land_type_labels: Mapping[int, str] | None = None,
+) -> tuple[dict[str, Any], str]:
     """Compute complete-case weighted scores independently within each ARR class.
 
     The output contains three Float32 score bands (Avoid, Reduce, Reverse) and
@@ -424,7 +425,7 @@ def compute_prioritization(
     criterion_sources = []
     source_for_criterion = {}
     vector_criteria = {}
-    criteria_by_class: Dict[int, List[Dict[str, Any]]] = {
+    criteria_by_class: dict[int, list[dict[str, Any]]] = {
         value: [] for value in ARR_CLASSES.values()
     }
     for criterion in normalized:
@@ -507,8 +508,8 @@ def compute_prioritization(
         }
         for criterion in normalized
     }
-    land_acc: Dict[Tuple[int, int], Dict[str, float]] = {}
-    zone_acc: Dict[Tuple[int, int], Dict[str, float]] = {}
+    land_acc: dict[tuple[int, int], dict[str, float]] = {}
+    zone_acc: dict[tuple[int, int], dict[str, float]] = {}
     block_rows = 0
     total_blocks = math.ceil(ysize / BLOCK_SIZE)
     cancelled = False
@@ -895,7 +896,7 @@ def select_priority_areas(
     selections: Mapping[str, Mapping[str, Any]],
     progress_callback=None,
     killed_callback=None,
-) -> Tuple[Dict[str, Any], str]:
+) -> tuple[dict[str, Any], str]:
     """Select score-threshold or deterministic top-area candidates by ARR class."""
     if not isinstance(selections, Mapping) or not selections:
         raise ValueError("selections must map ARR classes to selection settings.")

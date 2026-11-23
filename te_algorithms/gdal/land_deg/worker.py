@@ -1,7 +1,6 @@
 import logging
 import os
 from pathlib import Path
-from typing import Union
 
 import numpy as np
 from osgeo import gdal, osr
@@ -17,11 +16,9 @@ logger = logging.getLogger(__name__)
 class DegradationSummary:
     def __init__(
         self,
-        params: Union[
-            models.DegradationSummaryParams,
-            models.DegradationStatusSummaryParams,
-            models.DegradationErrorRecodeSummaryParams,
-        ],
+        params: models.DegradationSummaryParams
+        | models.DegradationStatusSummaryParams
+        | models.DegradationErrorRecodeSummaryParams,
         processing_function,
         work_counter=None,
         report_progress=False,
