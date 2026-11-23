@@ -379,60 +379,100 @@ class TestBAURate(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
-    def test_no_change(self):
-        arr = np.array(
-            [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
-            dtype=np.int16,
-        )
-        p = os.path.join(self.tmpdir, "status_bau.tif")
-        _write_raster(arr, p)
-        summary = ldn_planning.compute_bau_rate(
-            p, 1, p, 1, year_initial=2000, year_final=2015, target_year=2030
-        )
-        self.assertAlmostEqual(summary["annual_change_km2"], 0.0, places=3)
-        # BAU projection = reporting degraded (no change)
-        proj_key = "bau_projection_2030_km2"
+    def _assert_trajectory(self, summary, degraded, period, target_year):
+        year_initial, year_final = period
+        annual = degraded / (year_final - year_initial)
+        projection = degraded + annual * (target_year - year_final)
+        self.assertAlmostEqual(summary["annual_change_km2"], annual, places=6)
         self.assertAlmostEqual(
-            summary[proj_key], summary["degraded_area_reporting_km2"], places=2
+            summary[f"bau_projection_{target_year}_km2"], projection, places=6
         )
-        # Target = baseline
         self.assertAlmostEqual(
-            summary["ldntarget_km2"], summary["degraded_area_baseline_km2"], places=2
+            summary["shortfall_km2"],
+            max(0.0, projection - summary["degraded_area_baseline_km2"]),
+            places=6,
+        )
+        self.assertAlmostEqual(
+            summary["ldntarget_km2"], summary["degraded_area_baseline_km2"], places=6
         )
 
-    def test_growing_degradation(self):
-        # Baseline: 3 degraded pixels; reporting: 6 degraded pixels
-        baseline = np.array(
-            [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
-            dtype=np.int16,
-        )
-        reporting = np.array(
-            [[-1, -1, 0], [-1, -1, 0], [0, -1, -1]],
-            dtype=np.int16,
-        )
+    def test_reporting_band_rate_uses_its_full_period(self):
+        # Status degraded classes are cumulative since the baseline start, so
+        # the rate is the reporting degraded area over 2001→2019 (18 years).
+        baseline = np.array([[1, 2, 3], [4, 4, 4], [6, 7, 4]], dtype=np.int16)
+        reporting = np.array([[1, 2, 3], [1, 2, 4], [6, 7, 4]], dtype=np.int16)
         p_bl = os.path.join(self.tmpdir, "bau_bl.tif")
         p_rp = os.path.join(self.tmpdir, "bau_rp.tif")
         _write_raster(baseline, p_bl)
         _write_raster(reporting, p_rp)
         summary = ldn_planning.compute_bau_rate(
-            p_bl, 1, p_rp, 1, year_initial=2000, year_final=2015, target_year=2030
+            p_bl,
+            1,
+            p_rp,
+            1,
+            year_initial=2001,
+            year_final=2019,
+            target_year=2030,
+            status_baseline_type="7class",
+            status_reporting_type="7class",
         )
-        # Should have positive annual change
-        self.assertGreater(summary["annual_change_km2"], 0)
-        # Shortfall should be > 0
+        deg_rp = summary["degraded_area_reporting_km2"]
+        self.assertGreater(deg_rp, summary["degraded_area_baseline_km2"])
+        self._assert_trajectory(summary, deg_rp, (2001, 2019), 2030)
         self.assertGreater(summary["shortfall_km2"], 0)
-        # Target = baseline degraded area
-        self.assertAlmostEqual(
-            summary["ldntarget_km2"], summary["degraded_area_baseline_km2"], places=2
-        )
 
-    def test_no_reporting_layer(self):
+    def test_baseline_band_supplies_rate_without_reporting(self):
         arr = np.array([[-1, 0], [0, -1]], dtype=np.int16)
         p = os.path.join(self.tmpdir, "bau_norepobj.tif")
         _write_raster(arr, p)
-        summary = ldn_planning.compute_bau_rate(p, 1)
-        self.assertIsNone(summary["annual_change_km2"])
+        summary = ldn_planning.compute_bau_rate(
+            p, 1, year_initial=2000, year_final=2015, target_year=2030
+        )
         self.assertIsNone(summary["degraded_area_reporting_km2"])
+        self._assert_trajectory(
+            summary, summary["degraded_area_baseline_km2"], (2000, 2015), 2030
+        )
+
+    def test_invalid_period_has_no_projection(self):
+        arr = np.array([[-1, 0], [0, -1]], dtype=np.int16)
+        p = os.path.join(self.tmpdir, "bau_empty_period.tif")
+        _write_raster(arr, p)
+        summary = ldn_planning.compute_bau_rate(
+            p, 1, year_initial=2015, year_final=2015
+        )
+        self.assertIsNone(summary["annual_change_km2"])
+        self.assertIsNone(summary["bau_projection_2030_km2"])
+        self.assertIsNone(summary["shortfall_km2"])
+
+    def test_zone_rates_use_full_period(self):
+        baseline = np.array([[-1, 0], [0, 0]], dtype=np.int16)
+        reporting = np.array([[-1, -1], [-1, 0]], dtype=np.int16)
+        zones = np.array([[1, 1], [2, 2]], dtype=np.int16)
+        paths = {}
+        for name, arr in (
+            ("baseline", baseline),
+            ("reporting", reporting),
+            ("zones", zones),
+        ):
+            paths[name] = os.path.join(self.tmpdir, f"bau_zone_{name}.tif")
+            _write_raster(arr, paths[name])
+        summary = ldn_planning.compute_bau_rate(
+            paths["baseline"],
+            1,
+            paths["reporting"],
+            1,
+            year_initial=2001,
+            year_final=2019,
+            target_year=2030,
+            zones_raster_path=paths["zones"],
+            zones_raster_labels={1: "north", 2: "south"},
+        )
+        zones_by_name = {z["zone_name"]: z for z in summary["jurisdictions"]}
+        self.assertEqual(set(zones_by_name), {"north", "south"})
+        for zone in zones_by_name.values():
+            self._assert_trajectory(
+                zone, zone["degraded_area_reporting_km2"], (2001, 2019), 2030
+            )
 
     def test_explicit_baseline_and_reporting_encoding_and_aoi(self):
         path = os.path.join(self.tmpdir, "bau_all_improved.tif")

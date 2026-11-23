@@ -1129,6 +1129,23 @@ def compute_hotspots(
 # ---------------------------------------------------------------------------
 
 
+def _bau_trajectory(deg_bl, deg_rep, year_initial, year_final, target_year):
+    """Project degradation linearly from the band that measures the period.
+
+    SDG indicator and status degraded classes are cumulative since the
+    period start (``year_initial``), so the annual rate is the degraded
+    area divided by the full period. The reporting band is used when
+    supplied, otherwise the baseline band.
+    """
+    n_years = year_final - year_initial
+    if n_years <= 0:
+        return None, None, None
+    degraded = deg_bl if deg_rep is None else deg_rep
+    annual_change = degraded / n_years
+    bau_proj = degraded + annual_change * (target_year - year_final)
+    return annual_change, bau_proj, max(0.0, bau_proj - deg_bl)
+
+
 def compute_bau_rate(
     status_baseline_path: str,
     status_baseline_band_index: int = 1,
@@ -1157,18 +1174,23 @@ def compute_bau_rate(
       - Baseline (t₀ = 2015): the reference; LDN target = no net loss vs baseline.
       - Neutrality is the *minimum* objective; net gain is more ambitious.
 
-    Uses total degraded area at the two time points to compute an annual loss
-    rate and project linearly to ``target_year``.  The "target line" = baseline
-    degraded area (no net loss objective).
+    Degraded classes in SDG 15.3.1 indicator and status bands are cumulative
+    since the start of the period they measure.  The annual rate is therefore
+    the degraded area of the rate band (the reporting band when supplied,
+    otherwise the baseline band) divided by ``year_final - year_initial``, and
+    that area is projected linearly from ``year_final`` to ``target_year``.
+    The "target line" = baseline degraded area (no net loss objective).
 
     Args:
         status_baseline_path: SDG 15.3.1 status raster at baseline period.
         status_baseline_band_index: Band index in baseline raster.
         status_reporting_path: SDG 15.3.1 status raster at reporting period.
-            If None, only the baseline stats are returned (no projection).
+            If None, the baseline band supplies the BAU rate.
         status_reporting_band_index: Band index in reporting raster.
-        year_initial: Start year of the baseline period (e.g. 2000).
-        year_final: End year of the baseline / start of reporting (e.g. 2015).
+        year_initial: Start year of the period measured by the rate band
+            (e.g. 2001 for a 2001–2015 baseline or 2001→2019 status band).
+        year_final: End year of the period measured by the rate band
+            (e.g. 2015, or 2019 for a reporting status band).
         target_year: Year to project BAU to (e.g. 2030).
         zones_path: Optional path to a vector layer whose features define
             sub-national zones for per-zone BAU statistics.  When supplied,
@@ -1273,7 +1295,6 @@ def compute_bau_rate(
     annual_change = None
     bau_proj = None
     shortfall = None
-    n_years = year_final - year_initial
 
     if status_reporting_path is not None:
         rp_ds, rp_band = _aligned_band(
@@ -1288,11 +1309,9 @@ def compute_bau_rate(
             reference_ds=baseline_ds,
             aoi_geometries=aoi_geometries,
         )
-        if n_years > 0:
-            annual_change = (deg_rep - deg_bl) / n_years
-            n_proj = target_year - year_final
-            bau_proj = deg_rep + annual_change * n_proj
-            shortfall = max(0.0, bau_proj - deg_bl)  # how much above baseline
+    annual_change, bau_proj, shortfall = _bau_trajectory(
+        deg_bl, deg_rep, year_initial, year_final, target_year
+    )
 
     if progress_callback:
         progress_callback(100.0)
@@ -1479,7 +1498,6 @@ def _compute_bau_zones(
             rp_valid &= aoi_mask
         rp_is_deg = np.isin(rp_arr, list(rp_deg_set))
 
-    n_years = year_final - year_initial
     results = []
     for code in np.unique(zone_ids):
         if killed_callback and killed_callback():
@@ -1492,14 +1510,13 @@ def _compute_bau_zones(
         total = float(np.sum(pixel_areas[gbl_valid]))
         deg_bl = float(np.sum(pixel_areas[gbl_valid & bl_is_deg]))
 
-        deg_rp = annual_change = bau_proj = shortfall = None
+        deg_rp = None
         if rp_arr is not None:
             grp_valid = gmask & rp_valid
             deg_rp = float(np.sum(pixel_areas[grp_valid & rp_is_deg]))
-            if n_years > 0:
-                annual_change = (deg_rp - deg_bl) / n_years
-                bau_proj = deg_rp + annual_change * (target_year - year_final)
-                shortfall = max(0.0, bau_proj - deg_bl)
+        annual_change, bau_proj, shortfall = _bau_trajectory(
+            deg_bl, deg_rp, year_initial, year_final, target_year
+        )
 
         results.append(
             {
@@ -1990,9 +2007,7 @@ def compare_scenarios(params, projection):
         return None
     prior_projection = previous.get("projection")
     if projection is None or prior_projection is None:
-        raise ValueError(
-            "Both scenarios need reporting-period projections for comparison."
-        )
+        raise ValueError("Both scenarios need BAU projections for comparison.")
     old = previous["parameters"]
     if not params.get("input_checksums") or not old.get("input_checksums"):
         raise ValueError(
@@ -2061,8 +2076,8 @@ def project_scenario_against_bau(
     Avoided losses are credited as an upper bound (all treated at-risk / healthy
     land assumed to degrade under BAU); BAU-risk weighting is a Phase-2 item.
 
-    Returns ``None`` when the BAU summary lacks a reporting period (no
-    projection is possible). Otherwise returns a dict with national trajectory
+    Returns ``None`` when the BAU summary has no projection (for example, an
+    empty or invalid period). Otherwise returns a dict with national trajectory
     points, the neutrality flag, and — when both sides expose per-zone data —
     a ``by_jurisdiction`` list joining BAU shortfall with scenario contributions.
     """
