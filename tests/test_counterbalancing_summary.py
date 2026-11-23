@@ -4,8 +4,7 @@ import pytest
 
 pytest.importorskip("openpyxl")
 
-from openpyxl import Workbook
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from te_algorithms.gdal.land_deg import (
     counterbalancing,

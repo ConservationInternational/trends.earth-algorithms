@@ -1,7 +1,5 @@
 """Preview calculations for LDN prioritization."""
 
-from typing import Optional
-
 import numpy as np
 
 from ..util import sampled_raster_values
@@ -13,7 +11,7 @@ def estimate_selection(
     mode: str,
     threshold: float,
     area_km2: float,
-    scored_area_km2: Optional[float],
+    scored_area_km2: float | None,
 ) -> dict:
     """Estimate selection size from sampled scores; the final run remains exact."""
     sample = sampled_raster_values(score_path, band_index)

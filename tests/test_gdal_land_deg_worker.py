@@ -10,6 +10,7 @@ pytest.importorskip("osgeo.gdal", reason="GDAL not available")
 pytest.importorskip("osgeo.osr", reason="OSR not available")
 
 from osgeo import gdal, osr
+
 from te_algorithms.gdal import workers
 from te_algorithms.gdal.land_deg import worker
 from te_algorithms.gdal.land_deg.land_deg import _population_band_to_counts

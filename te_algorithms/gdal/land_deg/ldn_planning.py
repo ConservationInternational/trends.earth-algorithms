@@ -30,7 +30,7 @@ import logging
 import math
 import os
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from osgeo import gdal, ogr, osr
@@ -93,11 +93,11 @@ _LPD_STRESSED: set = {3}
 
 
 def _compute_pixel_areas_km2(
-    gt: Tuple,
+    gt: tuple,
     y_off: int,
     y_size: int,
     x_size: int,
-    projection: Optional[str] = None,
+    projection: str | None = None,
 ) -> np.ndarray:
     """Compute per-pixel physical area in km² for a raster block."""
     if gt[2] != 0 or gt[4] != 0:
@@ -184,11 +184,11 @@ def _validate_status_values(values: np.ndarray, status_type: str) -> None:
 
 
 def _prepare_aoi_geometries(
-    aoi_path: Optional[str],
+    aoi_path: str | None,
     target_projection: str,
-    aoi_srs_wkt: Optional[str] = None,
+    aoi_srs_wkt: str | None = None,
     aoi=None,
-) -> Optional[List[ogr.Geometry]]:
+) -> list[ogr.Geometry] | None:
     if aoi_path is not None and aoi is not None:
         raise ValueError("Provide either aoi_path or aoi, not both.")
     if aoi_path is None and aoi is None:
@@ -254,14 +254,14 @@ def _prepare_aoi_geometries(
 
 
 def _rasterize_aoi_block(
-    geometries: Optional[List[ogr.Geometry]],
-    gt: Tuple,
+    geometries: list[ogr.Geometry] | None,
+    gt: tuple,
     projection: str,
     x_off: int,
     y_off: int,
     x_size: int,
     y_size: int,
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     if geometries is None:
         return None
     block_gt = (
@@ -293,7 +293,7 @@ def _rasterize_aoi_block(
     return result
 
 
-def _open_band(path: str, band_index: int = 1) -> Tuple[gdal.Dataset, gdal.Band]:
+def _open_band(path: str, band_index: int = 1) -> tuple[gdal.Dataset, gdal.Band]:
     ds = gdal.Open(str(path))
     if ds is None:
         raise RuntimeError(f"Cannot open raster: {path}")
@@ -354,7 +354,7 @@ def _aligned_band(
     band_index: int,
     reference_ds: gdal.Dataset,
     resample_alg: int = gdal.GRA_NearestNeighbour,
-) -> Tuple[gdal.Dataset, gdal.Band]:
+) -> tuple[gdal.Dataset, gdal.Band]:
     """Open or warp a band onto the exact reference raster grid."""
     source_ds, source_band = _open_band(path, band_index)
     if (
@@ -469,19 +469,19 @@ BLOCK_SIZE = 256
 def compute_arr_classification(
     status_path: str,
     status_band_index: int = 1,
-    output_path: Optional[str] = None,
-    trajectory_path: Optional[str] = None,
+    output_path: str | None = None,
+    trajectory_path: str | None = None,
     trajectory_band_index: int = 1,
-    risk_layer_path: Optional[str] = None,
+    risk_layer_path: str | None = None,
     risk_band_index: int = 1,
     progress_callback=None,
     killed_callback=None,
     status_type: str = "auto",
-    aoi_path: Optional[str] = None,
-    aoi_srs: Optional[str] = None,
+    aoi_path: str | None = None,
+    aoi_srs: str | None = None,
     aoi=None,
     risk_threshold: float = 0.0,
-) -> Tuple[Dict[str, Any], str]:
+) -> tuple[dict[str, Any], str]:
     """Classify land into the LDN response hierarchy (Avoid / Reduce / Reverse).
 
     Rules (Cowie et al. 2018, Principle 12; GPG Addendum §2.2):
@@ -749,10 +749,10 @@ def compute_arr_classification(
 
 def summarize_land_types(
     land_types_path: str,
-    labels: Dict[int, str],
-    layer_names: Optional[List[str]] = None,
+    labels: dict[int, str],
+    layer_names: list[str] | None = None,
     block_rows: int = 256,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Summarize the physical area of each land type in a land-types raster.
 
     Reads the raster in row blocks. Land type ``0`` and NoData are excluded.
@@ -763,8 +763,8 @@ def summarize_land_types(
     gt = ds.GetGeoTransform()
     projection = ds.GetProjection()
     nodata = band.GetNoDataValue()
-    pixels: Dict[int, int] = {}
-    areas: Dict[int, float] = {}
+    pixels: dict[int, int] = {}
+    areas: dict[int, float] = {}
     for y_off in range(0, ds.RasterYSize, block_rows):
         rows = min(block_rows, ds.RasterYSize - y_off)
         values = band.ReadAsArray(0, y_off, ds.RasterXSize, rows)
@@ -814,7 +814,7 @@ def summarize_land_types(
 
 
 def _generate_fishnet(
-    gt: Tuple,
+    gt: tuple,
     xsize: int,
     ysize: int,
     grid_size_km: float,
@@ -868,14 +868,14 @@ def _generate_fishnet(
 def compute_hotspots(
     status_path: str,
     status_band_index: int = 1,
-    zones_path: Optional[str] = None,
+    zones_path: str | None = None,
     grid_size_km: float = 50.0,
-    output_vector_path: Optional[str] = None,
-    output_raster_path: Optional[str] = None,
+    output_vector_path: str | None = None,
+    output_raster_path: str | None = None,
     progress_callback=None,
     killed_callback=None,
     status_type: str = "auto",
-) -> Tuple[Dict[str, Any], str, str]:
+) -> tuple[dict[str, Any], str, str]:
     """Rank zones by degraded fraction (degradation hotspot prioritization).
 
     For each zone, computes the proportion of valid pixels that are degraded
@@ -1149,25 +1149,25 @@ def _bau_trajectory(deg_bl, deg_rep, year_initial, year_final, target_year):
 def compute_bau_rate(
     status_baseline_path: str,
     status_baseline_band_index: int = 1,
-    status_reporting_path: Optional[str] = None,
+    status_reporting_path: str | None = None,
     status_reporting_band_index: int = 1,
     year_initial: int = 2000,
     year_final: int = 2015,
     target_year: int = 2030,
-    zones_path: Optional[str] = None,
-    zones_raster_path: Optional[str] = None,
-    zones_raster_labels: Optional[Dict[Any, str]] = None,
-    land_type_path: Optional[str] = None,
+    zones_path: str | None = None,
+    zones_raster_path: str | None = None,
+    zones_raster_labels: dict[Any, str] | None = None,
+    land_type_path: str | None = None,
     land_type_band_index: int = 1,
-    land_type_labels: Optional[Dict[Any, str]] = None,
+    land_type_labels: dict[Any, str] | None = None,
     progress_callback=None,
     killed_callback=None,
     status_baseline_type: str = "auto",
     status_reporting_type: str = "auto",
-    aoi_path: Optional[str] = None,
-    aoi_srs: Optional[str] = None,
+    aoi_path: str | None = None,
+    aoi_srs: str | None = None,
     aoi=None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute BAU degradation trajectory and project to ``target_year``.
 
     The LDN frame of reference (Cowie et al. 2018, Module B):
@@ -1405,22 +1405,22 @@ def compute_bau_rate(
 def _compute_bau_zones(
     status_baseline_path: str,
     status_baseline_band_index: int,
-    status_reporting_path: Optional[str],
+    status_reporting_path: str | None,
     status_reporting_band_index: int,
     year_initial: int,
     year_final: int,
     target_year: int,
-    zones_path: Optional[str] = None,
-    zones_raster_path: Optional[str] = None,
-    zones_raster_labels: Optional[Dict[Any, str]] = None,
+    zones_path: str | None = None,
+    zones_raster_path: str | None = None,
+    zones_raster_labels: dict[Any, str] | None = None,
     zones_raster_band_index: int = 1,
     killed_callback=None,
     status_baseline_type: str = "auto",
     status_reporting_type: str = "auto",
-    aoi_path: Optional[str] = None,
-    aoi_srs: Optional[str] = None,
+    aoi_path: str | None = None,
+    aoi_srs: str | None = None,
     aoi=None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Compute BAU statistics per zone.
 
     Zones may come from an uploaded/admin vector (``zones_path``) or a saved
@@ -1561,8 +1561,8 @@ def _validate_effectiveness(value: Any, target_index: int) -> float:
 
 
 def _target_geometry_in_reference_crs(
-    target: Dict[str, Any], target_index: int, target_projection: str
-) -> Optional[ogr.Geometry]:
+    target: dict[str, Any], target_index: int, target_projection: str
+) -> ogr.Geometry | None:
     wkt = target.get("wkt_geometry", "")
     geometry = ogr.CreateGeometryFromWkt(wkt) if wkt else None
     if geometry is None or geometry.IsEmpty() or not geometry.IsValid():
@@ -1589,18 +1589,18 @@ def _target_geometry_in_reference_crs(
 def apply_scenario(
     arr_path: str,
     arr_band_index: int = 1,
-    targets: Optional[List[Dict[str, Any]]] = None,
-    output_path: Optional[str] = None,
-    land_type_path: Optional[str] = None,
+    targets: list[dict[str, Any]] | None = None,
+    output_path: str | None = None,
+    land_type_path: str | None = None,
     land_type_band_index: int = 1,
-    land_type_labels: Optional[Dict[int, str]] = None,
-    zones_path: Optional[str] = None,
-    zones_raster_path: Optional[str] = None,
-    zones_raster_labels: Optional[Dict[Any, str]] = None,
+    land_type_labels: dict[int, str] | None = None,
+    zones_path: str | None = None,
+    zones_raster_path: str | None = None,
+    zones_raster_labels: dict[Any, str] | None = None,
     progress_callback=None,
     killed_callback=None,
     aoi=None,
-) -> Tuple[Dict[str, Any], str]:
+) -> tuple[dict[str, Any], str]:
     """Apply planning targets to the ARR layer using an expected-value model.
 
     Rather than flipping arbitrary pixels, each eligible pixel within a target
@@ -2131,10 +2131,10 @@ def compare_scenarios(params, projection):
 
 
 def project_scenario_against_bau(
-    bau_summary: Dict[str, Any],
-    scenario_summary: Dict[str, Any],
+    bau_summary: dict[str, Any],
+    scenario_summary: dict[str, Any],
     target_year: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Compare a scenario against the BAU trajectory at the target year.
 
     The scenario's counterbalancing **gains** (from Reverse) and **avoided
@@ -2170,7 +2170,7 @@ def project_scenario_against_bau(
         else 100.0
     )
 
-    def _zone_projection(zone: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _zone_projection(zone: dict[str, Any]) -> dict[str, Any] | None:
         z_bau = zone.get(proj_key)
         if z_bau is None:
             return None
@@ -2194,7 +2194,7 @@ def project_scenario_against_bau(
             ),
         }
 
-    by_jurisdiction_out: List[Dict[str, Any]] = []
+    by_jurisdiction_out: list[dict[str, Any]] = []
     bau_jurisdictions = bau_summary.get("jurisdictions") or []
     scen_jurisdictions = scenario_summary.get("by_jurisdiction") or []
     if bau_jurisdictions and scen_jurisdictions:
